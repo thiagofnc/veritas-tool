@@ -4,11 +4,11 @@ import os
 from pathlib import Path
 
 try:
-    from app.models import ModuleDef, Project, SourceFile
-    from app.parser_base import NoOpParser, ParserBase
+    from app.models import Project, SourceFile
+    from app.parser_base import VerilogParserBackend
 except ImportError:  # Supports running as: python app/main.py
-    from models import ModuleDef, Project, SourceFile
-    from parser_base import NoOpParser, ParserBase
+    from models import Project, SourceFile
+    from parser_base import VerilogParserBackend
 
 # MVP scope: only module source files, not headers/includes.
 VERILOG_EXTENSIONS = {".v", ".sv"}
@@ -64,17 +64,17 @@ def scan_verilog_files(root_path: str) -> list[str]:
     return sorted(discovered)
 
 
-def scan_project(project_root: str, parser: ParserBase | None = None) -> Project:
-    """Create an MVP Project model from discovered files and parser module names."""
-    active_parser = parser or NoOpParser()
+def scan_project(project_root: str, parser: VerilogParserBackend | None = None) -> Project:
+    """Create a Project from discovered files or delegate to a parser backend."""
     root = Path(project_root).resolve()
+    file_paths = scan_verilog_files(project_root)
 
-    project = Project(root_path=str(root))
-    for file_path_str in scan_verilog_files(project_root):
-        file_path = Path(file_path_str)
-        project.source_files.append(SourceFile(path=str(file_path)))
+    if parser is not None:
+        return parser.parse_files(file_paths)
 
-        for module_name in active_parser.parse_file(file_path):
-            project.modules.append(ModuleDef(name=module_name, source_file=str(file_path)))
-
-    return project
+    # Default MVP behavior: scan file inventory only, no module parsing yet.
+    return Project(
+        root_path=str(root),
+        source_files=[SourceFile(path=file_path) for file_path in file_paths],
+        modules=[],
+    )

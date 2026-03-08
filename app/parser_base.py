@@ -1,17 +1,24 @@
-﻿"""Base parser interfaces (no parsing implementation yet)."""
+﻿"""Base parser backend interface (no real parser implementation yet)."""
 
 from abc import ABC, abstractmethod
-from pathlib import Path
+
+try:
+    from app.models import Project
+except ImportError:  # Supports running as: python app/main.py
+    from models import Project
 
 
-class ParserBase(ABC):
+class VerilogParserBackend(ABC):
+    """Abstract interface for pluggable Verilog parser backends."""
+
     @abstractmethod
-    def parse_file(self, file_path: Path) -> list[str]:
-        """Return parsed module names for a file."""
+    def parse_files(self, file_paths: list[str]) -> Project:
+        """Parse the provided Verilog file paths and return a Project model."""
         raise NotImplementedError
 
 
-class NoOpParser(ParserBase):
-    def parse_file(self, file_path: Path) -> list[str]:
-        """Placeholder parser used for the MVP scaffold."""
-        return []
+class DummyParser(VerilogParserBackend):
+    """Placeholder backend used until a real parser is implemented."""
+
+    def parse_files(self, file_paths: list[str]) -> Project:
+        raise NotImplementedError("DummyParser does not implement parsing yet.")
