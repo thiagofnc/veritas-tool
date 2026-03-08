@@ -4,10 +4,10 @@ import os
 from pathlib import Path
 
 try:
-    from app.models import ScanResult, VerilogFile
+    from app.models import ModuleDef, Project, SourceFile
     from app.parser_base import NoOpParser, ParserBase
 except ImportError:  # Supports running as: python app/main.py
-    from models import ScanResult, VerilogFile
+    from models import ModuleDef, Project, SourceFile
     from parser_base import NoOpParser, ParserBase
 
 # MVP scope: only module source files, not headers/includes.
@@ -64,15 +64,17 @@ def scan_verilog_files(root_path: str) -> list[str]:
     return sorted(discovered)
 
 
-def scan_project(project_root: str, parser: ParserBase | None = None) -> ScanResult:
-    """Build the existing ScanResult model using the file-discovery step."""
+def scan_project(project_root: str, parser: ParserBase | None = None) -> Project:
+    """Create an MVP Project model from discovered files and parser module names."""
     active_parser = parser or NoOpParser()
     root = Path(project_root).resolve()
 
-    result = ScanResult(project_root=str(root))
+    project = Project(root_path=str(root))
     for file_path_str in scan_verilog_files(project_root):
         file_path = Path(file_path_str)
-        modules = active_parser.parse_file(file_path)
-        result.files.append(VerilogFile(path=str(file_path), modules=modules))
+        project.source_files.append(SourceFile(path=str(file_path)))
 
-    return result
+        for module_name in active_parser.parse_file(file_path):
+            project.modules.append(ModuleDef(name=module_name, source_file=str(file_path)))
+
+    return project

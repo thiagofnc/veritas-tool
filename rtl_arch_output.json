@@ -1,4 +1,84 @@
 {
-  "project_root": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool",
-  "files": []
+  "root_path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05",
+  "source_files": [
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ALU.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ALUCtl.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\BranchControl.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_EX_MEM.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_ID_EX.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_IF_ID.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_MEM_WB.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Comparator.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Control.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\DP_Memory.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ForwardModule.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\HazardDetection.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ImmGen.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\JALR_MUX.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUX10bit.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUX2.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUX4.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUXStall.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Processor.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\RegFile.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Register.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\tb_Pipe_base_nohaz.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\tb_Pipe_branch_jump_nohaz.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\tb_Pipe_hazards.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\tb_Processor_Program.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\vunit.v"
+    }
+  ],
+  "modules": []
 }
