@@ -4,12 +4,14 @@ import argparse
 import json
 
 try:
+    from app.graph_builder import build_hierarchy_graph
     from app.hierarchy import build_hierarchy_tree, infer_top_modules
     from app.json_exporter import save_project_json
     from app.models import ModuleDef
     from app.scanner import scan_verilog_files
     from app.simple_parser import SimpleRegexParser
 except ImportError:  # Supports running as: python app/main.py
+    from graph_builder import build_hierarchy_graph
     from hierarchy import build_hierarchy_tree, infer_top_modules
     from json_exporter import save_project_json
     from models import ModuleDef
@@ -38,6 +40,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         dest="output_path",
         default=None,
         help="Optional JSON output path, e.g. out/project.json",
+    )
+    scan_parser.add_argument(
+        "--graph",
+        dest="print_graph",
+        action="store_true",
+        help="Print simple hierarchy graph JSON when a single top module is inferred.",
     )
 
     return parser
@@ -69,7 +77,7 @@ def _print_possible_tops(modules: list[ModuleDef]) -> list[str]:
     return top_modules
 
 
-def run_scan(root_path: str, output_path: str | None = None) -> int:
+def run_scan(root_path: str, output_path: str | None = None, print_graph: bool = False) -> int:
     """Scan files, run the simple parser, and print a readable summary."""
     file_paths = scan_verilog_files(root_path)
     project = SimpleRegexParser().parse_files(file_paths)
@@ -93,6 +101,13 @@ def run_scan(root_path: str, output_path: str | None = None) -> int:
         print(f"Hierarchy tree ({chosen_top}):")
         print(json.dumps(hierarchy_tree, indent=2))
 
+        if print_graph:
+            graph = build_hierarchy_graph(project, chosen_top)
+            print(f"Graph JSON ({chosen_top}):")
+            print(json.dumps(graph, indent=2))
+    elif print_graph:
+        print("Graph JSON not printed because multiple possible top modules were found.")
+
     if output_path:
         written_path = save_project_json(project, output_path)
         print(f"JSON saved to: {written_path.resolve()}")
@@ -105,7 +120,7 @@ def main() -> int:
 
     # Dispatch to the selected subcommand.
     if args.command == "scan":
-        return run_scan(args.root_path, args.output_path)
+        return run_scan(args.root_path, args.output_path, args.print_graph)
 
     return 1
 
