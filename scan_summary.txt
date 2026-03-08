@@ -1,0 +1,134 @@
+﻿Scan Summary
+Files found: 26
+Modules found: 26
+Modules:
+  - ALU
+      instances: (none)
+  - ALUCtl
+      instances: (none)
+  - BranchControl
+      instances: (none)
+  - Buffer_EX_MEM
+      instances: (none)
+  - Buffer_ID_EX
+      instances: (none)
+  - Buffer_IF_ID
+      instances: (none)
+  - Buffer_MEM_WB
+      instances: (none)
+  - Comparator
+      instances: (none)
+  - Control
+      instances: (none)
+  - DP_Memory
+      instances: (none)
+  - ForwardModule
+      instances: (none)
+  - HazardDetection
+      instances: (none)
+  - ImmGen
+      instances: (none)
+  - JALR_MUX
+      instances: (none)
+  - MUX10bit
+      instances: (none)
+  - MUX2
+      instances: (none)
+  - MUX4
+      instances: (none)
+  - MUXStall
+      instances: (none)
+  - Processor
+      instances:
+        - ForwardingUnit (ForwardModule)
+        - HazardUnit (HazardDetection)
+        - jalr_mux (JALR_MUX)
+        - pc_src_mux (MUX2)
+        - PC (Register)
+        - mem_address_mux (MUX10bit)
+        - mem_data_b_mux (MUX2)
+        - Mem (DP_Memory)
+        - IF_ID (Buffer_IF_ID)
+        - RegFile (RegFile)
+        - comparator (Comparator)
+        - imm_gen (ImmGen)
+        - controlUnit (Control)
+        - stall_mux (MUXStall)
+        - ID_EX (Buffer_ID_EX)
+        - alu_control (ALUCtl)
+        - ALU_src_mux_forward_b (MUX4)
+        - ALU_src_mux_forward_a (MUX4)
+        - ALU_src_mux (MUX2)
+        - alu (ALU)
+        - EX_MEM (Buffer_EX_MEM)
+        - MEM_WB (Buffer_MEM_WB)
+        - mem_to_reg_mux (MUX4)
+  - RegFile
+      instances: (none)
+  - Register
+      instances: (none)
+  - tb_Pipe_base_nohaz
+      instances:
+        - VU (vunit)
+        - UUT (Processor)
+        - test_R_type_nohaz (task)
+        - WIPE_MEMORY (begin)
+        - test_I_type_nohaz (task)
+        - WIPE_MEMORY (begin)
+        - test_mem_type_nohaz (task)
+        - WIPE_MEMORY (begin)
+        - test_lui_nohaz (task)
+        - WIPE_MEMORY (begin)
+  - tb_Pipe_branch_jump_nohaz
+      instances:
+        - VU (vunit)
+        - UUT (Processor)
+        - test_branches_nohaz (task)
+        - WIPE_MEMORY (begin)
+        - test_branches_one (task)
+        - QUICK_RESET (begin)
+        - test_jal_nohaz (task)
+        - WIPE_MEMORY (begin)
+        - test_jalr_nohaz (task)
+        - WIPE_MEMORY (begin)
+  - tb_Pipe_hazards
+      instances:
+        - VU (vunit)
+        - UUT (Processor)
+        - check_data_hazard_general (task)
+        - WIPE_MEMORY (begin)
+        - test_no_hazard_detection (task)
+        - test_write_then_read_hazard_detection (task)
+        - test_WB_to_EX_fwd (task)
+        - test_MEM_to_EX_fwd (task)
+        - test_sw_forwarding (task)
+        - WIPE_MEMORY (begin)
+        - test_lw_stall (task)
+        - WIPE_MEMORY (begin)
+        - test_beq_flush (task)
+        - WIPE_MEMORY (begin)
+        - test_beq_forward (task)
+        - WIPE_MEMORY (begin)
+        - test_lui_forward (task)
+        - WIPE_MEMORY (begin)
+        - test_jal_forward (task)
+        - WIPE_MEMORY (begin)
+        - test_new_inst (task)
+        - WIPE_MEMORY (begin)
+  - tb_Processor_Program
+      instances:
+        - VU (vunit)
+        - UUT (Processor)
+        - test_gcd (task)
+        - test_relprime (task)
+  - vunit
+      instances:
+        - INITIALIZE_TESTS (task)
+        - SET_TEST_NAME (task)
+        - ASSERT (task)
+        - if (begin)
+        - ASSERT_INT_EQUAL (task)
+        - if (begin)
+        - ASSERT_INT_EQUAL_X (task)
+        - if (begin)
+        - END_REPORT (task)
