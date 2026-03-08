@@ -9,14 +9,22 @@ import tempfile
 from pathlib import Path
 
 from pyverilog.ast_code_generator.codegen import ASTCodeGenerator
-from pyverilog.vparser.ast import Inout, Input, InstanceList, Ioport, ModuleDef as PVModuleDef, Output
+from pyverilog.vparser.ast import (
+    Decl,
+    Inout,
+    Input,
+    InstanceList,
+    Ioport,
+    ModuleDef as PVModuleDef,
+    Output,
+)
 from pyverilog.vparser.parser import VerilogParser
 
 try:
-    from app.models import Instance, ModuleDef, Port, Project, SourceFile
+    from app.models import Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile
     from app.parser_base import VerilogParserBackend
 except ImportError:  # Supports running as: python app/main.py
-    from models import Instance, ModuleDef, Port, Project, SourceFile
+    from models import Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile
     from parser_base import VerilogParserBackend
 
 
@@ -66,6 +74,29 @@ def _parse_ports(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Port]:
     return ports
 
 
+def _parse_signals(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Signal]:
+    """Extract simple internal declarations (wire/reg/logic-like)."""
+    signals: list[Signal] = []
+
+    for item in module.items or []:
+        if not isinstance(item, Decl):
+            continue
+
+        for decl in item.list:
+            kind = type(decl).__name__.lower()
+            if kind not in {"wire", "reg", "logic"}:
+                continue
+
+            width = _expr_to_text(getattr(decl, "width", None), codegen) if getattr(decl, "width", None) else None
+            name = getattr(decl, "name", None)
+            if not name:
+                continue
+
+            signals.append(Signal(name=name, width=width, kind=kind))
+
+    return signals
+
+
 def _parse_instances(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Instance]:
     instances: list[Instance] = []
 
@@ -77,16 +108,20 @@ def _parse_instances(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Ins
         for index, inst in enumerate(item.instances):
             inst_name = inst.name or f"inst_{index}"
             connections: dict[str, str] = {}
+            pin_connections: list[PinConnection] = []
 
             for arg_index, port_arg in enumerate(inst.portlist or []):
                 key = port_arg.portname or f"arg{arg_index}"
-                connections[key] = _expr_to_text(port_arg.argname, codegen)
+                signal = _expr_to_text(port_arg.argname, codegen)
+                connections[key] = signal
+                pin_connections.append(PinConnection(child_port=key, parent_signal=signal))
 
             instances.append(
                 Instance(
                     name=inst_name,
                     module_name=child_module_name,
                     connections=connections,
+                    pin_connections=pin_connections,
                 )
             )
 
@@ -110,6 +145,7 @@ def _parse_modules_from_file(
             ModuleDef(
                 name=definition.name,
                 ports=_parse_ports(definition, codegen),
+                signals=_parse_signals(definition, codegen),
                 instances=_parse_instances(definition, codegen),
                 source_file=str(Path(file_path).resolve()),
             )

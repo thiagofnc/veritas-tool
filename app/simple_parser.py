@@ -6,6 +6,7 @@ Assumptions / limitations:
 - Port extraction is based on module header text and may miss advanced syntax.
 - Instance extraction supports basic `child_mod u1 (...);` style instantiations.
 - Named connection parsing is intentionally simple (`.port(signal)`).
+- Signal extraction targets simple `wire/reg/logic` declarations.
 - Does not attempt to parse full language grammar.
 """
 
@@ -14,10 +15,10 @@ import re
 from pathlib import Path
 
 try:
-    from app.models import Instance, ModuleDef, Port, Project, SourceFile
+    from app.models import Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile
     from app.parser_base import VerilogParserBackend
 except ImportError:  # Supports running as: python app/main.py
-    from models import Instance, ModuleDef, Port, Project, SourceFile
+    from models import Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile
     from parser_base import VerilogParserBackend
 
 
@@ -39,6 +40,11 @@ INSTANCE_RE = re.compile(
 NAMED_CONNECTION_RE = re.compile(
     r"\.\s*([A-Za-z_][A-Za-z0-9_$]*)\s*\(\s*([^()]*?)\s*\)",
     flags=re.DOTALL,
+)
+
+# Matches simple internal net declarations (single line form).
+SIGNAL_DECL_RE = re.compile(
+    r"(?m)^\s*(wire|reg|logic)\b(?:\s+(?:signed|unsigned))*\s*(\[[^\]]+\])?\s*([^;]+);"
 )
 
 KEYWORDS = {
@@ -105,6 +111,29 @@ def _parse_ports_from_header(header_text: str | None) -> list[Port]:
     return ports
 
 
+def _parse_signals(module_body: str) -> list[Signal]:
+    """Parse simple internal signal declarations (wire/reg/logic)."""
+    signals: list[Signal] = []
+
+    for kind, width, names_blob in SIGNAL_DECL_RE.findall(module_body):
+        for raw_name in names_blob.split(","):
+            # Drop optional initializer if present.
+            name_text = raw_name.split("=", maxsplit=1)[0].strip()
+            match = re.match(r"^[A-Za-z_][A-Za-z0-9_$]*$", name_text)
+            if not match:
+                continue
+
+            signals.append(
+                Signal(
+                    name=match.group(0),
+                    width=width.strip() if width else None,
+                    kind=kind,
+                )
+            )
+
+    return signals
+
+
 def _parse_connections(connection_text: str) -> dict[str, str]:
     """Parse named connections first; fallback to positional args for basic coverage."""
     named_connections: dict[str, str] = {}
@@ -129,11 +158,18 @@ def _parse_instances(module_body: str) -> list[Instance]:
         if module_name in KEYWORDS:
             continue
 
+        connections = _parse_connections(conn_text)
+        pin_connections = [
+            PinConnection(child_port=port_name, parent_signal=signal)
+            for port_name, signal in connections.items()
+        ]
+
         instances.append(
             Instance(
                 name=inst_name,
                 module_name=module_name,
-                connections=_parse_connections(conn_text),
+                connections=connections,
+                pin_connections=pin_connections,
             )
         )
 
@@ -151,6 +187,7 @@ def _parse_modules_from_file(file_path: str) -> list[ModuleDef]:
             ModuleDef(
                 name=module_name,
                 ports=_parse_ports_from_header(header_text),
+                signals=_parse_signals(body_text),
                 instances=_parse_instances(body_text),
                 source_file=str(Path(file_path).resolve()),
             )

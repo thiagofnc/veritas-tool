@@ -1,108 +1,107 @@
-﻿# rtl_arch_visualizer
+# rtl_arch_visualizer
 
 ## Naming
 
-Still deciding on the final project name: Verilogix, Silica, Verilium, Synthium, or ArchRTL.
+Still deciding on the final project name: Verilogix, Silica, Verilium, or ArchRTL.
 
-Backend-only MVP for scanning and lightly parsing Verilog/SystemVerilog projects.
+Backend-only MVP for scanning and structurally parsing Verilog/SystemVerilog projects.
 
-## Current MVP Capabilities
+## What It Does Today
 
-- Recursively scan a folder for visible `.v` and `.sv` files
-- Skip hidden files and hidden folders
-- Parse module definitions with either:
-  - `pyverilog` backend (real AST parser)
-  - `simple` backend (regex fallback)
-- Extract:
-  - module names
-  - simple header ports (`input/output/inout`, optional width)
-  - simple instances and basic named connections (`.port(signal)`)
-- Infer likely top modules with simple testbench filtering
-- Build and print a simple hierarchy tree when one top is inferred
-- Build and print a simple nodes/edges hierarchy graph JSON
-- Optionally export parsed project data to JSON
+- Recursively scans a root folder for visible `.v` and `.sv` files.
+- Ignores hidden files and hidden folders.
+- Parses files with one of two backends:
+  - `pyverilog` (AST-based, better accuracy)
+  - `simple` (regex-based fallback)
+- Builds an internal project model with:
+  - modules
+  - ports
+  - internal signals/nets (`wire`, `reg`, `logic`)
+  - instances
+  - pin-level mappings (`child_port -> parent_signal`)
+- Infers possible top modules using a simple testbench-aware heuristic.
+- Builds a nested hierarchy tree for a chosen top module.
+- Optionally prints a simple graph JSON (`nodes` + `edges`) for hierarchy/instance relationships.
+- Optionally exports parsed project data to JSON.
 
-## Project Structure
+## Current CLI
 
-- `app/main.py` - CLI entry point and console summary output
-- `app/scanner.py` - file discovery and folder traversal
-- `app/pyverilog_parser.py` - AST parser backend (PyVerilog)
-- `app/simple_parser.py` - regex parser backend fallback
-- `app/hierarchy.py` - top-module inference and hierarchy tree builder
-- `app/graph_builder.py` - nodes/edges graph builder
-- `app/parser_base.py` - parser backend interface
-- `app/models.py` - dataclasses (`Project`, `ModuleDef`, etc.)
-- `app/json_exporter.py` - dataclass-to-dict conversion and JSON save
-- `tests/test_scanner.py` - scanner unit test
-- `tests/test_simple_parser.py` - simple parser connection test
-- `tests/test_graph_builder.py` - graph schema test
-- `tests/test_pyverilog_parser.py` - PyVerilog parser backend test
-- `out/` - primary exported project JSON (for CLI `--out`)
-- `artifacts/summaries/` - saved text outputs from CLI tests
-- `artifacts/debug/` - debug JSON outputs
-- `artifacts/json/` - older/alternate JSON exports
-
-## Requirements
-
-- Python 3.10+
-- For real parsing backend:
-
-```bash
-python -m pip install pyverilog
-```
-
-## How To Run
-
-Replace `"C:\path\to\your\verilog-project"` with your own project folder path.
-
-From the project root (default parser = `pyverilog`):
+From the project root, replace `C:\path\to\your\verilog-project` with your folder.
 
 ```bash
 python -m app.main scan "C:\path\to\your\verilog-project"
 ```
 
-Use regex fallback parser:
+Select parser backend:
 
 ```bash
+python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog
 python -m app.main scan "C:\path\to\your\verilog-project" --parser simple
 ```
 
-With JSON output:
+Save parsed project JSON:
 
 ```bash
 python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --out out/project.json
 ```
 
-With hierarchy graph JSON printed to console:
+Print graph JSON (only when exactly one top module is inferred):
 
 ```bash
 python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --graph
 ```
 
-## How To Test
-
-Replace `"C:\path\to\your\verilog-project"` with your own project folder path.
-
-1. Run unit tests:
-
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
-
-2. Run full flow on your project folder with PyVerilog:
-
-```bash
-python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --graph --out out/project_pyverilog.json
-```
-
-3. Save summary output to artifacts:
+Save console output to a text file:
 
 ```bash
 python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --graph --out out/project_pyverilog.json | Tee-Object -FilePath artifacts/summaries/pyverilog_scan_output.txt
 ```
 
-## Notes and Limitations
+## Project Structure
 
-- `pyverilog` is a stronger parser than regex, but this project still extracts a simplified model for MVP.
-- Some advanced/SystemVerilog constructs may not parse cleanly yet.
-- Top-module inference uses heuristics and may still need manual override in some projects.
+- `app/main.py` - CLI entry point
+- `app/scanner.py` - recursive Verilog file discovery
+- `app/models.py` - dataclasses (`Project`, `ModuleDef`, `Instance`, `Signal`, `PinConnection`, etc.)
+- `app/parser_base.py` - parser backend interface
+- `app/simple_parser.py` - lightweight regex parser
+- `app/pyverilog_parser.py` - AST parser backend
+- `app/hierarchy.py` - top inference and hierarchy tree building
+- `app/graph_builder.py` - simple `nodes`/`edges` graph output
+- `app/json_exporter.py` - dataclass-to-dict and JSON writing
+- `tests/` - unit tests for scanner/parsers/graph
+- `out/` - JSON exports from CLI runs
+- `artifacts/` - debug/summaries from manual test runs
+
+## Requirements
+
+- Python 3.10+
+- For `--parser pyverilog`:
+
+```bash
+python -m pip install pyverilog
+```
+
+## How To Test
+
+Run unit tests:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+Run full flow on your own project folder:
+
+```bash
+python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --graph --out out/project_pyverilog.json
+```
+
+## Notes And Limitations
+
+- This is still an MVP parser pipeline, not a full Verilog/SystemVerilog language implementation.
+- Some advanced constructs are not fully covered yet.
+- Top-module inference is heuristic and may need manual selection in multi-top or test-heavy projects.
+
+## Generated Files
+
+You do not need to commit parser/cache artifacts such as `parsetab.py`, `parser.out`, or `__pycache__/` contents.
+A `.gitignore` is included to keep those generated files out of commits.

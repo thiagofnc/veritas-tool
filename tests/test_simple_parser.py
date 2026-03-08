@@ -16,6 +16,7 @@ class TestSimpleParserConnections(unittest.TestCase):
             child_file.write_text(
                 """
 module child(input clk, input rst, input a);
+  wire [3:0] child_bus;
 endmodule
 """.strip()
                 + "\n",
@@ -25,6 +26,7 @@ endmodule
             top_file.write_text(
                 """
 module top(input clk, input rst, input signal_a);
+  wire local_wire;
   child u1 (
     .clk(clk),
     .rst(rst),
@@ -51,6 +53,12 @@ endmodule
                     "a": "signal_a",
                 },
             )
+            self.assertEqual(
+                [(pc.child_port, pc.parent_signal) for pc in instance.pin_connections],
+                [("clk", "clk"), ("rst", "rst"), ("a", "signal_a")],
+            )
+
+            self.assertEqual([(s.name, s.kind) for s in top_module.signals], [("local_wire", "wire")])
 
 
 if __name__ == "__main__":

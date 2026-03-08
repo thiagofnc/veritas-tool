@@ -22,6 +22,7 @@ module child(
   input a,
   output y
 );
+  wire [1:0] child_bus;
 endmodule
 """.strip()
                 + "\n",
@@ -36,6 +37,7 @@ module top(
   input signal_a,
   output signal_y
 );
+  wire local_wire;
   child u1 (
     .clk(clk),
     .rst(rst),
@@ -57,6 +59,7 @@ endmodule
             top_module = next(module for module in project.modules if module.name == "top")
             port_names = [port.name for port in top_module.ports]
             self.assertEqual(port_names, ["clk", "rst", "signal_a", "signal_y"])
+            self.assertEqual([(s.name, s.kind) for s in top_module.signals], [("local_wire", "wire")])
 
             self.assertEqual(len(top_module.instances), 1)
             instance = top_module.instances[0]
@@ -70,6 +73,10 @@ endmodule
                     "a": "signal_a",
                     "y": "signal_y",
                 },
+            )
+            self.assertEqual(
+                [(pc.child_port, pc.parent_signal) for pc in instance.pin_connections],
+                [("clk", "clk"), ("rst", "rst"), ("a", "signal_a"), ("y", "signal_y")],
             )
 
 

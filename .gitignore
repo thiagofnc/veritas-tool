@@ -1,0 +1,7 @@
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+
+# PyVerilog/PLY generated parser artifacts
+parsetab.py
+parser.out
