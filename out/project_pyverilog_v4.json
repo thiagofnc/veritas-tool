@@ -1,0 +1,3312 @@
+{
+  "root_path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05",
+  "source_files": [
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ALU.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ALUCtl.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\BranchControl.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_EX_MEM.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_ID_EX.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_IF_ID.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_MEM_WB.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Comparator.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Control.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\DP_Memory.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ForwardModule.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\HazardDetection.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ImmGen.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\JALR_MUX.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUX10bit.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUX2.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUX4.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUXStall.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Processor.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\RegFile.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Register.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\tb_Pipe_base_nohaz.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\tb_Pipe_branch_jump_nohaz.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\tb_Pipe_hazards.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\tb_Processor_Program.v"
+    },
+    {
+      "path": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\vunit.v"
+    }
+  ],
+  "modules": [
+    {
+      "name": "ALU",
+      "ports": [
+        {
+          "name": "operation",
+          "direction": "input",
+          "width": "[3:0]"
+        },
+        {
+          "name": "din_a",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "din_b",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "dout",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "zero",
+          "direction": "output",
+          "width": null
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ALU.v"
+    },
+    {
+      "name": "ALUCtl",
+      "ports": [
+        {
+          "name": "ALUOp",
+          "direction": "input",
+          "width": "[1:0]"
+        },
+        {
+          "name": "instruction",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "operation",
+          "direction": "output",
+          "width": "[3:0]"
+        }
+      ],
+      "signals": [
+        {
+          "name": "Funct7",
+          "width": "[6:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "Funct3",
+          "width": "[2:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "Opcode",
+          "width": "[6:0]",
+          "kind": "wire"
+        }
+      ],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ALUCtl.v"
+    },
+    {
+      "name": "BranchControl",
+      "ports": [
+        {
+          "name": "funct3",
+          "direction": "input",
+          "width": "[2:0]"
+        },
+        {
+          "name": "zero",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "resultmsb",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "branch_condition",
+          "direction": "output",
+          "width": null
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\BranchControl.v"
+    },
+    {
+      "name": "Buffer_EX_MEM",
+      "ports": [
+        {
+          "name": "PC_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "PC",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "reset",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "CLK",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "target_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "alu_zero_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "alu_result_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "imm_value_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "inst_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "link_pc_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "link_pc",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "target",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "alu_zero",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "alu_result",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "imm_value",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "inst",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "reg_data_b_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "reg_data_b",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "sp_new_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "sp_new",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "a0_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "a0",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "a1_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "a1",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "ra_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "ra",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "callSetup_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "callSetup",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "mem_read_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "mem_write_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "mem_read",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "mem_write",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "reg_write_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "mem_to_reg_in",
+          "direction": "input",
+          "width": "[1:0]"
+        },
+        {
+          "name": "reg_write",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "mem_to_reg",
+          "direction": "output",
+          "width": "[1:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_EX_MEM.v"
+    },
+    {
+      "name": "Buffer_ID_EX",
+      "ports": [
+        {
+          "name": "reset",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "CLK",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "PC_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "inst_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "imm_value_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "reg_data_a_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "reg_data_b_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "link_pc_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "link_pc",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "PC",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "inst",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "imm_value",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "reg_data_a",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "reg_data_b",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "sp_new_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "a0_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "a1_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "ra_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "callSetup_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "sp_new",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "a0",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "a1",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "ra",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "callSetup",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "alu_src_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "alu_op_in",
+          "direction": "input",
+          "width": "[1:0]"
+        },
+        {
+          "name": "alu_src",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "alu_op",
+          "direction": "output",
+          "width": "[1:0]"
+        },
+        {
+          "name": "mem_read_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "mem_write_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "mem_read",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "mem_write",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "reg_write_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "mem_to_reg_in",
+          "direction": "input",
+          "width": "[1:0]"
+        },
+        {
+          "name": "reg_write",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "mem_to_reg",
+          "direction": "output",
+          "width": "[1:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_ID_EX.v"
+    },
+    {
+      "name": "Buffer_IF_ID",
+      "ports": [
+        {
+          "name": "PC_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "PC",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "link_pc_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "link_pc",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "inst_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "inst",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "reset",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "CLK",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "check_flush",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "write_enable",
+          "direction": "input",
+          "width": null
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_IF_ID.v"
+    },
+    {
+      "name": "Buffer_MEM_WB",
+      "ports": [
+        {
+          "name": "PC_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "PC",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "reset",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "CLK",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "link_pc_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "link_pc",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "alu_result_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "inst_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "alu_result",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "inst",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "read_data_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "read_data",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "imm_value_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "imm_value",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "reg_write_in",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "mem_to_reg_in",
+          "direction": "input",
+          "width": "[1:0]"
+        },
+        {
+          "name": "reg_write",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "mem_to_reg",
+          "direction": "output",
+          "width": "[1:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Buffer_MEM_WB.v"
+    },
+    {
+      "name": "Comparator",
+      "ports": [
+        {
+          "name": "funct3",
+          "direction": "input",
+          "width": "[2:0]"
+        },
+        {
+          "name": "zero",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "resultmsb",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "branch_condition",
+          "direction": "output",
+          "width": null
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Comparator.v"
+    },
+    {
+      "name": "Control",
+      "ports": [
+        {
+          "name": "opcode",
+          "direction": "input",
+          "width": "[6:0]"
+        },
+        {
+          "name": "ALUSrc",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "MemToReg",
+          "direction": "output",
+          "width": "[1:0]"
+        },
+        {
+          "name": "RegWrite",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "MemRead",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "MemWrite",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "CallSetup",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "Branch",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "ALUOp",
+          "direction": "output",
+          "width": "[1:0]"
+        },
+        {
+          "name": "Jump",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "JALR",
+          "direction": "output",
+          "width": null
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Control.v"
+    },
+    {
+      "name": "DP_Memory",
+      "ports": [
+        {
+          "name": "data_a",
+          "direction": "input",
+          "width": "[DATA_WIDTH-1:0]"
+        },
+        {
+          "name": "data_b",
+          "direction": "input",
+          "width": "[DATA_WIDTH-1:0]"
+        },
+        {
+          "name": "addr_a",
+          "direction": "input",
+          "width": "[ADDR_WIDTH-1:0]"
+        },
+        {
+          "name": "addr_b",
+          "direction": "input",
+          "width": "[ADDR_WIDTH-1:0]"
+        },
+        {
+          "name": "we_a",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "we_b",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "clk_a",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "clk_b",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "q_a",
+          "direction": "output",
+          "width": "[DATA_WIDTH-1:0]"
+        },
+        {
+          "name": "q_b",
+          "direction": "output",
+          "width": "[DATA_WIDTH-1:0]"
+        },
+        {
+          "name": "callSetup",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "data_b2",
+          "direction": "input",
+          "width": "[DATA_WIDTH-1:0]"
+        },
+        {
+          "name": "data_b3",
+          "direction": "input",
+          "width": "[DATA_WIDTH-1:0]"
+        }
+      ],
+      "signals": [
+        {
+          "name": "ram",
+          "width": "[DATA_WIDTH-1:0]",
+          "kind": "reg"
+        }
+      ],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\DP_Memory.v"
+    },
+    {
+      "name": "ForwardModule",
+      "ports": [
+        {
+          "name": "opcode",
+          "direction": "input",
+          "width": "[6:0]"
+        },
+        {
+          "name": "rs1",
+          "direction": "input",
+          "width": "[4:0]"
+        },
+        {
+          "name": "rs2",
+          "direction": "input",
+          "width": "[4:0]"
+        },
+        {
+          "name": "reg_write_WB",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "rd_WB",
+          "direction": "input",
+          "width": "[4:0]"
+        },
+        {
+          "name": "reg_write_MEM",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "rd_MEM",
+          "direction": "input",
+          "width": "[4:0]"
+        },
+        {
+          "name": "ALUSrcA",
+          "direction": "output",
+          "width": "[1:0]"
+        },
+        {
+          "name": "ALUSrcB",
+          "direction": "output",
+          "width": "[1:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ForwardModule.v"
+    },
+    {
+      "name": "HazardDetection",
+      "ports": [
+        {
+          "name": "opcode",
+          "direction": "input",
+          "width": "[6:0]"
+        },
+        {
+          "name": "ID_EX_mem_read",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "ID_EX_reg_write",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "ID_EX_mem_write",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "rs1",
+          "direction": "input",
+          "width": "[4:0]"
+        },
+        {
+          "name": "rs2",
+          "direction": "input",
+          "width": "[4:0]"
+        },
+        {
+          "name": "rd_EX",
+          "direction": "input",
+          "width": "[4:0]"
+        },
+        {
+          "name": "clock",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "MEM_inst",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "stall",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "PC_write",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "IF_ID_write",
+          "direction": "output",
+          "width": null
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\HazardDetection.v"
+    },
+    {
+      "name": "ImmGen",
+      "ports": [
+        {
+          "name": "instruction",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "imm",
+          "direction": "output",
+          "width": "[31:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\ImmGen.v"
+    },
+    {
+      "name": "JALR_MUX",
+      "ports": [
+        {
+          "name": "jalr_result",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "PC",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "jalr",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "jalr_out",
+          "direction": "output",
+          "width": "[31:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\JALR_MUX.v"
+    },
+    {
+      "name": "MUX10bit",
+      "ports": [
+        {
+          "name": "input_0",
+          "direction": "input",
+          "width": "[9:0]"
+        },
+        {
+          "name": "input_1",
+          "direction": "input",
+          "width": "[9:0]"
+        },
+        {
+          "name": "select",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "mux_output",
+          "direction": "output",
+          "width": "[9:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUX10bit.v"
+    },
+    {
+      "name": "MUX2",
+      "ports": [
+        {
+          "name": "input_0",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "input_1",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "select",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "mux_output",
+          "direction": "output",
+          "width": "[31:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUX2.v"
+    },
+    {
+      "name": "MUX4",
+      "ports": [
+        {
+          "name": "input_00",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "input_01",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "input_10",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "input_11",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "select",
+          "direction": "input",
+          "width": "[1:0]"
+        },
+        {
+          "name": "mux_output",
+          "direction": "output",
+          "width": "[31:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUX4.v"
+    },
+    {
+      "name": "MUXStall",
+      "ports": [
+        {
+          "name": "input_0",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "input_1",
+          "direction": "input",
+          "width": "[1:0]"
+        },
+        {
+          "name": "input_2",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "input_3",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "input_4",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "input_5",
+          "direction": "input",
+          "width": "[1:0]"
+        },
+        {
+          "name": "select",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "input_6",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "input_7",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "input_8",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "input_9",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "input_10",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "input_11",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "output_0",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "output_1",
+          "direction": "output",
+          "width": "[1:0]"
+        },
+        {
+          "name": "output_2",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "output_3",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "output_4",
+          "direction": "output",
+          "width": null
+        },
+        {
+          "name": "output_5",
+          "direction": "output",
+          "width": "[1:0]"
+        },
+        {
+          "name": "output_6",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "output_7",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "output_8",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "output_9",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "output_10",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "output_11",
+          "direction": "output",
+          "width": "[31:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\MUXStall.v"
+    },
+    {
+      "name": "Processor",
+      "ports": [
+        {
+          "name": "reset",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "clock",
+          "direction": "input",
+          "width": null
+        }
+      ],
+      "signals": [
+        {
+          "name": "pc_out",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "new_pc",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "branch_condition",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "take_branch",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "IF_inst",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "inst",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "pc_src_mux_out",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "pc_src_mux_sel",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_pc",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_inst",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_reg_data_a",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_reg_data_b",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_imm_value",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "branch_target",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "jalr_target",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_pc",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_inst",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_reg_data_a",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_reg_data_b",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_reg_data_a2",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_reg_data_b2",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_imm_value",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_target",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_alu_operation",
+          "width": "[3:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_alu_src_out",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_alu_zero",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "EX_alu_result",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_pc",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_target",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_alu_zero",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_alu_result",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_imm_value",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_inst",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_ctl_alu_src",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "EX_ctl_alu_op",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_ctl_mem_write",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "EX_ctl_mem_read",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "EX_ctl_reg_write",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "EX_ctl_mem_to_reg",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_alu_src",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_alu_src2",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_alu_op",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_alu_op2",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_mem_read",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_mem_read2",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_mem_write",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_mem_write2",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_reg_write",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_reg_write2",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_mem_to_reg",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_mem_to_reg2",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_branch",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_jump",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_ctl_mem_write",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_ctl_mem_read",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_ctl_reg_write",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_ctl_mem_to_reg",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_read_data",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "WB_read_data",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "WB_alu_result",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "WB_inst",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "WB_ctl_reg_write",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "WB_ctl_mem_to_reg",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "WB_mem_to_reg_mux_out",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "WB_imm_value",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ctl_JALR",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_reg_data_b",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_link_pc",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_link_pc",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_link_pc",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "WB_link_pc",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_pc2",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_reg_data_a2",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_reg_data_b2",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_imm_value2",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_inst2",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_link_pc2",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "real_pc_next",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ALUSrcA",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ALUSrcB",
+          "width": "[1:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "stall",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "IF_ID_write_ctr",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "PC_write_ctr",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "ID_sp_new",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_a0",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_a1",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "ID_ra",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_sp_new",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_a0",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_a1",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "EX_ra",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_sp_new",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_a0",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_a1",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_ra",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "actual_address_data_b",
+          "width": "[9:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "actual_data_b",
+          "width": "[31:0]",
+          "kind": "wire"
+        },
+        {
+          "name": "callSetup",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "EX_callSetup",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "MEM_callSetup",
+          "width": null,
+          "kind": "wire"
+        },
+        {
+          "name": "final_callSetup",
+          "width": null,
+          "kind": "wire"
+        }
+      ],
+      "instances": [
+        {
+          "name": "ForwardingUnit",
+          "module_name": "ForwardModule",
+          "connections": {
+            "opcode": "EX_inst[6:0]",
+            "rs1": "EX_inst[19:15]",
+            "rs2": "EX_inst[24:20]",
+            "reg_write_WB": "WB_ctl_reg_write",
+            "rd_WB": "WB_inst[11:7]",
+            "reg_write_MEM": "MEM_ctl_reg_write",
+            "rd_MEM": "MEM_inst[11:7]",
+            "ALUSrcA": "ALUSrcA",
+            "ALUSrcB": "ALUSrcB"
+          },
+          "pin_connections": [
+            {
+              "child_port": "opcode",
+              "parent_signal": "EX_inst[6:0]"
+            },
+            {
+              "child_port": "rs1",
+              "parent_signal": "EX_inst[19:15]"
+            },
+            {
+              "child_port": "rs2",
+              "parent_signal": "EX_inst[24:20]"
+            },
+            {
+              "child_port": "reg_write_WB",
+              "parent_signal": "WB_ctl_reg_write"
+            },
+            {
+              "child_port": "rd_WB",
+              "parent_signal": "WB_inst[11:7]"
+            },
+            {
+              "child_port": "reg_write_MEM",
+              "parent_signal": "MEM_ctl_reg_write"
+            },
+            {
+              "child_port": "rd_MEM",
+              "parent_signal": "MEM_inst[11:7]"
+            },
+            {
+              "child_port": "ALUSrcA",
+              "parent_signal": "ALUSrcA"
+            },
+            {
+              "child_port": "ALUSrcB",
+              "parent_signal": "ALUSrcB"
+            }
+          ]
+        },
+        {
+          "name": "HazardUnit",
+          "module_name": "HazardDetection",
+          "connections": {
+            "opcode": "ID_inst[6:0]",
+            "ID_EX_mem_read": "EX_ctl_mem_read",
+            "ID_EX_reg_write": "EX_ctl_reg_write",
+            "ID_EX_mem_write": "EX_ctl_mem_write",
+            "rs1": "ID_inst[19:15]",
+            "rs2": "ID_inst[24:20]",
+            "rd_EX": "EX_inst[11:7]",
+            "clock": "clock",
+            "stall": "stall",
+            "IF_ID_write": "IF_ID_write_ctr",
+            "PC_write": "PC_write_ctr",
+            "MEM_inst": "MEM_inst"
+          },
+          "pin_connections": [
+            {
+              "child_port": "opcode",
+              "parent_signal": "ID_inst[6:0]"
+            },
+            {
+              "child_port": "ID_EX_mem_read",
+              "parent_signal": "EX_ctl_mem_read"
+            },
+            {
+              "child_port": "ID_EX_reg_write",
+              "parent_signal": "EX_ctl_reg_write"
+            },
+            {
+              "child_port": "ID_EX_mem_write",
+              "parent_signal": "EX_ctl_mem_write"
+            },
+            {
+              "child_port": "rs1",
+              "parent_signal": "ID_inst[19:15]"
+            },
+            {
+              "child_port": "rs2",
+              "parent_signal": "ID_inst[24:20]"
+            },
+            {
+              "child_port": "rd_EX",
+              "parent_signal": "EX_inst[11:7]"
+            },
+            {
+              "child_port": "clock",
+              "parent_signal": "clock"
+            },
+            {
+              "child_port": "stall",
+              "parent_signal": "stall"
+            },
+            {
+              "child_port": "IF_ID_write",
+              "parent_signal": "IF_ID_write_ctr"
+            },
+            {
+              "child_port": "PC_write",
+              "parent_signal": "PC_write_ctr"
+            },
+            {
+              "child_port": "MEM_inst",
+              "parent_signal": "MEM_inst"
+            }
+          ]
+        },
+        {
+          "name": "jalr_mux",
+          "module_name": "JALR_MUX",
+          "connections": {
+            "jalr_result": "jalr_target",
+            "PC": "pc_src_mux_out",
+            "jalr": "ID_ctl_JALR",
+            "jalr_out": "real_pc_next"
+          },
+          "pin_connections": [
+            {
+              "child_port": "jalr_result",
+              "parent_signal": "jalr_target"
+            },
+            {
+              "child_port": "PC",
+              "parent_signal": "pc_src_mux_out"
+            },
+            {
+              "child_port": "jalr",
+              "parent_signal": "ID_ctl_JALR"
+            },
+            {
+              "child_port": "jalr_out",
+              "parent_signal": "real_pc_next"
+            }
+          ]
+        },
+        {
+          "name": "pc_src_mux",
+          "module_name": "MUX2",
+          "connections": {
+            "input_0": "new_pc",
+            "input_1": "branch_target",
+            "select": "take_branch",
+            "mux_output": "pc_src_mux_out"
+          },
+          "pin_connections": [
+            {
+              "child_port": "input_0",
+              "parent_signal": "new_pc"
+            },
+            {
+              "child_port": "input_1",
+              "parent_signal": "branch_target"
+            },
+            {
+              "child_port": "select",
+              "parent_signal": "take_branch"
+            },
+            {
+              "child_port": "mux_output",
+              "parent_signal": "pc_src_mux_out"
+            }
+          ]
+        },
+        {
+          "name": "PC",
+          "module_name": "Register",
+          "connections": {
+            "d": "real_pc_next",
+            "CLK": "clock",
+            "we": "PC_write_ctr",
+            "reset": "reset",
+            "default_value": "32'h00000000",
+            "q": "pc_out"
+          },
+          "pin_connections": [
+            {
+              "child_port": "d",
+              "parent_signal": "real_pc_next"
+            },
+            {
+              "child_port": "CLK",
+              "parent_signal": "clock"
+            },
+            {
+              "child_port": "we",
+              "parent_signal": "PC_write_ctr"
+            },
+            {
+              "child_port": "reset",
+              "parent_signal": "reset"
+            },
+            {
+              "child_port": "default_value",
+              "parent_signal": "32'h00000000"
+            },
+            {
+              "child_port": "q",
+              "parent_signal": "pc_out"
+            }
+          ]
+        },
+        {
+          "name": "mem_address_mux",
+          "module_name": "MUX10bit",
+          "connections": {
+            "input_0": "MEM_alu_result[11:2]",
+            "input_1": "MEM_sp_new[11:2]",
+            "select": "final_callSetup",
+            "mux_output": "actual_address_data_b"
+          },
+          "pin_connections": [
+            {
+              "child_port": "input_0",
+              "parent_signal": "MEM_alu_result[11:2]"
+            },
+            {
+              "child_port": "input_1",
+              "parent_signal": "MEM_sp_new[11:2]"
+            },
+            {
+              "child_port": "select",
+              "parent_signal": "final_callSetup"
+            },
+            {
+              "child_port": "mux_output",
+              "parent_signal": "actual_address_data_b"
+            }
+          ]
+        },
+        {
+          "name": "mem_data_b_mux",
+          "module_name": "MUX2",
+          "connections": {
+            "input_0": "MEM_reg_data_b",
+            "input_1": "MEM_a1",
+            "select": "final_callSetup",
+            "mux_output": "actual_data_b"
+          },
+          "pin_connections": [
+            {
+              "child_port": "input_0",
+              "parent_signal": "MEM_reg_data_b"
+            },
+            {
+              "child_port": "input_1",
+              "parent_signal": "MEM_a1"
+            },
+            {
+              "child_port": "select",
+              "parent_signal": "final_callSetup"
+            },
+            {
+              "child_port": "mux_output",
+              "parent_signal": "actual_data_b"
+            }
+          ]
+        },
+        {
+          "name": "Mem",
+          "module_name": "DP_Memory",
+          "connections": {
+            "addr_a": "pc_out[11:2]",
+            "we_a": "1'b0",
+            "data_a": "32'b0",
+            "clk_a": "(~clock)",
+            "q_a": "IF_inst",
+            "addr_b": "actual_address_data_b",
+            "we_b": "MEM_ctl_mem_write",
+            "data_b": "actual_data_b",
+            "clk_b": "(~clock)",
+            "q_b": "MEM_read_data",
+            "callSetup": "final_callSetup",
+            "data_b2": "MEM_a0",
+            "data_b3": "MEM_ra"
+          },
+          "pin_connections": [
+            {
+              "child_port": "addr_a",
+              "parent_signal": "pc_out[11:2]"
+            },
+            {
+              "child_port": "we_a",
+              "parent_signal": "1'b0"
+            },
+            {
+              "child_port": "data_a",
+              "parent_signal": "32'b0"
+            },
+            {
+              "child_port": "clk_a",
+              "parent_signal": "(~clock)"
+            },
+            {
+              "child_port": "q_a",
+              "parent_signal": "IF_inst"
+            },
+            {
+              "child_port": "addr_b",
+              "parent_signal": "actual_address_data_b"
+            },
+            {
+              "child_port": "we_b",
+              "parent_signal": "MEM_ctl_mem_write"
+            },
+            {
+              "child_port": "data_b",
+              "parent_signal": "actual_data_b"
+            },
+            {
+              "child_port": "clk_b",
+              "parent_signal": "(~clock)"
+            },
+            {
+              "child_port": "q_b",
+              "parent_signal": "MEM_read_data"
+            },
+            {
+              "child_port": "callSetup",
+              "parent_signal": "final_callSetup"
+            },
+            {
+              "child_port": "data_b2",
+              "parent_signal": "MEM_a0"
+            },
+            {
+              "child_port": "data_b3",
+              "parent_signal": "MEM_ra"
+            }
+          ]
+        },
+        {
+          "name": "IF_ID",
+          "module_name": "Buffer_IF_ID",
+          "connections": {
+            "CLK": "clock",
+            "reset": "reset",
+            "write_enable": "IF_ID_write_ctr",
+            "PC_in": "pc_out",
+            "inst_in": "IF_inst",
+            "PC": "ID_pc",
+            "inst": "ID_inst",
+            "link_pc_in": "new_pc",
+            "link_pc": "ID_link_pc",
+            "check_flush": "(take_branch | ID_ctl_JALR)"
+          },
+          "pin_connections": [
+            {
+              "child_port": "CLK",
+              "parent_signal": "clock"
+            },
+            {
+              "child_port": "reset",
+              "parent_signal": "reset"
+            },
+            {
+              "child_port": "write_enable",
+              "parent_signal": "IF_ID_write_ctr"
+            },
+            {
+              "child_port": "PC_in",
+              "parent_signal": "pc_out"
+            },
+            {
+              "child_port": "inst_in",
+              "parent_signal": "IF_inst"
+            },
+            {
+              "child_port": "PC",
+              "parent_signal": "ID_pc"
+            },
+            {
+              "child_port": "inst",
+              "parent_signal": "ID_inst"
+            },
+            {
+              "child_port": "link_pc_in",
+              "parent_signal": "new_pc"
+            },
+            {
+              "child_port": "link_pc",
+              "parent_signal": "ID_link_pc"
+            },
+            {
+              "child_port": "check_flush",
+              "parent_signal": "(take_branch | ID_ctl_JALR)"
+            }
+          ]
+        },
+        {
+          "name": "RegFile",
+          "module_name": "RegFile",
+          "connections": {
+            "reset": "reset",
+            "CLK": "(~clock)",
+            "write_enable": "WB_ctl_reg_write",
+            "regnum_a": "ID_inst[19:15]",
+            "regnum_b": "ID_inst[24:20]",
+            "write_regnum": "WB_inst[11:7]",
+            "data_in": "WB_mem_to_reg_mux_out",
+            "regdata_a": "ID_reg_data_a",
+            "regdata_b": "ID_reg_data_b",
+            "sp_new": "ID_sp_new",
+            "a0": "ID_a0",
+            "a1": "ID_a1",
+            "ra": "ID_ra"
+          },
+          "pin_connections": [
+            {
+              "child_port": "reset",
+              "parent_signal": "reset"
+            },
+            {
+              "child_port": "CLK",
+              "parent_signal": "(~clock)"
+            },
+            {
+              "child_port": "write_enable",
+              "parent_signal": "WB_ctl_reg_write"
+            },
+            {
+              "child_port": "regnum_a",
+              "parent_signal": "ID_inst[19:15]"
+            },
+            {
+              "child_port": "regnum_b",
+              "parent_signal": "ID_inst[24:20]"
+            },
+            {
+              "child_port": "write_regnum",
+              "parent_signal": "WB_inst[11:7]"
+            },
+            {
+              "child_port": "data_in",
+              "parent_signal": "WB_mem_to_reg_mux_out"
+            },
+            {
+              "child_port": "regdata_a",
+              "parent_signal": "ID_reg_data_a"
+            },
+            {
+              "child_port": "regdata_b",
+              "parent_signal": "ID_reg_data_b"
+            },
+            {
+              "child_port": "sp_new",
+              "parent_signal": "ID_sp_new"
+            },
+            {
+              "child_port": "a0",
+              "parent_signal": "ID_a0"
+            },
+            {
+              "child_port": "a1",
+              "parent_signal": "ID_a1"
+            },
+            {
+              "child_port": "ra",
+              "parent_signal": "ID_ra"
+            }
+          ]
+        },
+        {
+          "name": "comparator",
+          "module_name": "Comparator",
+          "connections": {
+            "funct3": "ID_inst[14:12]",
+            "zero": "(ID_reg_data_a == ID_reg_data_b)",
+            "resultmsb": "(ID_reg_data_a < ID_reg_data_b)",
+            "branch_condition": "branch_condition"
+          },
+          "pin_connections": [
+            {
+              "child_port": "funct3",
+              "parent_signal": "ID_inst[14:12]"
+            },
+            {
+              "child_port": "zero",
+              "parent_signal": "(ID_reg_data_a == ID_reg_data_b)"
+            },
+            {
+              "child_port": "resultmsb",
+              "parent_signal": "(ID_reg_data_a < ID_reg_data_b)"
+            },
+            {
+              "child_port": "branch_condition",
+              "parent_signal": "branch_condition"
+            }
+          ]
+        },
+        {
+          "name": "imm_gen",
+          "module_name": "ImmGen",
+          "connections": {
+            "instruction": "ID_inst",
+            "imm": "ID_imm_value"
+          },
+          "pin_connections": [
+            {
+              "child_port": "instruction",
+              "parent_signal": "ID_inst"
+            },
+            {
+              "child_port": "imm",
+              "parent_signal": "ID_imm_value"
+            }
+          ]
+        },
+        {
+          "name": "controlUnit",
+          "module_name": "Control",
+          "connections": {
+            "opcode": "ID_inst[6:0]",
+            "ALUSrc": "ID_ctl_alu_src",
+            "MemToReg": "ID_ctl_mem_to_reg",
+            "RegWrite": "ID_ctl_reg_write",
+            "MemRead": "ID_ctl_mem_read",
+            "MemWrite": "ID_ctl_mem_write",
+            "Branch": "ID_ctl_branch",
+            "ALUOp": "ID_ctl_alu_op",
+            "Jump": "ID_ctl_jump",
+            "JALR": "ID_ctl_JALR",
+            "CallSetup": "EX_callSetup"
+          },
+          "pin_connections": [
+            {
+              "child_port": "opcode",
+              "parent_signal": "ID_inst[6:0]"
+            },
+            {
+              "child_port": "ALUSrc",
+              "parent_signal": "ID_ctl_alu_src"
+            },
+            {
+              "child_port": "MemToReg",
+              "parent_signal": "ID_ctl_mem_to_reg"
+            },
+            {
+              "child_port": "RegWrite",
+              "parent_signal": "ID_ctl_reg_write"
+            },
+            {
+              "child_port": "MemRead",
+              "parent_signal": "ID_ctl_mem_read"
+            },
+            {
+              "child_port": "MemWrite",
+              "parent_signal": "ID_ctl_mem_write"
+            },
+            {
+              "child_port": "Branch",
+              "parent_signal": "ID_ctl_branch"
+            },
+            {
+              "child_port": "ALUOp",
+              "parent_signal": "ID_ctl_alu_op"
+            },
+            {
+              "child_port": "Jump",
+              "parent_signal": "ID_ctl_jump"
+            },
+            {
+              "child_port": "JALR",
+              "parent_signal": "ID_ctl_JALR"
+            },
+            {
+              "child_port": "CallSetup",
+              "parent_signal": "EX_callSetup"
+            }
+          ]
+        },
+        {
+          "name": "stall_mux",
+          "module_name": "MUXStall",
+          "connections": {
+            "input_0": "ID_ctl_alu_src",
+            "input_1": "ID_ctl_alu_op",
+            "input_2": "ID_ctl_mem_read",
+            "input_3": "ID_ctl_mem_write",
+            "input_4": "ID_ctl_reg_write",
+            "input_5": "ID_ctl_mem_to_reg",
+            "input_6": "ID_pc",
+            "input_7": "ID_reg_data_a",
+            "input_8": "ID_reg_data_b",
+            "input_9": "ID_imm_value",
+            "input_10": "ID_inst",
+            "input_11": "ID_link_pc",
+            "select": "stall",
+            "output_0": "ID_ctl_alu_src2",
+            "output_1": "ID_ctl_alu_op2",
+            "output_2": "ID_ctl_mem_read2",
+            "output_3": "ID_ctl_mem_write2",
+            "output_4": "ID_ctl_reg_write2",
+            "output_5": "ID_ctl_mem_to_reg2",
+            "output_6": "ID_pc2",
+            "output_7": "ID_reg_data_a2",
+            "output_8": "ID_reg_data_b2",
+            "output_9": "ID_imm_value2",
+            "output_10": "ID_inst2",
+            "output_11": "ID_link_pc2"
+          },
+          "pin_connections": [
+            {
+              "child_port": "input_0",
+              "parent_signal": "ID_ctl_alu_src"
+            },
+            {
+              "child_port": "input_1",
+              "parent_signal": "ID_ctl_alu_op"
+            },
+            {
+              "child_port": "input_2",
+              "parent_signal": "ID_ctl_mem_read"
+            },
+            {
+              "child_port": "input_3",
+              "parent_signal": "ID_ctl_mem_write"
+            },
+            {
+              "child_port": "input_4",
+              "parent_signal": "ID_ctl_reg_write"
+            },
+            {
+              "child_port": "input_5",
+              "parent_signal": "ID_ctl_mem_to_reg"
+            },
+            {
+              "child_port": "input_6",
+              "parent_signal": "ID_pc"
+            },
+            {
+              "child_port": "input_7",
+              "parent_signal": "ID_reg_data_a"
+            },
+            {
+              "child_port": "input_8",
+              "parent_signal": "ID_reg_data_b"
+            },
+            {
+              "child_port": "input_9",
+              "parent_signal": "ID_imm_value"
+            },
+            {
+              "child_port": "input_10",
+              "parent_signal": "ID_inst"
+            },
+            {
+              "child_port": "input_11",
+              "parent_signal": "ID_link_pc"
+            },
+            {
+              "child_port": "select",
+              "parent_signal": "stall"
+            },
+            {
+              "child_port": "output_0",
+              "parent_signal": "ID_ctl_alu_src2"
+            },
+            {
+              "child_port": "output_1",
+              "parent_signal": "ID_ctl_alu_op2"
+            },
+            {
+              "child_port": "output_2",
+              "parent_signal": "ID_ctl_mem_read2"
+            },
+            {
+              "child_port": "output_3",
+              "parent_signal": "ID_ctl_mem_write2"
+            },
+            {
+              "child_port": "output_4",
+              "parent_signal": "ID_ctl_reg_write2"
+            },
+            {
+              "child_port": "output_5",
+              "parent_signal": "ID_ctl_mem_to_reg2"
+            },
+            {
+              "child_port": "output_6",
+              "parent_signal": "ID_pc2"
+            },
+            {
+              "child_port": "output_7",
+              "parent_signal": "ID_reg_data_a2"
+            },
+            {
+              "child_port": "output_8",
+              "parent_signal": "ID_reg_data_b2"
+            },
+            {
+              "child_port": "output_9",
+              "parent_signal": "ID_imm_value2"
+            },
+            {
+              "child_port": "output_10",
+              "parent_signal": "ID_inst2"
+            },
+            {
+              "child_port": "output_11",
+              "parent_signal": "ID_link_pc2"
+            }
+          ]
+        },
+        {
+          "name": "ID_EX",
+          "module_name": "Buffer_ID_EX",
+          "connections": {
+            "CLK": "clock",
+            "reset": "reset",
+            "PC_in": "ID_pc2",
+            "reg_data_a_in": "ID_reg_data_a2",
+            "reg_data_b_in": "ID_reg_data_b2",
+            "imm_value_in": "ID_imm_value2",
+            "inst_in": "ID_inst2",
+            "PC": "EX_pc",
+            "reg_data_a": "EX_reg_data_a",
+            "reg_data_b": "EX_reg_data_b",
+            "imm_value": "EX_imm_value",
+            "inst": "EX_inst",
+            "link_pc_in": "ID_link_pc2",
+            "link_pc": "EX_link_pc",
+            "alu_src_in": "ID_ctl_alu_src2",
+            "alu_op_in": "ID_ctl_alu_op2",
+            "alu_src": "EX_ctl_alu_src",
+            "alu_op": "EX_ctl_alu_op",
+            "mem_read_in": "ID_ctl_mem_read2",
+            "mem_write_in": "ID_ctl_mem_write2",
+            "mem_write": "EX_ctl_mem_write",
+            "mem_read": "EX_ctl_mem_read",
+            "reg_write_in": "ID_ctl_reg_write2",
+            "mem_to_reg_in": "ID_ctl_mem_to_reg2",
+            "reg_write": "EX_ctl_reg_write",
+            "mem_to_reg": "EX_ctl_mem_to_reg",
+            "sp_new_in": "ID_sp_new",
+            "a0_in": "ID_a0",
+            "a1_in": "ID_a1",
+            "ra_in": "ID_ra",
+            "sp_new": "EX_sp_new",
+            "a0": "EX_a0",
+            "a1": "EX_a1",
+            "ra": "EX_ra",
+            "callSetup_in": "EX_callSetup",
+            "callSetup": "MEM_callSetup"
+          },
+          "pin_connections": [
+            {
+              "child_port": "CLK",
+              "parent_signal": "clock"
+            },
+            {
+              "child_port": "reset",
+              "parent_signal": "reset"
+            },
+            {
+              "child_port": "PC_in",
+              "parent_signal": "ID_pc2"
+            },
+            {
+              "child_port": "reg_data_a_in",
+              "parent_signal": "ID_reg_data_a2"
+            },
+            {
+              "child_port": "reg_data_b_in",
+              "parent_signal": "ID_reg_data_b2"
+            },
+            {
+              "child_port": "imm_value_in",
+              "parent_signal": "ID_imm_value2"
+            },
+            {
+              "child_port": "inst_in",
+              "parent_signal": "ID_inst2"
+            },
+            {
+              "child_port": "PC",
+              "parent_signal": "EX_pc"
+            },
+            {
+              "child_port": "reg_data_a",
+              "parent_signal": "EX_reg_data_a"
+            },
+            {
+              "child_port": "reg_data_b",
+              "parent_signal": "EX_reg_data_b"
+            },
+            {
+              "child_port": "imm_value",
+              "parent_signal": "EX_imm_value"
+            },
+            {
+              "child_port": "inst",
+              "parent_signal": "EX_inst"
+            },
+            {
+              "child_port": "link_pc_in",
+              "parent_signal": "ID_link_pc2"
+            },
+            {
+              "child_port": "link_pc",
+              "parent_signal": "EX_link_pc"
+            },
+            {
+              "child_port": "alu_src_in",
+              "parent_signal": "ID_ctl_alu_src2"
+            },
+            {
+              "child_port": "alu_op_in",
+              "parent_signal": "ID_ctl_alu_op2"
+            },
+            {
+              "child_port": "alu_src",
+              "parent_signal": "EX_ctl_alu_src"
+            },
+            {
+              "child_port": "alu_op",
+              "parent_signal": "EX_ctl_alu_op"
+            },
+            {
+              "child_port": "mem_read_in",
+              "parent_signal": "ID_ctl_mem_read2"
+            },
+            {
+              "child_port": "mem_write_in",
+              "parent_signal": "ID_ctl_mem_write2"
+            },
+            {
+              "child_port": "mem_write",
+              "parent_signal": "EX_ctl_mem_write"
+            },
+            {
+              "child_port": "mem_read",
+              "parent_signal": "EX_ctl_mem_read"
+            },
+            {
+              "child_port": "reg_write_in",
+              "parent_signal": "ID_ctl_reg_write2"
+            },
+            {
+              "child_port": "mem_to_reg_in",
+              "parent_signal": "ID_ctl_mem_to_reg2"
+            },
+            {
+              "child_port": "reg_write",
+              "parent_signal": "EX_ctl_reg_write"
+            },
+            {
+              "child_port": "mem_to_reg",
+              "parent_signal": "EX_ctl_mem_to_reg"
+            },
+            {
+              "child_port": "sp_new_in",
+              "parent_signal": "ID_sp_new"
+            },
+            {
+              "child_port": "a0_in",
+              "parent_signal": "ID_a0"
+            },
+            {
+              "child_port": "a1_in",
+              "parent_signal": "ID_a1"
+            },
+            {
+              "child_port": "ra_in",
+              "parent_signal": "ID_ra"
+            },
+            {
+              "child_port": "sp_new",
+              "parent_signal": "EX_sp_new"
+            },
+            {
+              "child_port": "a0",
+              "parent_signal": "EX_a0"
+            },
+            {
+              "child_port": "a1",
+              "parent_signal": "EX_a1"
+            },
+            {
+              "child_port": "ra",
+              "parent_signal": "EX_ra"
+            },
+            {
+              "child_port": "callSetup_in",
+              "parent_signal": "EX_callSetup"
+            },
+            {
+              "child_port": "callSetup",
+              "parent_signal": "MEM_callSetup"
+            }
+          ]
+        },
+        {
+          "name": "alu_control",
+          "module_name": "ALUCtl",
+          "connections": {
+            "ALUOp": "EX_ctl_alu_op",
+            "instruction": "EX_inst",
+            "operation": "EX_alu_operation"
+          },
+          "pin_connections": [
+            {
+              "child_port": "ALUOp",
+              "parent_signal": "EX_ctl_alu_op"
+            },
+            {
+              "child_port": "instruction",
+              "parent_signal": "EX_inst"
+            },
+            {
+              "child_port": "operation",
+              "parent_signal": "EX_alu_operation"
+            }
+          ]
+        },
+        {
+          "name": "ALU_src_mux_forward_b",
+          "module_name": "MUX4",
+          "connections": {
+            "input_00": "EX_reg_data_b",
+            "input_01": "MEM_alu_result",
+            "input_10": "WB_mem_to_reg_mux_out",
+            "input_11": "",
+            "select": "ALUSrcB",
+            "mux_output": "EX_reg_data_b2"
+          },
+          "pin_connections": [
+            {
+              "child_port": "input_00",
+              "parent_signal": "EX_reg_data_b"
+            },
+            {
+              "child_port": "input_01",
+              "parent_signal": "MEM_alu_result"
+            },
+            {
+              "child_port": "input_10",
+              "parent_signal": "WB_mem_to_reg_mux_out"
+            },
+            {
+              "child_port": "input_11",
+              "parent_signal": ""
+            },
+            {
+              "child_port": "select",
+              "parent_signal": "ALUSrcB"
+            },
+            {
+              "child_port": "mux_output",
+              "parent_signal": "EX_reg_data_b2"
+            }
+          ]
+        },
+        {
+          "name": "ALU_src_mux_forward_a",
+          "module_name": "MUX4",
+          "connections": {
+            "input_00": "EX_reg_data_a",
+            "input_01": "MEM_alu_result",
+            "input_10": "WB_mem_to_reg_mux_out",
+            "input_11": "",
+            "select": "ALUSrcA",
+            "mux_output": "EX_reg_data_a2"
+          },
+          "pin_connections": [
+            {
+              "child_port": "input_00",
+              "parent_signal": "EX_reg_data_a"
+            },
+            {
+              "child_port": "input_01",
+              "parent_signal": "MEM_alu_result"
+            },
+            {
+              "child_port": "input_10",
+              "parent_signal": "WB_mem_to_reg_mux_out"
+            },
+            {
+              "child_port": "input_11",
+              "parent_signal": ""
+            },
+            {
+              "child_port": "select",
+              "parent_signal": "ALUSrcA"
+            },
+            {
+              "child_port": "mux_output",
+              "parent_signal": "EX_reg_data_a2"
+            }
+          ]
+        },
+        {
+          "name": "ALU_src_mux",
+          "module_name": "MUX2",
+          "connections": {
+            "input_0": "EX_reg_data_b2",
+            "input_1": "EX_imm_value",
+            "select": "EX_ctl_alu_src",
+            "mux_output": "EX_alu_src_out"
+          },
+          "pin_connections": [
+            {
+              "child_port": "input_0",
+              "parent_signal": "EX_reg_data_b2"
+            },
+            {
+              "child_port": "input_1",
+              "parent_signal": "EX_imm_value"
+            },
+            {
+              "child_port": "select",
+              "parent_signal": "EX_ctl_alu_src"
+            },
+            {
+              "child_port": "mux_output",
+              "parent_signal": "EX_alu_src_out"
+            }
+          ]
+        },
+        {
+          "name": "alu",
+          "module_name": "ALU",
+          "connections": {
+            "operation": "EX_alu_operation",
+            "din_a": "EX_reg_data_a2",
+            "din_b": "EX_alu_src_out",
+            "dout": "EX_alu_result",
+            "zero": "EX_alu_zero"
+          },
+          "pin_connections": [
+            {
+              "child_port": "operation",
+              "parent_signal": "EX_alu_operation"
+            },
+            {
+              "child_port": "din_a",
+              "parent_signal": "EX_reg_data_a2"
+            },
+            {
+              "child_port": "din_b",
+              "parent_signal": "EX_alu_src_out"
+            },
+            {
+              "child_port": "dout",
+              "parent_signal": "EX_alu_result"
+            },
+            {
+              "child_port": "zero",
+              "parent_signal": "EX_alu_zero"
+            }
+          ]
+        },
+        {
+          "name": "EX_MEM",
+          "module_name": "Buffer_EX_MEM",
+          "connections": {
+            "CLK": "clock",
+            "reset": "reset",
+            "PC_in": "EX_pc",
+            "PC": "MEM_pc",
+            "target_in": "EX_target",
+            "alu_zero_in": "EX_alu_zero",
+            "alu_result_in": "EX_alu_result",
+            "imm_value_in": "EX_imm_value",
+            "inst_in": "EX_inst",
+            "reg_data_b_in": "EX_reg_data_b2",
+            "target": "MEM_target",
+            "alu_zero": "MEM_alu_zero",
+            "alu_result": "MEM_alu_result",
+            "imm_value": "MEM_imm_value",
+            "inst": "MEM_inst",
+            "reg_data_b": "MEM_reg_data_b",
+            "mem_read_in": "EX_ctl_mem_read",
+            "mem_write_in": "EX_ctl_mem_write",
+            "mem_write": "MEM_ctl_mem_write",
+            "mem_read": "MEM_ctl_mem_read",
+            "reg_write_in": "EX_ctl_reg_write",
+            "mem_to_reg_in": "EX_ctl_mem_to_reg",
+            "reg_write": "MEM_ctl_reg_write",
+            "mem_to_reg": "MEM_ctl_mem_to_reg",
+            "link_pc_in": "EX_link_pc",
+            "link_pc": "MEM_link_pc",
+            "sp_new_in": "EX_sp_new",
+            "sp_new": "MEM_sp_new",
+            "a0_in": "EX_a0",
+            "a0": "MEM_a0",
+            "a1_in": "EX_a1",
+            "a1": "MEM_a1",
+            "ra_in": "EX_ra",
+            "ra": "MEM_ra",
+            "callSetup_in": "MEM_callSetup",
+            "callSetup": "final_callSetup"
+          },
+          "pin_connections": [
+            {
+              "child_port": "CLK",
+              "parent_signal": "clock"
+            },
+            {
+              "child_port": "reset",
+              "parent_signal": "reset"
+            },
+            {
+              "child_port": "PC_in",
+              "parent_signal": "EX_pc"
+            },
+            {
+              "child_port": "PC",
+              "parent_signal": "MEM_pc"
+            },
+            {
+              "child_port": "target_in",
+              "parent_signal": "EX_target"
+            },
+            {
+              "child_port": "alu_zero_in",
+              "parent_signal": "EX_alu_zero"
+            },
+            {
+              "child_port": "alu_result_in",
+              "parent_signal": "EX_alu_result"
+            },
+            {
+              "child_port": "imm_value_in",
+              "parent_signal": "EX_imm_value"
+            },
+            {
+              "child_port": "inst_in",
+              "parent_signal": "EX_inst"
+            },
+            {
+              "child_port": "reg_data_b_in",
+              "parent_signal": "EX_reg_data_b2"
+            },
+            {
+              "child_port": "target",
+              "parent_signal": "MEM_target"
+            },
+            {
+              "child_port": "alu_zero",
+              "parent_signal": "MEM_alu_zero"
+            },
+            {
+              "child_port": "alu_result",
+              "parent_signal": "MEM_alu_result"
+            },
+            {
+              "child_port": "imm_value",
+              "parent_signal": "MEM_imm_value"
+            },
+            {
+              "child_port": "inst",
+              "parent_signal": "MEM_inst"
+            },
+            {
+              "child_port": "reg_data_b",
+              "parent_signal": "MEM_reg_data_b"
+            },
+            {
+              "child_port": "mem_read_in",
+              "parent_signal": "EX_ctl_mem_read"
+            },
+            {
+              "child_port": "mem_write_in",
+              "parent_signal": "EX_ctl_mem_write"
+            },
+            {
+              "child_port": "mem_write",
+              "parent_signal": "MEM_ctl_mem_write"
+            },
+            {
+              "child_port": "mem_read",
+              "parent_signal": "MEM_ctl_mem_read"
+            },
+            {
+              "child_port": "reg_write_in",
+              "parent_signal": "EX_ctl_reg_write"
+            },
+            {
+              "child_port": "mem_to_reg_in",
+              "parent_signal": "EX_ctl_mem_to_reg"
+            },
+            {
+              "child_port": "reg_write",
+              "parent_signal": "MEM_ctl_reg_write"
+            },
+            {
+              "child_port": "mem_to_reg",
+              "parent_signal": "MEM_ctl_mem_to_reg"
+            },
+            {
+              "child_port": "link_pc_in",
+              "parent_signal": "EX_link_pc"
+            },
+            {
+              "child_port": "link_pc",
+              "parent_signal": "MEM_link_pc"
+            },
+            {
+              "child_port": "sp_new_in",
+              "parent_signal": "EX_sp_new"
+            },
+            {
+              "child_port": "sp_new",
+              "parent_signal": "MEM_sp_new"
+            },
+            {
+              "child_port": "a0_in",
+              "parent_signal": "EX_a0"
+            },
+            {
+              "child_port": "a0",
+              "parent_signal": "MEM_a0"
+            },
+            {
+              "child_port": "a1_in",
+              "parent_signal": "EX_a1"
+            },
+            {
+              "child_port": "a1",
+              "parent_signal": "MEM_a1"
+            },
+            {
+              "child_port": "ra_in",
+              "parent_signal": "EX_ra"
+            },
+            {
+              "child_port": "ra",
+              "parent_signal": "MEM_ra"
+            },
+            {
+              "child_port": "callSetup_in",
+              "parent_signal": "MEM_callSetup"
+            },
+            {
+              "child_port": "callSetup",
+              "parent_signal": "final_callSetup"
+            }
+          ]
+        },
+        {
+          "name": "MEM_WB",
+          "module_name": "Buffer_MEM_WB",
+          "connections": {
+            "CLK": "clock",
+            "reset": "reset",
+            "PC_in": "MEM_pc",
+            "PC": "",
+            "inst_in": "MEM_inst",
+            "alu_result_in": "MEM_alu_result",
+            "read_data_in": "MEM_read_data",
+            "inst": "WB_inst",
+            "alu_result": "WB_alu_result",
+            "read_data": "WB_read_data",
+            "imm_value_in": "MEM_imm_value",
+            "imm_value": "WB_imm_value",
+            "link_pc_in": "MEM_link_pc",
+            "link_pc": "WB_link_pc",
+            "reg_write_in": "MEM_ctl_reg_write",
+            "mem_to_reg_in": "MEM_ctl_mem_to_reg",
+            "reg_write": "WB_ctl_reg_write",
+            "mem_to_reg": "WB_ctl_mem_to_reg"
+          },
+          "pin_connections": [
+            {
+              "child_port": "CLK",
+              "parent_signal": "clock"
+            },
+            {
+              "child_port": "reset",
+              "parent_signal": "reset"
+            },
+            {
+              "child_port": "PC_in",
+              "parent_signal": "MEM_pc"
+            },
+            {
+              "child_port": "PC",
+              "parent_signal": ""
+            },
+            {
+              "child_port": "inst_in",
+              "parent_signal": "MEM_inst"
+            },
+            {
+              "child_port": "alu_result_in",
+              "parent_signal": "MEM_alu_result"
+            },
+            {
+              "child_port": "read_data_in",
+              "parent_signal": "MEM_read_data"
+            },
+            {
+              "child_port": "inst",
+              "parent_signal": "WB_inst"
+            },
+            {
+              "child_port": "alu_result",
+              "parent_signal": "WB_alu_result"
+            },
+            {
+              "child_port": "read_data",
+              "parent_signal": "WB_read_data"
+            },
+            {
+              "child_port": "imm_value_in",
+              "parent_signal": "MEM_imm_value"
+            },
+            {
+              "child_port": "imm_value",
+              "parent_signal": "WB_imm_value"
+            },
+            {
+              "child_port": "link_pc_in",
+              "parent_signal": "MEM_link_pc"
+            },
+            {
+              "child_port": "link_pc",
+              "parent_signal": "WB_link_pc"
+            },
+            {
+              "child_port": "reg_write_in",
+              "parent_signal": "MEM_ctl_reg_write"
+            },
+            {
+              "child_port": "mem_to_reg_in",
+              "parent_signal": "MEM_ctl_mem_to_reg"
+            },
+            {
+              "child_port": "reg_write",
+              "parent_signal": "WB_ctl_reg_write"
+            },
+            {
+              "child_port": "mem_to_reg",
+              "parent_signal": "WB_ctl_mem_to_reg"
+            }
+          ]
+        },
+        {
+          "name": "mem_to_reg_mux",
+          "module_name": "MUX4",
+          "connections": {
+            "input_00": "WB_alu_result",
+            "input_01": "WB_read_data",
+            "input_10": "WB_imm_value",
+            "input_11": "WB_link_pc",
+            "select": "WB_ctl_mem_to_reg",
+            "mux_output": "WB_mem_to_reg_mux_out"
+          },
+          "pin_connections": [
+            {
+              "child_port": "input_00",
+              "parent_signal": "WB_alu_result"
+            },
+            {
+              "child_port": "input_01",
+              "parent_signal": "WB_read_data"
+            },
+            {
+              "child_port": "input_10",
+              "parent_signal": "WB_imm_value"
+            },
+            {
+              "child_port": "input_11",
+              "parent_signal": "WB_link_pc"
+            },
+            {
+              "child_port": "select",
+              "parent_signal": "WB_ctl_mem_to_reg"
+            },
+            {
+              "child_port": "mux_output",
+              "parent_signal": "WB_mem_to_reg_mux_out"
+            }
+          ]
+        }
+      ],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Processor.v"
+    },
+    {
+      "name": "RegFile",
+      "ports": [
+        {
+          "name": "regnum_a",
+          "direction": "input",
+          "width": "[4:0]"
+        },
+        {
+          "name": "regnum_b",
+          "direction": "input",
+          "width": "[4:0]"
+        },
+        {
+          "name": "write_regnum",
+          "direction": "input",
+          "width": "[4:0]"
+        },
+        {
+          "name": "data_in",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "write_enable",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "reset",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "CLK",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "regdata_a",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "regdata_b",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "sp_new",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "a0",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "a1",
+          "direction": "output",
+          "width": "[31:0]"
+        },
+        {
+          "name": "ra",
+          "direction": "output",
+          "width": "[31:0]"
+        }
+      ],
+      "signals": [
+        {
+          "name": "REGES",
+          "width": "[31:0]",
+          "kind": "reg"
+        }
+      ],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\RegFile.v"
+    },
+    {
+      "name": "Register",
+      "ports": [
+        {
+          "name": "d",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "CLK",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "we",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "reset",
+          "direction": "input",
+          "width": null
+        },
+        {
+          "name": "default_value",
+          "direction": "input",
+          "width": "[31:0]"
+        },
+        {
+          "name": "q",
+          "direction": "output",
+          "width": "[31:0]"
+        }
+      ],
+      "signals": [],
+      "instances": [],
+      "source_file": "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05\\Register.v"
+    }
+  ]
+}
