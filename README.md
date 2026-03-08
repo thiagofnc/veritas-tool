@@ -2,7 +2,7 @@
 
 ## Naming
 
-Still deciding on the final project name: Verilogix, Silica, Verilium, or ArchRTL.
+Still deciding on the final project name: Verilogix, Silica, Verilium, Synthium or ArchRTL.
 
 A very simple backend-only MVP scaffold for analyzing Verilog projects.
 
