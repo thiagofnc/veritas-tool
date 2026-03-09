@@ -1,16 +1,44 @@
 ﻿"""Graph builders for hierarchy and module-internal connectivity views."""
 
 from collections import defaultdict
+import re
 from typing import Any
 
 try:
-    from app.models import Instance, ModuleDef, Project
+    from app.models import Instance, ModuleDef, Port, Project, Signal
 except ImportError:  # Supports running as: python app/main.py
-    from models import Instance, ModuleDef, Project
+    from models import Instance, ModuleDef, Port, Project, Signal
 
 
 GRAPH_SCHEMA_VERSION = "1.0"
-CONNECTIVITY_SCHEMA_VERSION = "1.0-connectivity"
+CONNECTIVITY_SCHEMA_VERSION = "1.1-connectivity"
+
+_WIDTH_RANGE_RE = re.compile(r"\[\s*([^:\]]+)\s*:\s*([^\]]+)\s*\]")
+_SIMPLE_SIGNAL_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_$]*)(?:\[(.+)\])?$")
+_PARTSELECT_RE = re.compile(r"^(.+?)(\+:|-:)\s*(.+)$")
+
+
+def _parse_simple_int(token: str) -> int | None:
+    text = token.strip().replace("_", "")
+    if re.fullmatch(r"\d+", text):
+        return int(text)
+    return None
+
+
+def _infer_decl_width(width: str | None) -> tuple[int | None, bool]:
+    if not width:
+        return (1, False)
+
+    match = _WIDTH_RANGE_RE.search(width)
+    if not match:
+        return (None, True)
+
+    msb = _parse_simple_int(match.group(1))
+    lsb = _parse_simple_int(match.group(2))
+    if msb is None or lsb is None:
+        return (None, True)
+
+    return (abs(msb - lsb) + 1, True)
 
 
 def _build_module_lookup(modules: list[ModuleDef]) -> dict[str, ModuleDef]:
@@ -19,6 +47,192 @@ def _build_module_lookup(modules: list[ModuleDef]) -> dict[str, ModuleDef]:
         # Keep first definition if duplicates exist.
         lookup.setdefault(module.name, module)
     return lookup
+
+
+def _port_metadata(module_def: ModuleDef, port_name: str) -> dict[str, Any]:
+    for port in module_def.ports:
+        if port.name != port_name:
+            continue
+
+        bit_width = getattr(port, "bit_width", None)
+        is_bus = bool(getattr(port, "is_bus", False))
+        if bit_width is None:
+            inferred_width, inferred_bus = _infer_decl_width(getattr(port, "width", None))
+            bit_width = inferred_width
+            is_bus = is_bus or inferred_bus
+
+        if bit_width is not None and bit_width > 1:
+            is_bus = True
+
+        return {
+            "direction": (port.direction or "unknown").lower(),
+            "declared_width": port.width,
+            "bit_width": bit_width,
+            "is_bus": is_bus,
+            "signal_kind": "port",
+        }
+
+    return {
+        "direction": "unknown",
+        "declared_width": None,
+        "bit_width": None,
+        "is_bus": False,
+        "signal_kind": "unknown",
+    }
+
+
+def _build_signal_lookup(module_def: ModuleDef) -> dict[str, dict[str, Any]]:
+    lookup: dict[str, dict[str, Any]] = {}
+
+    for signal in module_def.signals:
+        bit_width = getattr(signal, "bit_width", None)
+        is_bus = bool(getattr(signal, "is_bus", False))
+        if bit_width is None:
+            inferred_width, inferred_bus = _infer_decl_width(getattr(signal, "width", None))
+            bit_width = inferred_width
+            is_bus = is_bus or inferred_bus
+
+        if bit_width is not None and bit_width > 1:
+            is_bus = True
+
+        lookup[signal.name] = {
+            "declared_width": signal.width,
+            "bit_width": bit_width,
+            "is_bus": is_bus,
+            "signal_kind": signal.kind,
+        }
+
+    # Port declarations can also serve as in-scope signal declarations.
+    for port in module_def.ports:
+        if port.name in lookup:
+            continue
+
+        bit_width = getattr(port, "bit_width", None)
+        is_bus = bool(getattr(port, "is_bus", False))
+        if bit_width is None:
+            inferred_width, inferred_bus = _infer_decl_width(getattr(port, "width", None))
+            bit_width = inferred_width
+            is_bus = is_bus or inferred_bus
+
+        if bit_width is not None and bit_width > 1:
+            is_bus = True
+
+        lookup[port.name] = {
+            "declared_width": port.width,
+            "bit_width": bit_width,
+            "is_bus": is_bus,
+            "signal_kind": "port",
+        }
+
+    return lookup
+
+
+def _parse_signal_reference(signal_expr: str) -> dict[str, Any]:
+    normalized = " ".join(signal_expr.split())
+    match = _SIMPLE_SIGNAL_RE.match(normalized)
+    if not match:
+        return {
+            "expr": normalized,
+            "base_name": None,
+            "slice": None,
+            "bit_width": None,
+            "is_bus": False,
+        }
+
+    base_name = match.group(1)
+    selector = match.group(2)
+    if selector is None:
+        return {
+            "expr": normalized,
+            "base_name": base_name,
+            "slice": None,
+            "bit_width": None,
+            "is_bus": False,
+        }
+
+    selector_text = selector.strip()
+
+    partselect = _PARTSELECT_RE.match(selector_text)
+    if partselect:
+        width_token = partselect.group(3)
+        width_value = _parse_simple_int(width_token)
+        return {
+            "expr": normalized,
+            "base_name": base_name,
+            "slice": f"[{selector_text}]",
+            "bit_width": width_value,
+            "is_bus": True if width_value is None else width_value > 1,
+        }
+
+    if ":" in selector_text:
+        left, right = selector_text.split(":", maxsplit=1)
+        left_int = _parse_simple_int(left)
+        right_int = _parse_simple_int(right)
+        if left_int is not None and right_int is not None:
+            width_value = abs(left_int - right_int) + 1
+            return {
+                "expr": normalized,
+                "base_name": base_name,
+                "slice": f"[{selector_text}]",
+                "bit_width": width_value,
+                "is_bus": width_value > 1,
+            }
+
+        return {
+            "expr": normalized,
+            "base_name": base_name,
+            "slice": f"[{selector_text}]",
+            "bit_width": None,
+            "is_bus": True,
+        }
+
+    # Single-bit index selection.
+    return {
+        "expr": normalized,
+        "base_name": base_name,
+        "slice": f"[{selector_text}]",
+        "bit_width": 1,
+        "is_bus": False,
+    }
+
+
+def _signal_metadata_for_reference(
+    signal_expr: str,
+    signal_lookup: dict[str, dict[str, Any]],
+    endpoints: list[dict[str, Any]],
+) -> dict[str, Any]:
+    ref = _parse_signal_reference(signal_expr)
+    base_name = ref["base_name"]
+    declared = signal_lookup.get(base_name) if base_name else None
+
+    bit_width = ref["bit_width"]
+    if bit_width is None and declared is not None:
+        bit_width = declared.get("bit_width")
+
+    endpoint_widths = [ep.get("bit_width") for ep in endpoints if ep.get("bit_width") is not None]
+    if bit_width is None and endpoint_widths:
+        bit_width = max(endpoint_widths)
+
+    is_bus = bool(ref["is_bus"])
+    if declared is not None:
+        is_bus = is_bus or bool(declared.get("is_bus", False))
+
+    if not is_bus and any(bool(ep.get("is_bus", False)) for ep in endpoints):
+        is_bus = True
+
+    if not is_bus and bit_width is not None and bit_width > 1:
+        is_bus = True
+
+    return {
+        "signal_name": ref["expr"],
+        "signal_base": base_name,
+        "signal_slice": ref["slice"],
+        "declared_width": declared.get("declared_width") if declared else None,
+        "bit_width": bit_width,
+        "is_bus": is_bus,
+        "sig_class": "bus" if is_bus else "wire",
+        "signal_kind": declared.get("signal_kind") if declared else "unknown",
+    }
 
 
 def _port_direction(module_def: ModuleDef, port_name: str) -> str:
@@ -87,7 +301,11 @@ def _aggregate_compact_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]
                 "kind": edge.get("kind", "connection"),
                 "flow": edge.get("flow", "directed"),
                 "nets": [],
+                "bus_nets": [],
+                "wire_nets": [],
                 "connections": [],
+                "signal_kinds": [],
+                "bit_width": None,
             }
             grouped[key] = group
 
@@ -95,19 +313,54 @@ def _aggregate_compact_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]
         if net_name and net_name not in group["nets"]:
             group["nets"].append(net_name)
 
+        sig_class = edge.get("sig_class", "wire")
+        if sig_class == "bus" and net_name and net_name not in group["bus_nets"]:
+            group["bus_nets"].append(net_name)
+        elif sig_class != "bus" and net_name and net_name not in group["wire_nets"]:
+            group["wire_nets"].append(net_name)
+
+        signal_kind = edge.get("signal_kind", "unknown")
+        if signal_kind not in group["signal_kinds"]:
+            group["signal_kinds"].append(signal_kind)
+
+        bit_width = edge.get("bit_width")
+        if isinstance(bit_width, int):
+            existing = group.get("bit_width")
+            group["bit_width"] = bit_width if existing is None else max(existing, bit_width)
+
         group["connections"].append(
             {
                 "net": net_name,
                 "source_port": edge.get("source_port", ""),
                 "target_port": edge.get("target_port", ""),
+                "sig_class": sig_class,
+                "bit_width": edge.get("bit_width"),
+                "signal_slice": edge.get("signal_slice"),
             }
         )
 
     aggregated: list[dict[str, Any]] = []
     for group in grouped.values():
         group["net_count"] = len(group["nets"])
+        group["bus_net_count"] = len(group["bus_nets"])
+        group["wire_net_count"] = len(group["wire_nets"])
+
+        if group["bus_net_count"] and group["wire_net_count"]:
+            group["sig_class"] = "mixed"
+            group["is_bus"] = True
+        elif group["bus_net_count"]:
+            group["sig_class"] = "bus"
+            group["is_bus"] = True
+        else:
+            group["sig_class"] = "wire"
+            group["is_bus"] = False
+
         if group["net_count"] == 1:
             group["net"] = group["nets"][0]
+
+        if len(group["signal_kinds"]) == 1:
+            group["signal_kind"] = group["signal_kinds"][0]
+
         aggregated.append(group)
 
     aggregated.sort(key=lambda edge: (edge["source"], edge["target"], edge.get("flow", "")))
@@ -133,6 +386,8 @@ def build_module_connectivity_graph(
     module_def = module_lookup.get(module_name)
     if module_def is None:
         raise ValueError(f"Module not found in project: {module_name}")
+
+    signal_lookup = _build_signal_lookup(module_def)
 
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -165,22 +420,33 @@ def build_module_connectivity_graph(
 
     # Module I/O as first-class endpoints in this module-scope connectivity view.
     for port in sorted(module_def.ports, key=lambda p: p.name):
+        port_meta = _port_metadata(module_def, port.name)
         node_id = f"io:{port.name}"
+
+        label_suffix = f"[{port_meta['bit_width']}]" if port_meta["bit_width"] and port_meta["bit_width"] > 1 else ""
         add_node(
             {
                 "id": node_id,
-                "label": f"{port.name} ({port.direction})",
+                "label": f"{port.name} ({port.direction}) {label_suffix}".strip(),
                 "kind": "module_io",
                 "port_name": port.name,
                 "direction": (port.direction or "unknown").lower(),
+                "declared_width": port_meta["declared_width"],
+                "bit_width": port_meta["bit_width"],
+                "is_bus": port_meta["is_bus"],
+                "sig_class": "bus" if port_meta["is_bus"] else "wire",
+                "signal_kind": "port",
             }
         )
+
         attachments_by_signal[port.name].append(
             {
                 "node_id": node_id,
                 "endpoint_kind": "module_io",
                 "port_name": port.name,
                 "direction": (port.direction or "unknown").lower(),
+                "bit_width": port_meta["bit_width"],
+                "is_bus": port_meta["is_bus"],
             }
         )
 
@@ -200,9 +466,14 @@ def build_module_connectivity_graph(
         child_module_def = module_lookup.get(instance.module_name)
 
         for child_port, parent_signal in _instance_pin_pairs(instance):
-            direction = "unknown"
+            port_meta = {
+                "direction": "unknown",
+                "declared_width": None,
+                "bit_width": None,
+                "is_bus": False,
+            }
             if child_module_def is not None:
-                direction = _port_direction(child_module_def, child_port)
+                port_meta = _port_metadata(child_module_def, child_port)
 
             attachments_by_signal[parent_signal].append(
                 {
@@ -211,35 +482,60 @@ def build_module_connectivity_graph(
                     "instance_name": instance.name,
                     "module_name": instance.module_name,
                     "port_name": child_port,
-                    "direction": direction,
+                    "direction": port_meta["direction"],
+                    "bit_width": port_meta["bit_width"],
+                    "is_bus": port_meta["is_bus"],
                 }
             )
 
     if mode == "detailed":
         for signal_name in sorted(attachments_by_signal):
+            endpoints = attachments_by_signal[signal_name]
+            signal_meta = _signal_metadata_for_reference(signal_name, signal_lookup, endpoints)
+
             net_id = f"net:{signal_name}"
+            label_suffix = f"[{signal_meta['bit_width']}]" if signal_meta["bit_width"] and signal_meta["bit_width"] > 1 else ""
             add_node(
                 {
                     "id": net_id,
-                    "label": signal_name,
+                    "label": f"{signal_name} {label_suffix}".strip(),
                     "kind": "net",
                     "signal_name": signal_name,
+                    "signal_base": signal_meta["signal_base"],
+                    "signal_slice": signal_meta["signal_slice"],
+                    "declared_width": signal_meta["declared_width"],
+                    "bit_width": signal_meta["bit_width"],
+                    "is_bus": signal_meta["is_bus"],
+                    "sig_class": signal_meta["sig_class"],
+                    "signal_kind": signal_meta["signal_kind"],
                 }
             )
 
-            for endpoint in attachments_by_signal[signal_name]:
+            for endpoint in endpoints:
                 role = _endpoint_flow_role(endpoint)
+
+                edge_meta = {
+                    "kind": "connection",
+                    "net": signal_name,
+                    "signal_name": signal_meta["signal_name"],
+                    "signal_base": signal_meta["signal_base"],
+                    "signal_slice": signal_meta["signal_slice"],
+                    "declared_width": signal_meta["declared_width"],
+                    "bit_width": signal_meta["bit_width"],
+                    "is_bus": signal_meta["is_bus"],
+                    "sig_class": signal_meta["sig_class"],
+                    "signal_kind": signal_meta["signal_kind"],
+                }
 
                 if role in {"source", "bidir"}:
                     add_edge(
                         {
                             "source": endpoint["node_id"],
                             "target": net_id,
-                            "kind": "connection",
-                            "net": signal_name,
                             "source_port": endpoint["port_name"],
                             "target_port": signal_name,
                             "flow": "directed",
+                            **edge_meta,
                         }
                     )
 
@@ -248,11 +544,10 @@ def build_module_connectivity_graph(
                         {
                             "source": net_id,
                             "target": endpoint["node_id"],
-                            "kind": "connection",
-                            "net": signal_name,
                             "source_port": signal_name,
                             "target_port": endpoint["port_name"],
                             "flow": "directed",
+                            **edge_meta,
                         }
                     )
 
@@ -261,19 +556,33 @@ def build_module_connectivity_graph(
                         {
                             "source": net_id,
                             "target": endpoint["node_id"],
-                            "kind": "connection",
-                            "net": signal_name,
                             "source_port": signal_name,
                             "target_port": endpoint["port_name"],
                             "flow": "unknown",
+                            **edge_meta,
                         }
                     )
 
     else:
         for signal_name in sorted(attachments_by_signal):
             endpoints = attachments_by_signal[signal_name]
+            signal_meta = _signal_metadata_for_reference(signal_name, signal_lookup, endpoints)
+
             sources = [ep for ep in endpoints if _endpoint_flow_role(ep) in {"source", "bidir"}]
             sinks = [ep for ep in endpoints if _endpoint_flow_role(ep) in {"sink", "bidir"}]
+
+            edge_meta = {
+                "kind": "connection",
+                "net": signal_name,
+                "signal_name": signal_meta["signal_name"],
+                "signal_base": signal_meta["signal_base"],
+                "signal_slice": signal_meta["signal_slice"],
+                "declared_width": signal_meta["declared_width"],
+                "bit_width": signal_meta["bit_width"],
+                "is_bus": signal_meta["is_bus"],
+                "sig_class": signal_meta["sig_class"],
+                "signal_kind": signal_meta["signal_kind"],
+            }
 
             if sources and sinks:
                 for source in sources:
@@ -285,11 +594,10 @@ def build_module_connectivity_graph(
                             {
                                 "source": source["node_id"],
                                 "target": sink["node_id"],
-                                "kind": "connection",
-                                "net": signal_name,
                                 "source_port": source["port_name"],
                                 "target_port": sink["port_name"],
                                 "flow": "directed",
+                                **edge_meta,
                             }
                         )
             else:
@@ -304,11 +612,10 @@ def build_module_connectivity_graph(
                             {
                                 "source": left["node_id"],
                                 "target": right["node_id"],
-                                "kind": "connection",
-                                "net": signal_name,
                                 "source_port": left["port_name"],
                                 "target_port": right["port_name"],
                                 "flow": "unknown",
+                                **edge_meta,
                             }
                         )
 

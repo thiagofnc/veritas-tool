@@ -1,4 +1,4 @@
-import unittest
+﻿import unittest
 
 from app.graph_builder import build_hierarchy_graph, build_module_connectivity_graph
 from app.models import Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile
@@ -41,6 +41,45 @@ class TestGraphBuilder(unittest.TestCase):
             ],
         )
 
+    def _build_bus_project(self) -> Project:
+        return Project(
+            root_path=".",
+            source_files=[SourceFile(path="top_bus.v"), SourceFile(path="child_bus.v")],
+            modules=[
+                ModuleDef(
+                    name="top_bus",
+                    ports=[
+                        Port(name="din", direction="input", width="[31:0]"),
+                        Port(name="dout", direction="output", width="[31:0]"),
+                    ],
+                    signals=[Signal(name="local_scalar", kind="wire")],
+                    instances=[
+                        Instance(
+                            name="u_bus",
+                            module_name="child_bus",
+                            connections={"a": "din", "y": "dout", "s": "local_scalar"},
+                            pin_connections=[
+                                PinConnection(child_port="a", parent_signal="din"),
+                                PinConnection(child_port="y", parent_signal="dout"),
+                                PinConnection(child_port="s", parent_signal="local_scalar"),
+                            ],
+                        )
+                    ],
+                    source_file="top_bus.v",
+                ),
+                ModuleDef(
+                    name="child_bus",
+                    ports=[
+                        Port(name="a", direction="input", width="[31:0]"),
+                        Port(name="y", direction="output", width="[31:0]"),
+                        Port(name="s", direction="input"),
+                    ],
+                    instances=[],
+                    source_file="child_bus.v",
+                ),
+            ],
+        )
+
     def test_builds_stable_hierarchy_schema(self) -> None:
         project = self._build_project()
         graph = build_hierarchy_graph(project, "top")
@@ -59,7 +98,7 @@ class TestGraphBuilder(unittest.TestCase):
         project = self._build_project()
         graph = build_module_connectivity_graph(project, "top", mode="compact")
 
-        self.assertEqual(graph["schema_version"], "1.0-connectivity")
+        self.assertEqual(graph["schema_version"], "1.1-connectivity")
         self.assertEqual(graph["focus_module"], "top")
         self.assertEqual(graph["mode"], "compact")
 
@@ -90,6 +129,22 @@ class TestGraphBuilder(unittest.TestCase):
                 for edge in graph["edges"]
             )
         )
+
+    def test_marks_bus_nodes_and_edges_and_aggregates_compact_edges(self) -> None:
+        project = self._build_bus_project()
+        graph = build_module_connectivity_graph(project, "top_bus", mode="compact", aggregate_edges=True)
+
+        bus_io = next(node for node in graph["nodes"] if node["id"] == "io:din")
+        self.assertTrue(bus_io["is_bus"])
+        self.assertEqual(bus_io["bit_width"], 32)
+
+        bus_edges = [edge for edge in graph["edges"] if edge.get("sig_class") in {"bus", "mixed"}]
+        self.assertTrue(bus_edges)
+        self.assertTrue(all("net_count" in edge for edge in graph["edges"]))
+
+        # The aggregated edge should preserve bus metadata.
+        self.assertTrue(any(edge.get("is_bus") for edge in bus_edges))
+        self.assertTrue(any(edge.get("bit_width") == 32 for edge in bus_edges))
 
 
 if __name__ == "__main__":

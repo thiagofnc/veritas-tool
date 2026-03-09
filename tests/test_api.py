@@ -93,7 +93,7 @@ endmodule
             connectivity_response = self.client.get("/api/project/connectivity/top?mode=compact")
             self.assertEqual(connectivity_response.status_code, 200)
             connectivity_graph = connectivity_response.json()
-            self.assertEqual(connectivity_graph["schema_version"], "1.0-connectivity")
+            self.assertEqual(connectivity_graph["schema_version"], "1.1-connectivity")
             self.assertEqual(connectivity_graph["focus_module"], "top")
             self.assertEqual(connectivity_graph["mode"], "compact")
 
@@ -110,4 +110,5 @@ endmodule
 
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -51,7 +51,7 @@ endmodule
             self.assertEqual(hierarchy_graph["schema_version"], "1.0")
 
             connectivity_graph = service.get_module_connectivity_graph("top", mode="compact")
-            self.assertEqual(connectivity_graph["schema_version"], "1.0-connectivity")
+            self.assertEqual(connectivity_graph["schema_version"], "1.1-connectivity")
             self.assertEqual(connectivity_graph["focus_module"], "top")
 
             node_ids = {node["id"] for node in connectivity_graph["nodes"]}
@@ -82,4 +82,5 @@ endmodule
 
 if __name__ == "__main__":
     unittest.main()
+
 

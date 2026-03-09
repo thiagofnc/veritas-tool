@@ -78,6 +78,19 @@ function countByKind(items) {
   return counts;
 }
 
+function countEdgeSignalClasses(edges) {
+  const counts = { bus: 0, wire: 0, mixed: 0, unknown: 0 };
+  for (const edge of edges) {
+    const key = edge.sig_class || "unknown";
+    if (counts[key] === undefined) {
+      counts.unknown += 1;
+      continue;
+    }
+    counts[key] += 1;
+  }
+  return counts;
+}
+
 function getRenderableGraph(graph) {
   if (!graph) {
     return null;
@@ -229,7 +242,7 @@ function renderHierarchyTree() {
   hierarchyTree.appendChild(rootList);
 }
 
-function renderGraphStats(nodeCounts, edgeCounts) {
+function renderGraphStats(nodeCounts, edgeCounts, edgeSignalCounts) {
   const nodeKinds = [
     { key: "instance", label: "instance nodes" },
     { key: "module_io", label: "module I/O nodes" },
@@ -256,6 +269,12 @@ function renderGraphStats(nodeCounts, edgeCounts) {
     pills.push(
       `<span class="stat-pill connection"><strong>${kind.label}</strong>${edgeCounts[kind.key] || 0}</span>`
     );
+  }
+
+  pills.push(`<span class="stat-pill bus"><strong>bus edges</strong>${edgeSignalCounts.bus || 0}</span>`);
+  pills.push(`<span class="stat-pill wire"><strong>wire edges</strong>${edgeSignalCounts.wire || 0}</span>`);
+  if (edgeSignalCounts.mixed) {
+    pills.push(`<span class="stat-pill mixed"><strong>mixed edges</strong>${edgeSignalCounts.mixed}</span>`);
   }
 
   graphStats.classList.remove("empty");
@@ -322,6 +341,13 @@ function ensureCytoscape() {
         },
       },
       {
+        selector: "node[is_bus = 1]",
+        style: {
+          "border-width": 2.5,
+          "border-color": "#7ec6ff",
+        },
+      },
+      {
         selector: "node:selected",
         style: {
           "border-width": 3,
@@ -343,6 +369,32 @@ function ensureCytoscape() {
         },
       },
       {
+        selector: 'edge[sig_class = "wire"]',
+        style: {
+          width: 1.8,
+          "line-color": "#42d392",
+          "target-arrow-color": "#42d392",
+        },
+      },
+      {
+        selector: 'edge[sig_class = "bus"]',
+        style: {
+          width: 3.1,
+          "line-color": "#4fb6ff",
+          "target-arrow-color": "#4fb6ff",
+          "arrow-scale": 0.85,
+        },
+      },
+      {
+        selector: 'edge[sig_class = "mixed"]',
+        style: {
+          width: 2.7,
+          "line-color": "#82c8ff",
+          "target-arrow-color": "#82c8ff",
+          "arrow-scale": 0.8,
+        },
+      },
+      {
         selector: 'edge[flow = "unknown"]',
         style: {
           "line-style": "dashed",
@@ -354,7 +406,7 @@ function ensureCytoscape() {
       {
         selector: "edge:selected",
         style: {
-          width: 3,
+          width: 3.4,
           "line-color": "#ffc857",
           "target-arrow-color": "#ffc857",
         },
@@ -407,10 +459,11 @@ function ensureCytoscape() {
 
   state.cy.on("mouseover", "node", (event) => {
     const data = event.target.data();
+    const widthHint = data.bit_width && data.bit_width > 1 ? ` | bus [${data.bit_width}]` : data.is_bus ? " | bus" : " | wire";
     const drillHint = data.kind === "instance" ? '<div class="kind">Double-click to drill into module</div>' : "";
     hoverTooltip.innerHTML = `
       <div>${escapeHtml(data.label || data.id)}</div>
-      <div class="kind">${escapeHtml(data.kind || "node")} | ${escapeHtml(data.id)}</div>
+      <div class="kind">${escapeHtml(data.kind || "node")} | ${escapeHtml(data.id)}${escapeHtml(widthHint)}</div>
       ${drillHint}
     `;
     hoverTooltip.style.display = "block";
@@ -420,13 +473,18 @@ function ensureCytoscape() {
 
   state.cy.on("mouseover", "edge", (event) => {
     const data = event.target.data();
-    const netSummary = data.nets?.length ? `${data.nets.slice(0, 4).join(", ")}${data.nets.length > 4 ? " ..." : ""}` : data.net || "(unnamed net)";
+    const netSummary = data.nets?.length
+      ? `${data.nets.slice(0, 4).join(", ")}${data.nets.length > 4 ? " ..." : ""}`
+      : data.net || "(unnamed net)";
     const countText = data.net_count ? `nets: ${data.net_count}` : "";
+    const classText = data.sig_class || "wire";
+    const widthText = data.bit_width && data.bit_width > 1 ? `width: ${data.bit_width}` : "width: 1";
 
     hoverTooltip.innerHTML = `
       <div>${escapeHtml(netSummary)}</div>
       <div class="kind">${escapeHtml(data.source)} -> ${escapeHtml(data.target)}</div>
-      <div class="kind">${escapeHtml(data.flow || "directed")}${countText ? ` | ${escapeHtml(countText)}` : ""}</div>
+      <div class="kind">${escapeHtml(classText)} | ${escapeHtml(widthText)}${countText ? ` | ${escapeHtml(countText)}` : ""}</div>
+      <div class="kind">${escapeHtml(data.flow || "directed")}</div>
     `;
     hoverTooltip.style.display = "block";
     const p = event.renderedPosition;
@@ -471,11 +529,18 @@ function hideTooltip() {
 }
 
 function buildCyElements(graph) {
-  const nodes = (graph.nodes || []).map((node) => ({ data: { ...node } }));
+  const nodes = (graph.nodes || []).map((node) => ({
+    data: {
+      ...node,
+      is_bus: node.is_bus ? 1 : 0,
+    },
+  }));
 
   const edges = (graph.edges || []).map((edge, index) => ({
     data: {
       ...edge,
+      is_bus: edge.is_bus ? 1 : 0,
+      sig_class: edge.sig_class || "wire",
       id: `${edge.source}->${edge.target}:${edge.kind || "connection"}:${index}`,
     },
   }));
@@ -556,10 +621,16 @@ function renderInspector() {
       }
     }
 
+    const widthText = state.selectedNode.bit_width && state.selectedNode.bit_width > 1
+      ? `[${state.selectedNode.bit_width}]`
+      : "1";
+
     selectionBlock = `
       <hr style="border-color:#2b3f4d;border-style:solid;border-width:1px 0 0; margin:10px 0;" />
       <div><span class="k">Selected node:</span> ${escapeHtml(state.selectedNode.label || state.selectedNode.id)}</div>
       <div><span class="k">Kind:</span> ${escapeHtml(state.selectedNode.kind || "unknown")}</div>
+      <div><span class="k">Signal class:</span> ${state.selectedNode.is_bus ? "bus" : "wire"}</div>
+      <div><span class="k">Bit width:</span> ${escapeHtml(widthText)}</div>
       <div><span class="k">ID:</span><br>${escapeHtml(state.selectedNode.id)}</div>
       <div><span class="k">Connected edges:</span> ${connected}</div>
       <div><span class="k">Double-click behavior:</span> ${state.selectedNode.kind === "instance" ? "Open instance module graph" : "N/A"}</div>
@@ -569,12 +640,18 @@ function renderInspector() {
       ? `${state.selectedEdge.nets.slice(0, 8).join(", ")}${state.selectedEdge.nets.length > 8 ? " ..." : ""}`
       : state.selectedEdge.net || "(unnamed net)";
 
+    const widthText = state.selectedEdge.bit_width && state.selectedEdge.bit_width > 1
+      ? `[${state.selectedEdge.bit_width}]`
+      : "1";
+
     selectionBlock = `
       <hr style="border-color:#2b3f4d;border-style:solid;border-width:1px 0 0; margin:10px 0;" />
       <div><span class="k">Selected connection:</span> ${escapeHtml(netInfo)}</div>
       <div><span class="k">From:</span> ${escapeHtml(state.selectedEdge.source)}</div>
       <div><span class="k">To:</span> ${escapeHtml(state.selectedEdge.target)}</div>
       <div><span class="k">Flow:</span> ${escapeHtml(state.selectedEdge.flow || "directed")}</div>
+      <div><span class="k">Signal class:</span> ${escapeHtml(state.selectedEdge.sig_class || "wire")}</div>
+      <div><span class="k">Bit width:</span> ${escapeHtml(widthText)}</div>
       <div><span class="k">Net count:</span> ${state.selectedEdge.net_count || 1}</div>
     `;
   }
@@ -613,10 +690,11 @@ function renderGraph(rawGraph) {
   const graph = getRenderableGraph(rawGraph);
   const nodeCounts = countByKind(graph.nodes || []);
   const edgeCounts = countByKind(graph.edges || []);
+  const edgeSignalCounts = countEdgeSignalClasses(graph.edges || []);
 
   const focus = graph.focus_module || graph.top_module || state.selectedModule || "(unknown)";
   graphTag.textContent = `Connectivity: ${focus} | mode: ${graph.mode || state.graphMode} | nodes: ${graph.nodes.length} | edges: ${graph.edges.length}`;
-  renderGraphStats(nodeCounts, edgeCounts);
+  renderGraphStats(nodeCounts, edgeCounts, edgeSignalCounts);
 
   const preview = {
     schema_version: graph.schema_version,
@@ -631,6 +709,7 @@ function renderGraph(rawGraph) {
     },
     node_kind_counts: nodeCounts,
     edge_kind_counts: edgeCounts,
+    edge_signal_class_counts: edgeSignalCounts,
     sample_nodes: (graph.nodes || []).slice(0, 8),
     sample_edges: (graph.edges || []).slice(0, 8),
   };

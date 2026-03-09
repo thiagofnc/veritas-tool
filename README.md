@@ -36,8 +36,8 @@ Build an executable architecture explorer that lets a user choose a local RTL fo
   - instances
   - pin-level mappings
 - top-module inference and hierarchy tree generation
-- connectivity graph generation with directed edges
-- compact graph edge aggregation (reduce edge clutter)
+- connectivity graph generation with directed edges and width-aware signal metadata
+- compact graph edge aggregation (reduce edge clutter while preserving per-net details)
 - JSON export of full parsed project
 - FastAPI service layer + REST endpoints
 - browser UI with graph rendering, drill-down, and inspector
@@ -90,12 +90,13 @@ Generates graph JSON for visualization.
 Connectivity graph modes:
 
 - `compact`: endpoint-to-endpoint connections
-- `detailed`: explicit `net` nodes in between endpoints
+- `detailed`: explicit `net` nodes in between endpoints (good for signal-level debugging)
 
 Directed-flow behavior:
 
 - uses port direction and instance pin direction when available
 - marks uncertain links as `flow = "unknown"`
+- tags edges as `wire`, `bus`, or `mixed` and includes inferred `bit_width` when available
 
 Compact aggregation:
 
@@ -116,8 +117,8 @@ Compact aggregation:
 Defined in `app/models.py`.
 
 - `SourceFile(path)`
-- `Port(name, direction, width=None)`
-- `Signal(name, width=None, kind="wire")`
+- `Port(name, direction, width=None, bit_width=None, is_bus=False)`
+- `Signal(name, width=None, kind="wire", bit_width=None, is_bus=False)`
 - `PinConnection(child_port, parent_signal)`
 - `Instance(name, module_name, connections, pin_connections)`
 - `ModuleDef(name, ports, signals, instances, source_file)`
@@ -195,7 +196,7 @@ Center panel:
 - graph mode selector (`compact` or `detailed`)
 - aggregate toggle
 - show-unknown toggle
-- directed graph view with fit-to-screen
+- directed graph view with fit-to-screen and bus-vs-wire visual encoding (thicker blue bus edges, thinner green wire edges)
 
 Graph interaction:
 
@@ -259,3 +260,5 @@ Do not commit generated parser/cache artifacts.
 - `parsetab.py`
 - `parser.out`
 - `__pycache__/`
+
+

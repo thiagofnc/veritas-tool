@@ -112,12 +112,14 @@
 
             <h3>Edge Types</h3>
             <ul class="legend-list">
-              <li><span class="chip connection"></span><strong>connection</strong>: signal flow between endpoints</li>
+              <li><span class="chip bus-edge"></span><strong>bus connection</strong>: wider blue edge, multi-bit signal path</li>
+              <li><span class="chip wire-edge"></span><strong>wire connection</strong>: thinner green edge, single-bit signal path</li>
+              <li><span class="chip connection"></span><strong>unknown connection</strong>: dashed edge when flow or width is uncertain</li>
             </ul>
 
             <p class="legend-note">
               In compact mode, edges are direct endpoint-to-endpoint links carrying net metadata.
-              Double-click an instance node to drill into that module.
+              Bus-vs-wire is inferred from declared widths and signal references. Double-click an instance node to drill into that module.
             </p>
           </section>
         </aside>
@@ -125,4 +127,5 @@
     </div>
   </body>
 </html>
+
 

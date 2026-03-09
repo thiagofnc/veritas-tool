@@ -15,6 +15,8 @@
   --net: #d58cff;
   --hierarchy: #98a6b3;
   --signal: #42d392;
+  --bus-edge: #4fb6ff;
+  --wire-edge: #42d392;
 }
 
 * {
@@ -417,6 +419,18 @@ body {
   border-color: #3a7b62;
 }
 
+.stat-pill.bus {
+  border-color: #3f79b8;
+}
+
+.stat-pill.wire {
+  border-color: #3a7b62;
+}
+
+.stat-pill.mixed {
+  border-color: #6795bf;
+}
+
 .graph-canvas {
   margin: 12px;
   border: 1px dashed #355264;
@@ -552,6 +566,14 @@ body {
   background: var(--signal);
 }
 
+.chip.bus-edge {
+  background: var(--bus-edge);
+}
+
+.chip.wire-edge {
+  background: var(--wire-edge);
+}
+
 .legend-note {
   margin: 0;
   color: var(--muted);
@@ -571,5 +593,8 @@ body {
     max-height: 24vh;
   }
 }
+
+
+
 
 

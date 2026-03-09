@@ -1,6 +1,33 @@
 ﻿"""Core data models for project scanning and future parsing."""
 
 from dataclasses import dataclass, field
+import re
+
+
+_WIDTH_RANGE_RE = re.compile(r"\[\s*([^:\]]+)\s*:\s*([^\]]+)\s*\]")
+
+
+def _parse_simple_int(token: str) -> int | None:
+    text = token.strip().replace("_", "")
+    if re.fullmatch(r"\d+", text):
+        return int(text)
+    return None
+
+
+def _infer_bus_metadata(width: str | None) -> tuple[int | None, bool]:
+    if not width:
+        return (1, False)
+
+    match = _WIDTH_RANGE_RE.search(width)
+    if not match:
+        return (None, True)
+
+    msb = _parse_simple_int(match.group(1))
+    lsb = _parse_simple_int(match.group(2))
+    if msb is None or lsb is None:
+        return (None, True)
+
+    return (abs(msb - lsb) + 1, True)
 
 
 @dataclass
@@ -13,6 +40,18 @@ class Port:
     name: str
     direction: str
     width: str | None = None
+    bit_width: int | None = None
+    is_bus: bool = False
+
+    def __post_init__(self) -> None:
+        inferred_width, inferred_is_bus = _infer_bus_metadata(self.width)
+        if self.bit_width is None:
+            self.bit_width = inferred_width
+
+        if inferred_is_bus:
+            self.is_bus = True
+        elif self.bit_width is not None and self.bit_width > 1:
+            self.is_bus = True
 
 
 @dataclass
@@ -20,6 +59,18 @@ class Signal:
     name: str
     width: str | None = None
     kind: str = "wire"
+    bit_width: int | None = None
+    is_bus: bool = False
+
+    def __post_init__(self) -> None:
+        inferred_width, inferred_is_bus = _infer_bus_metadata(self.width)
+        if self.bit_width is None:
+            self.bit_width = inferred_width
+
+        if inferred_is_bus:
+            self.is_bus = True
+        elif self.bit_width is not None and self.bit_width > 1:
+            self.is_bus = True
 
 
 @dataclass
