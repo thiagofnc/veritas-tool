@@ -142,10 +142,16 @@ def get_module_connectivity_graph(
     module_name: str,
     mode: str = Query(default="compact"),
     aggregate_edges: bool = Query(default=False),
+    port_view: bool = Query(default=False),
 ) -> dict[str, object]:
     try:
         with state_lock:
-            return state.service.get_module_connectivity_graph(module_name, mode=mode, aggregate_edges=aggregate_edges)
+            return state.service.get_module_connectivity_graph(
+                module_name,
+                mode=mode,
+                aggregate_edges=aggregate_edges,
+                port_view=port_view,
+            )
     except (RuntimeError, ValueError) as exc:
         raise _bad_request(str(exc)) from exc
 
@@ -162,4 +168,5 @@ def ui_index() -> FileResponse:
     if not UI_DIR.exists():
         raise HTTPException(status_code=404, detail="UI directory not found")
     return FileResponse(UI_DIR / "index.html")
+
 

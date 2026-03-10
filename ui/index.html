@@ -73,6 +73,10 @@
                 <input id="showUnknownToggle" type="checkbox" />
                 show unknown
               </label>
+              <label class="mini-check" for="portViewToggle">
+                <input id="portViewToggle" type="checkbox" checked />
+                port view
+              </label>
               <span id="graphTag">No graph loaded</span>
               <button id="fitBtn" type="button">Fit</button>
             </div>
@@ -106,7 +110,8 @@
             <h3>Node Types</h3>
             <ul class="legend-list">
               <li><span class="chip module-io"></span><strong>module_io</strong>: selected module interface endpoint</li>
-              <li><span class="chip instance"></span><strong>instance</strong>: one child instance inside the selected module</li>
+              <li><span class="chip instance"></span><strong>instance</strong>: child module block inside the selected module</li>
+              <li><span class="chip instance-port"></span><strong>instance_port</strong>: explicit input/output pin of a child module (port view)</li>
               <li><span class="chip net"></span><strong>net</strong>: parent-scope signal (shown in detailed mode)</li>
             </ul>
 
@@ -127,5 +132,6 @@
     </div>
   </body>
 </html>
+
 
 

@@ -102,6 +102,12 @@ endmodule
             aggregated_graph = aggregated_response.json()
             self.assertTrue(all("net_count" in edge for edge in aggregated_graph["edges"]))
 
+            port_view_response = self.client.get("/api/project/connectivity/top?mode=detailed&port_view=true")
+            self.assertEqual(port_view_response.status_code, 200)
+            port_view_graph = port_view_response.json()
+            self.assertTrue(port_view_graph["port_view"])
+            self.assertTrue(any(node["kind"] == "instance_port" for node in port_view_graph["nodes"]))
+
     def test_root_serves_ui_shell(self) -> None:
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
@@ -110,5 +116,6 @@ endmodule
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

@@ -147,5 +147,18 @@ class TestGraphBuilder(unittest.TestCase):
         self.assertTrue(any(edge.get("bit_width") == 32 for edge in bus_edges))
 
 
+    def test_port_view_adds_instance_port_nodes(self) -> None:
+        project = self._build_project()
+        graph = build_module_connectivity_graph(project, "top", mode="detailed", port_view=True)
+
+        self.assertTrue(graph["port_view"])
+
+        port_nodes = [node for node in graph["nodes"] if node.get("kind") == "instance_port"]
+        self.assertTrue(port_nodes)
+        self.assertTrue(any(node.get("instance_node_id") == "instance:u1" for node in port_nodes))
+
+        # In port-view mode, connectivity edges should land on explicit instance port nodes.
+        self.assertTrue(any(edge["target"].startswith("instance_port:u1.") for edge in graph["edges"]))
 if __name__ == "__main__":
     unittest.main()
+

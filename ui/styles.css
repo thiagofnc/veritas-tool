@@ -11,6 +11,7 @@
   --shadow: rgba(0, 0, 0, 0.35);
   --module: #3ea6ff;
   --instance: #ffb347;
+  --instance-port: #ffd38a;
   --port: #70e1c5;
   --net: #d58cff;
   --hierarchy: #98a6b3;
@@ -550,6 +551,10 @@ body {
   background: var(--instance);
 }
 
+.chip.instance-port {
+  background: var(--instance-port);
+}
+
 .chip.port {
   background: var(--port);
 }
@@ -593,6 +598,9 @@ body {
     max-height: 24vh;
   }
 }
+
+
+
 
 
 

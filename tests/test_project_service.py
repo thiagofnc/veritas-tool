@@ -61,6 +61,9 @@ endmodule
             aggregated_graph = service.get_module_connectivity_graph("top", mode="compact", aggregate_edges=True)
             self.assertTrue(all("net_count" in edge for edge in aggregated_graph["edges"]))
 
+            port_view_graph = service.get_module_connectivity_graph("top", mode="detailed", port_view=True)
+            self.assertTrue(any(node["kind"] == "instance_port" for node in port_view_graph["nodes"]))
+
             with self.assertRaises(ValueError):
                 service.get_hierarchy_tree("missing_module")
 
@@ -82,5 +85,6 @@ endmodule
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
