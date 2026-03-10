@@ -11,6 +11,7 @@
   --shadow: rgba(0, 0, 0, 0.35);
   --module: #3ea6ff;
   --instance: #ffb347;
+  --instance-port: #ffd38a;
   --port: #70e1c5;
   --net: #d58cff;
   --hierarchy: #98a6b3;
@@ -73,11 +74,12 @@ body {
   margin: 0;
   font-size: 1.05rem;
   letter-spacing: 0.03em;
+  color: #ff4d4d;
 }
 
 .brand p {
   margin: 2px 0 0;
-  color: var(--muted);
+  color: #ff8a8a;
   font-size: 0.82rem;
 }
 
@@ -550,6 +552,10 @@ body {
   background: var(--instance);
 }
 
+.chip.instance-port {
+  background: var(--instance-port);
+}
+
 .chip.port {
   background: var(--port);
 }
@@ -593,8 +599,4 @@ body {
     max-height: 24vh;
   }
 }
-
-
-
-
 

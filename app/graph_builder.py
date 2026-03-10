@@ -16,6 +16,7 @@ CONNECTIVITY_SCHEMA_VERSION = "1.1-connectivity"
 _WIDTH_RANGE_RE = re.compile(r"\[\s*([^:\]]+)\s*:\s*([^\]]+)\s*\]")
 _SIMPLE_SIGNAL_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_$]*)(?:\[(.+)\])?$")
 _PARTSELECT_RE = re.compile(r"^(.+?)(\+:|-:)\s*(.+)$")
+_POSITIONAL_ARG_RE = re.compile(r"^arg(\\d+)$")
 
 
 def _parse_simple_int(token: str) -> int | None:
@@ -287,6 +288,22 @@ def _instance_pin_pairs(instance: Instance) -> list[tuple[str, str]]:
     return cleaned
 
 
+def _resolve_child_port_name(child_port: str, child_module_def: ModuleDef | None) -> str:
+    """Map positional parser keys like arg0 to concrete child port names when possible."""
+    if child_module_def is None:
+        return child_port
+
+    match = _POSITIONAL_ARG_RE.fullmatch(child_port)
+    if not match:
+        return child_port
+
+    index = int(match.group(1))
+    if 0 <= index < len(child_module_def.ports):
+        return child_module_def.ports[index].name
+
+    return child_port
+
+
 def _aggregate_compact_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Collapse parallel compact edges by source/target/flow for cleaner layouts."""
     grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -372,12 +389,16 @@ def build_module_connectivity_graph(
     module_name: str,
     mode: str = "compact",
     aggregate_edges: bool = False,
+    port_view: bool = False,
 ) -> dict[str, Any]:
     """Build a module-scope connectivity graph from shared parent signals.
 
     Mode:
     - compact: instance/module-io nodes + direct connection edges with net metadata.
     - detailed: adds net nodes and routes connections through nets.
+
+    Port view:
+    - when enabled, exposes explicit instance port nodes so edges terminate on pins.
     """
     if mode not in {"compact", "detailed"}:
         raise ValueError("Unsupported connectivity mode. Use 'compact' or 'detailed'.")
@@ -452,6 +473,7 @@ def build_module_connectivity_graph(
 
     # Instance-level endpoints attached to parent-module signals.
     for instance in sorted(module_def.instances, key=lambda i: i.name):
+        instance_pin_pairs = _instance_pin_pairs(instance)
         instance_id = f"instance:{instance.name}"
         add_node(
             {
@@ -460,12 +482,15 @@ def build_module_connectivity_graph(
                 "kind": "instance",
                 "instance_name": instance.name,
                 "module_name": instance.module_name,
+                "port_view": port_view,
+                "port_count": len(instance_pin_pairs),
             }
         )
 
         child_module_def = module_lookup.get(instance.module_name)
 
-        for child_port, parent_signal in _instance_pin_pairs(instance):
+        for child_port, parent_signal in instance_pin_pairs:
+            resolved_child_port = _resolve_child_port_name(child_port, child_module_def)
             port_meta = {
                 "direction": "unknown",
                 "declared_width": None,
@@ -473,15 +498,36 @@ def build_module_connectivity_graph(
                 "is_bus": False,
             }
             if child_module_def is not None:
-                port_meta = _port_metadata(child_module_def, child_port)
+                port_meta = _port_metadata(child_module_def, resolved_child_port)
+
+            endpoint_node_id = instance_id
+            if port_view:
+                port_node_id = f"instance_port:{instance.name}.{resolved_child_port}"
+                endpoint_node_id = port_node_id
+                add_node(
+                    {
+                        "id": port_node_id,
+                        "label": resolved_child_port,
+                        "kind": "instance_port",
+                        "instance_name": instance.name,
+                        "instance_node_id": instance_id,
+                        "module_name": instance.module_name,
+                        "port_name": resolved_child_port,
+                        "direction": port_meta["direction"],
+                        "declared_width": port_meta["declared_width"],
+                        "bit_width": port_meta["bit_width"],
+                        "is_bus": port_meta["is_bus"],
+                        "sig_class": "bus" if port_meta["is_bus"] else "wire",
+                    }
+                )
 
             attachments_by_signal[parent_signal].append(
                 {
-                    "node_id": instance_id,
+                    "node_id": endpoint_node_id,
                     "endpoint_kind": "instance_pin",
                     "instance_name": instance.name,
                     "module_name": instance.module_name,
-                    "port_name": child_port,
+                    "port_name": resolved_child_port,
                     "direction": port_meta["direction"],
                     "bit_width": port_meta["bit_width"],
                     "is_bus": port_meta["is_bus"],
@@ -623,6 +669,7 @@ def build_module_connectivity_graph(
         "schema_version": CONNECTIVITY_SCHEMA_VERSION,
         "view": "module_connectivity",
         "mode": mode,
+        "port_view": port_view,
         "top_module": module_name,
         "focus_module": module_name,
         "nodes": nodes,
@@ -771,3 +818,11 @@ def build_hierarchy_graph(project: Project, top_module: str) -> dict[str, Any]:
         "nodes": nodes,
         "edges": edges,
     }
+
+
+
+
+
+
+
+

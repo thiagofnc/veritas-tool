@@ -15,6 +15,7 @@
   graphMode: "compact",
   aggregateEdges: true,
   showUnknownEdges: false,
+  portView: true,
   lastTapNodeId: null,
   lastTapTs: 0,
 };
@@ -27,6 +28,7 @@ const fitBtn = document.getElementById("fitBtn");
 const graphModeSelect = document.getElementById("graphModeSelect");
 const aggregateToggle = document.getElementById("aggregateToggle");
 const showUnknownToggle = document.getElementById("showUnknownToggle");
+const portViewToggle = document.getElementById("portViewToggle");
 const statusBadge = document.getElementById("statusBadge");
 const topList = document.getElementById("topList");
 const hierarchyTree = document.getElementById("hierarchyTree");
@@ -89,6 +91,37 @@ function countEdgeSignalClasses(edges) {
     counts[key] += 1;
   }
   return counts;
+}
+
+function enforcePortViewMode() {
+  if (state.portView) {
+    if (state.graphMode !== "compact") {
+      state.graphMode = "compact";
+    }
+    state.aggregateEdges = true;
+
+    graphModeSelect.value = "compact";
+    graphModeSelect.disabled = true;
+    graphModeSelect.title = "Port view uses compact mode";
+
+    aggregateToggle.checked = true;
+    aggregateToggle.disabled = true;
+    aggregateToggle.title = "Port view uses aggregated edges";
+    return;
+  }
+
+  graphModeSelect.disabled = false;
+  graphModeSelect.title = "";
+  aggregateToggle.disabled = false;
+  aggregateToggle.title = "";
+}
+
+function getEffectiveGraphMode() {
+  return state.portView ? "compact" : state.graphMode;
+}
+
+function getEffectiveAggregateEdges() {
+  return state.portView ? true : state.aggregateEdges;
 }
 
 function getRenderableGraph(graph) {
@@ -245,6 +278,7 @@ function renderHierarchyTree() {
 function renderGraphStats(nodeCounts, edgeCounts, edgeSignalCounts) {
   const nodeKinds = [
     { key: "instance", label: "instance nodes" },
+    { key: "instance_port", label: "instance pin nodes" },
     { key: "module_io", label: "module I/O nodes" },
     { key: "net", label: "net nodes" },
   ];
@@ -320,15 +354,68 @@ function ensureCytoscape() {
           shape: "diamond",
           width: 24,
           height: 24,
+          label: "",
+        },
+      },
+      {
+        selector: 'node[kind = "instance"][port_view = 1]',
+        style: {
+          shape: "round-rectangle",
+          width: "mapData(port_count, 0, 40, 90, 210)",
+          height: "mapData(port_count, 0, 40, 56, 220)",
+          "background-color": "#1a3a52",
+          "border-width": 2,
+          "border-color": "#5ea6d6",
+          label: "data(label)",
+          "font-size": 10,
+          color: "#d7e2e8",
+          "text-valign": "top",
+          "text-halign": "center",
+          "text-margin-y": 8,
+          "text-wrap": "ellipsis",
+          "text-max-width": 150,
+        },
+      },
+      {
+        selector: 'node[kind = "instance_port"]',
+        style: {
+          shape: "ellipse",
+          width: 9,
+          height: 9,
+          "background-color": "#ffd38a",
+          "border-width": 1,
+          "border-color": "#5b4a2f",
+          label: "",
+        },
+      },
+      {
+        selector: 'node[kind = "instance_port"][direction = "output"]',
+        style: {
+          "background-color": "#f0b35f",
+        },
+      },
+      {
+        selector: 'node[kind = "instance_port"][direction = "input"]',
+        style: {
+          "background-color": "#a3c6ff",
         },
       },
       {
         selector: 'node[kind = "module_io"]',
         style: {
-          "background-color": "#3ea6ff",
+          "background-color": "#174868",
           shape: "round-rectangle",
-          width: 30,
-          height: 20,
+          width: "mapData(bit_width, 1, 64, 94, 148)",
+          height: 26,
+          label: "data(port_name)",
+          color: "#d7e2e8",
+          "font-size": 9,
+          "text-valign": "center",
+          "text-halign": "center",
+          "text-wrap": "ellipsis",
+          "text-max-width": 128,
+          "border-width": 2,
+          "border-color": "#4ea6e2",
         },
       },
       {
@@ -366,6 +453,13 @@ function ensureCytoscape() {
           "taxi-direction": "rightward",
           "taxi-turn": 22,
           "taxi-turn-min-distance": 12,
+        },
+      },
+      {
+        selector: 'edge[port_view = 1]',
+        style: {
+          "curve-style": "straight",
+          "arrow-scale": 0.65,
         },
       },
       {
@@ -541,6 +635,7 @@ function buildCyElements(graph) {
       ...edge,
       is_bus: edge.is_bus ? 1 : 0,
       sig_class: edge.sig_class || "wire",
+      port_view: state.portView ? 1 : 0,
       id: `${edge.source}->${edge.target}:${edge.kind || "connection"}:${index}`,
     },
   }));
@@ -549,7 +644,7 @@ function buildCyElements(graph) {
 }
 
 function getLayoutRoots(graph) {
-  const nodes = graph.nodes || [];
+  const nodes = (graph.nodes || []).filter((node) => node.kind !== "instance_port");
   const edges = graph.edges || [];
 
   const incoming = new Map();
@@ -579,6 +674,285 @@ function getLayoutRoots(graph) {
   return nodes.length ? [nodes[0].id] : [];
 }
 
+function endpointToInstanceId(nodeId) {
+  if (!state.cy || !nodeId) {
+    return null;
+  }
+
+  const node = state.cy.getElementById(nodeId);
+  if (!node || node.empty()) {
+    return null;
+  }
+
+  const kind = node.data("kind");
+  if (kind === "instance") {
+    return node.id();
+  }
+
+  if (kind === "instance_port") {
+    return node.data("instance_node_id") || null;
+  }
+
+  return null;
+}
+
+function computePortViewInstanceLevels(graph) {
+  const instanceIds = state.cy.nodes('[kind = "instance"]').map((node) => node.id());
+  const indegree = new Map(instanceIds.map((id) => [id, 0]));
+  const outgoing = new Map(instanceIds.map((id) => [id, new Set()]));
+
+  for (const edge of graph.edges || []) {
+    const srcInst = endpointToInstanceId(edge.source);
+    const dstInst = endpointToInstanceId(edge.target);
+    if (!srcInst || !dstInst || srcInst === dstInst) {
+      continue;
+    }
+
+    const neighbors = outgoing.get(srcInst);
+    if (!neighbors || neighbors.has(dstInst)) {
+      continue;
+    }
+
+    neighbors.add(dstInst);
+    indegree.set(dstInst, (indegree.get(dstInst) || 0) + 1);
+  }
+
+  const level = new Map(instanceIds.map((id) => [id, 0]));
+  const queue = instanceIds.filter((id) => (indegree.get(id) || 0) === 0).sort();
+
+  while (queue.length) {
+    const current = queue.shift();
+    const currentLevel = level.get(current) || 0;
+    const neighbors = Array.from(outgoing.get(current) || []).sort();
+
+    for (const nextId of neighbors) {
+      level.set(nextId, Math.max(level.get(nextId) || 0, currentLevel + 1));
+      indegree.set(nextId, (indegree.get(nextId) || 0) - 1);
+      if ((indegree.get(nextId) || 0) === 0) {
+        queue.push(nextId);
+      }
+    }
+    queue.sort();
+  }
+
+  const unresolved = instanceIds.filter((id) => (indegree.get(id) || 0) > 0).sort();
+  for (const nodeId of unresolved) {
+    let inferredLevel = 0;
+    outgoing.forEach((targets, srcId) => {
+      if (targets.has(nodeId)) {
+        inferredLevel = Math.max(inferredLevel, (level.get(srcId) || 0) + 1);
+      }
+    });
+    level.set(nodeId, Math.max(level.get(nodeId) || 0, inferredLevel));
+  }
+
+  return level;
+}
+
+function placeInstancePortNodes() {
+  if (!state.cy) {
+    return;
+  }
+
+  const portNodes = state.cy.nodes('[kind = "instance_port"]');
+  if (!portNodes.length) {
+    return;
+  }
+
+  const grouped = new Map();
+  portNodes.forEach((portNode) => {
+    const parentId = portNode.data("instance_node_id");
+    if (!parentId) {
+      return;
+    }
+
+    if (!grouped.has(parentId)) {
+      grouped.set(parentId, []);
+    }
+    grouped.get(parentId).push(portNode);
+  });
+
+  grouped.forEach((ports, parentId) => {
+    const instanceNode = state.cy.getElementById(parentId);
+    if (!instanceNode || instanceNode.empty()) {
+      return;
+    }
+
+    const center = instanceNode.position();
+    const halfWidth = Math.max(44, instanceNode.outerWidth() / 2);
+    const halfHeight = Math.max(22, instanceNode.outerHeight() / 2);
+
+    const leftPorts = [];
+    const rightPorts = [];
+
+    for (const portNode of ports) {
+      const direction = (portNode.data("direction") || "unknown").toLowerCase();
+      if (direction === "output") {
+        rightPorts.push(portNode);
+      } else {
+        leftPorts.push(portNode);
+      }
+    }
+
+    const placeSide = (sidePorts, xOffset) => {
+      if (!sidePorts.length) {
+        return;
+      }
+
+      const step = (halfHeight * 1.8) / (sidePorts.length + 1);
+      sidePorts
+        .sort((a, b) => String(a.data("port_name")).localeCompare(String(b.data("port_name"))))
+        .forEach((node, idx) => {
+          node.position({
+            x: center.x + xOffset,
+            y: center.y - halfHeight * 0.9 + step * (idx + 1),
+          });
+        });
+    };
+
+    placeSide(leftPorts, -halfWidth - 9);
+    placeSide(rightPorts, halfWidth + 9);
+  });
+}
+
+function placeModuleIoNodes(leftX, rightX) {
+  if (!state.cy) {
+    return;
+  }
+
+  const ioNodes = state.cy.nodes('[kind = "module_io"]');
+  if (!ioNodes.length) {
+    return;
+  }
+
+  const averageConnectedInstanceY = (ioNode) => {
+    const ys = [];
+    ioNode.connectedEdges().forEach((edge) => {
+      const sourceId = edge.source().id();
+      const targetId = edge.target().id();
+      const otherId = sourceId === ioNode.id() ? targetId : sourceId;
+      const instanceId = endpointToInstanceId(otherId);
+      if (!instanceId) {
+        return;
+      }
+
+      const instanceNode = state.cy.getElementById(instanceId);
+      if (instanceNode && !instanceNode.empty()) {
+        ys.push(instanceNode.position("y"));
+      }
+    });
+
+    if (!ys.length) {
+      return null;
+    }
+
+    return ys.reduce((sum, value) => sum + value, 0) / ys.length;
+  };
+
+  const placeList = (nodes, x, fallbackStartY) => {
+    const enriched = nodes
+      .map((node) => ({
+        node,
+        y: averageConnectedInstanceY(node),
+        name: String(node.data("port_name") || node.data("label") || node.id()),
+      }))
+      .sort((a, b) => {
+        if (a.y !== null && b.y !== null) {
+          return a.y - b.y;
+        }
+        if (a.y !== null) {
+          return -1;
+        }
+        if (b.y !== null) {
+          return 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+
+    const minGap = 28;
+    let nextY = fallbackStartY;
+    for (const item of enriched) {
+      let y = item.y === null ? nextY : item.y;
+      if (y < nextY) {
+        y = nextY;
+      }
+
+      item.node.position({ x, y });
+      nextY = y + minGap;
+    }
+  };
+
+  const inputNodes = [];
+  const outputNodes = [];
+  const unknownNodes = [];
+
+  ioNodes.forEach((node) => {
+    const direction = String(node.data("direction") || "unknown").toLowerCase();
+    if (direction === "input") {
+      inputNodes.push(node);
+    } else if (direction === "output") {
+      outputNodes.push(node);
+    } else {
+      unknownNodes.push(node);
+    }
+  });
+
+  placeList(inputNodes, leftX, 110);
+  placeList(outputNodes, rightX, 110);
+  placeList(unknownNodes, leftX, 110 + inputNodes.length * 30 + 18);
+}
+
+function applyPortViewBlockLayout(graph) {
+  const instanceNodes = state.cy.nodes('[kind = "instance"]');
+  if (!instanceNodes.length) {
+    placeModuleIoNodes(120, 420);
+    return;
+  }
+
+  const levelByInstance = computePortViewInstanceLevels(graph);
+  const groupedByLevel = new Map();
+
+  instanceNodes.forEach((node) => {
+    const level = levelByInstance.get(node.id()) || 0;
+    if (!groupedByLevel.has(level)) {
+      groupedByLevel.set(level, []);
+    }
+    groupedByLevel.get(level).push(node);
+  });
+
+  const levels = Array.from(groupedByLevel.keys()).sort((a, b) => a - b);
+  const canvasHeight = cyGraph.clientHeight || 760;
+  const centerY = canvasHeight / 2;
+  const levelXStart = 360;
+  const levelXStep = 310;
+
+  for (const level of levels) {
+    const group = groupedByLevel
+      .get(level)
+      .sort((a, b) => String(a.data("instance_name") || a.data("label") || a.id()).localeCompare(
+        String(b.data("instance_name") || b.data("label") || b.id())
+      ));
+
+    const rowGap = group.length > 10 ? 156 : 186;
+    const totalHeight = Math.max(0, (group.length - 1) * rowGap);
+    const startY = centerY - totalHeight / 2;
+
+    group.forEach((node, idx) => {
+      node.position({
+        x: levelXStart + level * levelXStep,
+        y: startY + idx * rowGap,
+      });
+    });
+  }
+
+  placeInstancePortNodes();
+
+  const xs = instanceNodes.map((node) => node.position("x"));
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  placeModuleIoNodes(minX - 240, maxX + 240);
+}
+
 function renderCyGraph(graph) {
   if (!ensureCytoscape()) {
     return;
@@ -587,26 +961,31 @@ function renderCyGraph(graph) {
   state.cy.elements().remove();
   state.cy.add(buildCyElements(graph));
 
-  const roots = getLayoutRoots(graph);
-  const layout = {
-    name: "breadthfirst",
-    directed: true,
-    animate: false,
-    padding: 30,
-    spacingFactor: graph.nodes.length > 120 ? 1.05 : 1.28,
-    avoidOverlap: true,
-    transform: (_node, position) => ({ x: position.y, y: position.x }),
-  };
+  if (state.portView) {
+    applyPortViewBlockLayout(graph);
+  } else {
+    const roots = getLayoutRoots(graph);
+    const layout = {
+      name: "breadthfirst",
+      eles: state.cy.elements().not("node[kind = \"instance_port\"]"),
+      directed: true,
+      animate: false,
+      padding: 30,
+      spacingFactor: graph.nodes.length > 120 ? 1.05 : 1.28,
+      avoidOverlap: true,
+      transform: (_node, position) => ({ x: position.y, y: position.x }),
+    };
 
-  if (roots.length) {
-    layout.roots = roots;
+    if (roots.length) {
+      layout.roots = roots;
+    }
+
+    state.cy.layout(layout).run();
   }
 
-  state.cy.layout(layout).run();
   state.cy.fit(undefined, 30);
   graphEmpty.classList.add("hidden");
 }
-
 function renderInspector() {
   const summary = state.summary || {};
   const breadcrumbText = state.breadcrumb.length ? state.breadcrumb.join(" > ") : "(none)";
@@ -664,9 +1043,10 @@ function renderInspector() {
     <div><span class="k">Top candidates:</span> ${escapeHtml((summary.top_candidates || []).join(", ") || "(none)")}</div>
     <div><span class="k">Selected top:</span> ${escapeHtml(state.selectedTop || "(none)")}</div>
     <div><span class="k">Connectivity focus module:</span> ${escapeHtml(state.selectedModule || "(none)")}</div>
-    <div><span class="k">Graph mode:</span> ${escapeHtml(state.graphMode)}</div>
-    <div><span class="k">Aggregate edges:</span> ${state.aggregateEdges ? "on" : "off"}</div>
+    <div><span class="k">Graph mode:</span> ${escapeHtml(getEffectiveGraphMode())}</div>
+    <div><span class="k">Aggregate edges:</span> ${getEffectiveAggregateEdges() ? "on" : "off"}</div>
     <div><span class="k">Show unknown:</span> ${state.showUnknownEdges ? "on" : "off"}</div>
+    <div><span class="k">Port view:</span> ${state.portView ? "on" : "off"}</div>
     <div><span class="k">Breadcrumb:</span><br>${escapeHtml(breadcrumbText)}</div>
     ${selectionBlock}
   `;
@@ -693,7 +1073,7 @@ function renderGraph(rawGraph) {
   const edgeSignalCounts = countEdgeSignalClasses(graph.edges || []);
 
   const focus = graph.focus_module || graph.top_module || state.selectedModule || "(unknown)";
-  graphTag.textContent = `Connectivity: ${focus} | mode: ${graph.mode || state.graphMode} | nodes: ${graph.nodes.length} | edges: ${graph.edges.length}`;
+  graphTag.textContent = `Connectivity: ${focus} | mode: ${graph.mode || getEffectiveGraphMode()} | ports: ${state.portView ? "on" : "off"} | nodes: ${graph.nodes.length} | edges: ${graph.edges.length}`;
   renderGraphStats(nodeCounts, edgeCounts, edgeSignalCounts);
 
   const preview = {
@@ -701,8 +1081,9 @@ function renderGraph(rawGraph) {
     view: graph.view,
     focus_module: focus,
     mode: graph.mode,
-    aggregate_edges: state.aggregateEdges,
+    aggregate_edges: getEffectiveAggregateEdges(),
     show_unknown_edges: state.showUnknownEdges,
+    port_view: state.portView,
     interpretation: {
       note: "This view focuses on module-internal wiring between instances and module I/O.",
       drilldown: "Double-click instance node to open that child module connectivity view.",
@@ -734,10 +1115,12 @@ async function loadGraph(moduleName, breadcrumb = null) {
   renderTopList();
   renderBreadcrumb();
   renderHierarchyTree();
+  enforcePortViewMode();
 
   const params = new URLSearchParams({
-    mode: state.graphMode,
-    aggregate_edges: String(state.aggregateEdges),
+    mode: getEffectiveGraphMode(),
+    aggregate_edges: String(getEffectiveAggregateEdges()),
+    port_view: String(state.portView),
   });
 
   const graph = await apiRequest(`/api/project/connectivity/${encodeURIComponent(moduleName)}?${params.toString()}`);
@@ -833,6 +1216,12 @@ fitBtn.addEventListener("click", () => {
 
 graphModeSelect.addEventListener("change", async () => {
   state.graphMode = graphModeSelect.value;
+  const beforeMode = state.graphMode;
+  enforcePortViewMode();
+  if (state.portView && beforeMode !== "compact") {
+    setStatus("Port view uses compact mode", "busy");
+  }
+
   if (!state.selectedModule) {
     return;
   }
@@ -873,15 +1262,35 @@ showUnknownToggle.addEventListener("change", () => {
   renderInspector();
 });
 
+portViewToggle.addEventListener("change", async () => {
+  state.portView = portViewToggle.checked;
+  enforcePortViewMode();
+
+  if (!state.selectedModule) {
+    return;
+  }
+
+  try {
+    setStatus("Updating ports...", "busy");
+    await loadGraph(state.selectedModule, state.breadcrumb.length ? [...state.breadcrumb] : [state.selectedModule]);
+    setStatus("Graph updated", "ok");
+  } catch (error) {
+    setStatus("Graph update failed", "error");
+    inspector.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+  }
+});
+
 folderInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     handleLoad();
   }
 });
 
-graphModeSelect.value = state.graphMode;
-aggregateToggle.checked = state.aggregateEdges;
+enforcePortViewMode();
+graphModeSelect.value = getEffectiveGraphMode();
+aggregateToggle.checked = getEffectiveAggregateEdges();
 showUnknownToggle.checked = state.showUnknownEdges;
+portViewToggle.checked = state.portView;
 
 clearGraphStats();
 renderBreadcrumb();

@@ -87,14 +87,27 @@ class ProjectService:
         self.get_module(module_name)
         return build_hierarchy_graph(project, module_name)
 
-    def get_module_connectivity_graph(self, module_name: str, mode: str = "compact", aggregate_edges: bool = False) -> dict[str, Any]:
+    def get_module_connectivity_graph(
+        self,
+        module_name: str,
+        mode: str = "compact",
+        aggregate_edges: bool = False,
+        port_view: bool = False,
+    ) -> dict[str, Any]:
         """Build connectivity graph JSON for one module scope."""
         project = self._require_project()
         self.get_module(module_name)
-        return build_module_connectivity_graph(project, module_name, mode=mode, aggregate_edges=aggregate_edges)
+        return build_module_connectivity_graph(
+            project,
+            module_name,
+            mode=mode,
+            aggregate_edges=aggregate_edges,
+            port_view=port_view,
+        )
 
     def _require_project(self) -> Project:
         if self.project is None:
             raise RuntimeError("No project loaded. Call load_project(folder) first.")
         return self.project
+
 

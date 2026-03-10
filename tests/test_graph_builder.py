@@ -130,6 +130,17 @@ class TestGraphBuilder(unittest.TestCase):
             )
         )
 
+    def test_port_view_adds_instance_port_nodes(self) -> None:
+        project = self._build_project()
+        graph = build_module_connectivity_graph(project, "top", mode="compact", port_view=True)
+
+        self.assertTrue(graph["port_view"])
+        port_nodes = [node for node in graph["nodes"] if node.get("kind") == "instance_port"]
+        self.assertTrue(port_nodes)
+        self.assertTrue(any(node["id"].startswith("instance_port:u1.") for node in port_nodes))
+
+        # At least one edge should target a concrete instance pin node.
+        self.assertTrue(any(edge["target"].startswith("instance_port:u1.") for edge in graph["edges"]))
     def test_marks_bus_nodes_and_edges_and_aggregates_compact_edges(self) -> None:
         project = self._build_bus_project()
         graph = build_module_connectivity_graph(project, "top_bus", mode="compact", aggregate_edges=True)
@@ -149,3 +160,4 @@ class TestGraphBuilder(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
