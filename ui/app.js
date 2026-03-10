@@ -428,6 +428,16 @@ function ensureCytoscape() {
         },
       },
       {
+        selector: 'node[kind = "route_anchor"]',
+        style: {
+          width: 1,
+          height: 1,
+          opacity: 0,
+          events: "no",
+          label: "",
+        },
+      },
+      {
         selector: "node[is_bus = 1]",
         style: {
           "border-width": 2.5,
@@ -460,6 +470,20 @@ function ensureCytoscape() {
         style: {
           "curve-style": "straight",
           "arrow-scale": 0.65,
+          "line-opacity": 0.92,
+        },
+      },
+      {
+        selector: 'edge[route_segment = 1]',
+        style: {
+          "target-arrow-shape": "none",
+          "source-arrow-shape": "none",
+        },
+      },
+      {
+        selector: 'edge[route_segment = 1][segment_role = "target"]',
+        style: {
+          "target-arrow-shape": "triangle",
         },
       },
       {
@@ -623,6 +647,10 @@ function hideTooltip() {
 }
 
 function buildCyElements(graph) {
+  if (state.portView) {
+    return buildPortViewCyElements(graph);
+  }
+
   const nodes = (graph.nodes || []).map((node) => ({
     data: {
       ...node,
@@ -641,6 +669,100 @@ function buildCyElements(graph) {
   }));
 
   return [...nodes, ...edges];
+}
+
+function buildPortViewCyElements(graph) {
+  const elements = [];
+
+  for (const node of graph.nodes || []) {
+    elements.push({
+      data: {
+        ...node,
+        is_bus: node.is_bus ? 1 : 0,
+      },
+    });
+  }
+
+  (graph.edges || []).forEach((edge, index) => {
+    const baseId = `route:${index}`;
+    const routeMeta = {
+      ...edge,
+      is_bus: edge.is_bus ? 1 : 0,
+      sig_class: edge.sig_class || "wire",
+      port_view: 1,
+      route_segment: 1,
+      route_id: baseId,
+      route_index: index,
+    };
+
+    const routeNodes = [
+      { id: `${baseId}:a`, route_role: "stub_source" },
+      { id: `${baseId}:b`, route_role: "lane_entry" },
+      { id: `${baseId}:c`, route_role: "lane_exit" },
+      { id: `${baseId}:d`, route_role: "stub_target" },
+    ];
+
+    routeNodes.forEach((routeNode) => {
+      elements.push({
+        data: {
+          id: routeNode.id,
+          label: "",
+          kind: "route_anchor",
+          route_role: routeNode.route_role,
+          route_id: baseId,
+          route_index: index,
+          sig_class: routeMeta.sig_class,
+          is_bus: routeMeta.is_bus,
+          bit_width: routeMeta.bit_width,
+          signal_kind: routeMeta.signal_kind,
+        },
+      });
+    });
+
+    const segments = [
+      {
+        id: `${baseId}:seg0`,
+        source: edge.source,
+        target: `${baseId}:a`,
+        segment_role: "source",
+      },
+      {
+        id: `${baseId}:seg1`,
+        source: `${baseId}:a`,
+        target: `${baseId}:b`,
+        segment_role: "vertical_entry",
+      },
+      {
+        id: `${baseId}:seg2`,
+        source: `${baseId}:b`,
+        target: `${baseId}:c`,
+        segment_role: "trunk",
+      },
+      {
+        id: `${baseId}:seg3`,
+        source: `${baseId}:c`,
+        target: `${baseId}:d`,
+        segment_role: "vertical_exit",
+      },
+      {
+        id: `${baseId}:seg4`,
+        source: `${baseId}:d`,
+        target: edge.target,
+        segment_role: "target",
+      },
+    ];
+
+    segments.forEach((segment) => {
+      elements.push({
+        data: {
+          ...routeMeta,
+          ...segment,
+        },
+      });
+    });
+  });
+
+  return elements;
 }
 
 function getLayoutRoots(graph) {
@@ -749,7 +871,145 @@ function computePortViewInstanceLevels(graph) {
   return level;
 }
 
-function placeInstancePortNodes() {
+function getNodePositionY(nodeId, resolveToInstance = false) {
+  if (!state.cy || !nodeId) {
+    return null;
+  }
+
+  const lookupId = resolveToInstance ? endpointToInstanceId(nodeId) || nodeId : nodeId;
+  const node = state.cy.getElementById(lookupId);
+  if (!node || node.empty()) {
+    return null;
+  }
+
+  return node.position("y");
+}
+
+function getAverageConnectedY(nodeId, graph, resolveToInstance = false) {
+  const ys = [];
+
+  for (const edge of graph.edges || []) {
+    let otherId = null;
+    if (edge.source === nodeId) {
+      otherId = edge.target;
+    } else if (edge.target === nodeId) {
+      otherId = edge.source;
+    }
+
+    if (!otherId) {
+      continue;
+    }
+
+    const y = getNodePositionY(otherId, resolveToInstance);
+    if (y !== null) {
+      ys.push(y);
+    }
+  }
+
+  if (!ys.length) {
+    return null;
+  }
+
+  return ys.reduce((sum, value) => sum + value, 0) / ys.length;
+}
+
+function orderInstancesWithinLevels(graph, groupedByLevel, levelByInstance) {
+  const levels = Array.from(groupedByLevel.keys()).sort((a, b) => a - b);
+  const incoming = new Map();
+  const outgoing = new Map();
+
+  state.cy.nodes('[kind = "instance"]').forEach((node) => {
+    incoming.set(node.id(), new Set());
+    outgoing.set(node.id(), new Set());
+  });
+
+  for (const edge of graph.edges || []) {
+    const srcInst = endpointToInstanceId(edge.source);
+    const dstInst = endpointToInstanceId(edge.target);
+    if (!srcInst || !dstInst || srcInst === dstInst) {
+      continue;
+    }
+
+    outgoing.get(srcInst)?.add(dstInst);
+    incoming.get(dstInst)?.add(srcInst);
+  }
+
+  const ordered = new Map();
+  levels.forEach((level) => {
+    const group = [...(groupedByLevel.get(level) || [])].sort((a, b) => String(a.data("instance_name") || a.data("label") || a.id()).localeCompare(
+      String(b.data("instance_name") || b.data("label") || b.id())
+    ));
+    ordered.set(level, group);
+  });
+
+  const buildOrderIndex = () => {
+    const index = new Map();
+    levels.forEach((level) => {
+      (ordered.get(level) || []).forEach((node, position) => {
+        index.set(node.id(), position);
+      });
+    });
+    return index;
+  };
+
+  const scoreNode = (node, neighbors, index) => {
+    const scores = neighbors
+      .map((neighborId) => index.get(neighborId))
+      .filter((value) => value !== undefined);
+
+    if (!scores.length) {
+      return null;
+    }
+
+    return scores.reduce((sum, value) => sum + value, 0) / scores.length;
+  };
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    let index = buildOrderIndex();
+    for (const level of levels) {
+      const group = ordered.get(level) || [];
+      group.sort((left, right) => {
+        const leftScore = scoreNode(left, Array.from(incoming.get(left.id()) || []).filter((id) => (levelByInstance.get(id) || 0) < level), index);
+        const rightScore = scoreNode(right, Array.from(incoming.get(right.id()) || []).filter((id) => (levelByInstance.get(id) || 0) < level), index);
+
+        if (leftScore !== null && rightScore !== null && leftScore !== rightScore) {
+          return leftScore - rightScore;
+        }
+        if (leftScore !== null && rightScore === null) {
+          return -1;
+        }
+        if (leftScore === null && rightScore !== null) {
+          return 1;
+        }
+        return (index.get(left.id()) || 0) - (index.get(right.id()) || 0);
+      });
+    }
+
+    index = buildOrderIndex();
+    [...levels].reverse().forEach((level) => {
+      const group = ordered.get(level) || [];
+      group.sort((left, right) => {
+        const leftScore = scoreNode(left, Array.from(outgoing.get(left.id()) || []).filter((id) => (levelByInstance.get(id) || 0) > level), index);
+        const rightScore = scoreNode(right, Array.from(outgoing.get(right.id()) || []).filter((id) => (levelByInstance.get(id) || 0) > level), index);
+
+        if (leftScore !== null && rightScore !== null && leftScore !== rightScore) {
+          return leftScore - rightScore;
+        }
+        if (leftScore !== null && rightScore === null) {
+          return -1;
+        }
+        if (leftScore === null && rightScore !== null) {
+          return 1;
+        }
+        return (index.get(left.id()) || 0) - (index.get(right.id()) || 0);
+      });
+    });
+  }
+
+  return { levels, ordered };
+}
+
+function placeInstancePortNodes(graph) {
   if (!state.cy) {
     return;
   }
@@ -770,6 +1030,22 @@ function placeInstancePortNodes() {
       grouped.set(parentId, []);
     }
     grouped.get(parentId).push(portNode);
+  });
+
+  const sortPorts = (ports) => [...ports].sort((left, right) => {
+    const leftY = getAverageConnectedY(left.id(), graph, false) ?? getAverageConnectedY(left.id(), graph, true);
+    const rightY = getAverageConnectedY(right.id(), graph, false) ?? getAverageConnectedY(right.id(), graph, true);
+
+    if (leftY !== null && rightY !== null && leftY !== rightY) {
+      return leftY - rightY;
+    }
+    if (leftY !== null && rightY === null) {
+      return -1;
+    }
+    if (leftY === null && rightY !== null) {
+      return 1;
+    }
+    return String(left.data("port_name") || left.id()).localeCompare(String(right.data("port_name") || right.id()));
   });
 
   grouped.forEach((ports, parentId) => {
@@ -799,23 +1075,22 @@ function placeInstancePortNodes() {
         return;
       }
 
-      const step = (halfHeight * 1.8) / (sidePorts.length + 1);
-      sidePorts
-        .sort((a, b) => String(a.data("port_name")).localeCompare(String(b.data("port_name"))))
-        .forEach((node, idx) => {
-          node.position({
-            x: center.x + xOffset,
-            y: center.y - halfHeight * 0.9 + step * (idx + 1),
-          });
+      const ordered = sortPorts(sidePorts);
+      const step = Math.max(14, (halfHeight * 1.8) / (ordered.length + 1));
+      ordered.forEach((node, idx) => {
+        node.position({
+          x: center.x + xOffset,
+          y: center.y - halfHeight * 0.9 + step * (idx + 1),
         });
+      });
     };
 
-    placeSide(leftPorts, -halfWidth - 9);
-    placeSide(rightPorts, halfWidth + 9);
+    placeSide(leftPorts, -halfWidth - 12);
+    placeSide(rightPorts, halfWidth + 12);
   });
 }
 
-function placeModuleIoNodes(leftX, rightX) {
+function placeModuleIoNodes(graph, leftX, rightX) {
   if (!state.cy) {
     return;
   }
@@ -825,51 +1100,27 @@ function placeModuleIoNodes(leftX, rightX) {
     return;
   }
 
-  const averageConnectedInstanceY = (ioNode) => {
-    const ys = [];
-    ioNode.connectedEdges().forEach((edge) => {
-      const sourceId = edge.source().id();
-      const targetId = edge.target().id();
-      const otherId = sourceId === ioNode.id() ? targetId : sourceId;
-      const instanceId = endpointToInstanceId(otherId);
-      if (!instanceId) {
-        return;
-      }
-
-      const instanceNode = state.cy.getElementById(instanceId);
-      if (instanceNode && !instanceNode.empty()) {
-        ys.push(instanceNode.position("y"));
-      }
-    });
-
-    if (!ys.length) {
-      return null;
-    }
-
-    return ys.reduce((sum, value) => sum + value, 0) / ys.length;
-  };
-
   const placeList = (nodes, x, fallbackStartY) => {
     const enriched = nodes
       .map((node) => ({
         node,
-        y: averageConnectedInstanceY(node),
+        y: getAverageConnectedY(node.id(), graph, true) ?? getAverageConnectedY(node.id(), graph, false),
         name: String(node.data("port_name") || node.data("label") || node.id()),
       }))
       .sort((a, b) => {
-        if (a.y !== null && b.y !== null) {
+        if (a.y !== null && b.y !== null && a.y !== b.y) {
           return a.y - b.y;
         }
-        if (a.y !== null) {
+        if (a.y !== null && b.y === null) {
           return -1;
         }
-        if (b.y !== null) {
+        if (a.y === null && b.y !== null) {
           return 1;
         }
         return a.name.localeCompare(b.name);
       });
 
-    const minGap = 28;
+    const minGap = 34;
     let nextY = fallbackStartY;
     for (const item of enriched) {
       let y = item.y === null ? nextY : item.y;
@@ -899,13 +1150,125 @@ function placeModuleIoNodes(leftX, rightX) {
 
   placeList(inputNodes, leftX, 110);
   placeList(outputNodes, rightX, 110);
-  placeList(unknownNodes, leftX, 110 + inputNodes.length * 30 + 18);
+  placeList(unknownNodes, leftX, 110 + inputNodes.length * 34 + 18);
+}
+
+function placePortViewRoutes(graph) {
+  if (!state.cy) {
+    return;
+  }
+
+  const routes = (graph.edges || []).map((edge, index) => {
+    const sourceNode = state.cy.getElementById(edge.source);
+    const targetNode = state.cy.getElementById(edge.target);
+    if (!sourceNode || sourceNode.empty() || !targetNode || targetNode.empty()) {
+      return null;
+    }
+
+    const sourcePos = sourceNode.position();
+    const targetPos = targetNode.position();
+    return {
+      edge,
+      index,
+      sourceNode,
+      targetNode,
+      sourcePos,
+      targetPos,
+      forward: sourcePos.x <= targetPos.x,
+      preferredY: (sourcePos.y + targetPos.y) / 2,
+    };
+  }).filter(Boolean);
+
+  if (!routes.length) {
+    return;
+  }
+
+  const allYs = routes.flatMap((route) => [route.sourcePos.y, route.targetPos.y]);
+  const minY = Math.min(...allYs);
+  const maxY = Math.max(...allYs);
+  const midY = (minY + maxY) / 2;
+  const laneGap = 18;
+
+  const assignCenterLanes = (items) => {
+    let nextY = minY - 24;
+    for (const item of [...items].sort((left, right) => left.preferredY - right.preferredY)) {
+      item.laneY = Math.max(item.preferredY, nextY);
+      nextY = item.laneY + laneGap;
+    }
+  };
+
+  const topRoutes = [];
+  const bottomRoutes = [];
+  const forwardRoutes = [];
+
+  routes.forEach((route) => {
+    if (route.forward) {
+      forwardRoutes.push(route);
+      return;
+    }
+
+    if (route.preferredY <= midY) {
+      topRoutes.push(route);
+    } else {
+      bottomRoutes.push(route);
+    }
+  });
+
+  assignCenterLanes(forwardRoutes);
+
+  [...topRoutes].sort((left, right) => left.preferredY - right.preferredY).forEach((route, idx) => {
+    route.laneY = minY - 70 - idx * laneGap;
+  });
+
+  [...bottomRoutes].sort((left, right) => left.preferredY - right.preferredY).forEach((route, idx) => {
+    route.laneY = maxY + 70 + idx * laneGap;
+  });
+
+  const getStubX = (node, side) => {
+    const kind = node.data("kind");
+    const centerX = node.position("x");
+    const halfWidth = Math.max(6, node.outerWidth() / 2);
+
+    if (kind === "instance_port") {
+      return centerX + side * 18;
+    }
+
+    if (kind === "module_io") {
+      return centerX + side * (halfWidth + 22);
+    }
+
+    if (kind === "instance") {
+      return centerX + side * (halfWidth + 20);
+    }
+
+    return centerX + side * 26;
+  };
+
+  routes.forEach((route) => {
+    const side = route.forward ? 1 : -1;
+    const sourceStubX = getStubX(route.sourceNode, side);
+    const targetStubX = getStubX(route.targetNode, -side);
+    const points = {
+      a: { x: sourceStubX, y: route.sourcePos.y },
+      b: { x: sourceStubX, y: route.laneY },
+      c: { x: targetStubX, y: route.laneY },
+      d: { x: targetStubX, y: route.targetPos.y },
+    };
+
+    Object.entries(points).forEach(([suffix, position]) => {
+      const node = state.cy.getElementById(`route:${route.index}:${suffix}`);
+      if (node && !node.empty()) {
+        node.position(position);
+      }
+    });
+  });
 }
 
 function applyPortViewBlockLayout(graph) {
   const instanceNodes = state.cy.nodes('[kind = "instance"]');
   if (!instanceNodes.length) {
-    placeModuleIoNodes(120, 420);
+    placeModuleIoNodes(graph, 120, 420);
+    placePortViewRoutes(graph);
     return;
   }
 
@@ -920,20 +1283,15 @@ function applyPortViewBlockLayout(graph) {
     groupedByLevel.get(level).push(node);
   });
 
-  const levels = Array.from(groupedByLevel.keys()).sort((a, b) => a - b);
+  const { levels, ordered } = orderInstancesWithinLevels(graph, groupedByLevel, levelByInstance);
   const canvasHeight = cyGraph.clientHeight || 760;
   const centerY = canvasHeight / 2;
   const levelXStart = 360;
-  const levelXStep = 310;
+  const levelXStep = 280;
 
   for (const level of levels) {
-    const group = groupedByLevel
-      .get(level)
-      .sort((a, b) => String(a.data("instance_name") || a.data("label") || a.id()).localeCompare(
-        String(b.data("instance_name") || b.data("label") || b.id())
-      ));
-
-    const rowGap = group.length > 10 ? 156 : 186;
+    const group = ordered.get(level) || [];
+    const rowGap = group.length > 12 ? 132 : 156;
     const totalHeight = Math.max(0, (group.length - 1) * rowGap);
     const startY = centerY - totalHeight / 2;
 
@@ -945,12 +1303,13 @@ function applyPortViewBlockLayout(graph) {
     });
   }
 
-  placeInstancePortNodes();
+  placeInstancePortNodes(graph);
 
   const xs = instanceNodes.map((node) => node.position("x"));
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
-  placeModuleIoNodes(minX - 240, maxX + 240);
+  placeModuleIoNodes(graph, minX - 250, maxX + 250);
+  placePortViewRoutes(graph);
 }
 
 function renderCyGraph(graph) {
@@ -1307,3 +1666,4 @@ renderInspector();
     setStatus("API unavailable", "error");
   }
 })();
+
