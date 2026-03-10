@@ -350,54 +350,80 @@ function ensureCytoscape() {
       {
         selector: 'node[kind = "instance"]',
         style: {
-          "background-color": "#ffb347",
-          shape: "diamond",
-          width: 24,
-          height: 24,
-          label: "",
+          "background-color": "#183247",
+          shape: "round-rectangle",
+          width: "mapData(port_count, 0, 40, 120, 220)",
+          height: 54,
+          "border-width": 2,
+          "border-color": "#78b8e8",
+          label: "data(label)",
+          "font-size": 10,
+          color: "#eef5f9",
+          "text-valign": "center",
+          "text-halign": "center",
+          "text-wrap": "wrap",
+          "text-max-width": 150,
         },
       },
       {
         selector: 'node[kind = "instance"][port_view = 1]',
         style: {
           shape: "round-rectangle",
-          width: "mapData(port_count, 0, 40, 90, 210)",
-          height: "mapData(port_count, 0, 40, 56, 220)",
-          "background-color": "#1a3a52",
-          "border-width": 2,
-          "border-color": "#5ea6d6",
+          width: "mapData(port_count, 0, 40, 180, 320)",
+          height: "mapData(port_count, 0, 40, 90, 260)",
+          "background-color": "#142c3f",
+          "border-width": 2.4,
+          "border-color": "#78b8e8",
           label: "data(label)",
-          "font-size": 10,
-          color: "#d7e2e8",
+          "font-size": 11,
+          color: "#eef5f9",
           "text-valign": "top",
           "text-halign": "center",
-          "text-margin-y": 8,
-          "text-wrap": "ellipsis",
-          "text-max-width": 150,
+          "text-margin-y": 10,
+          "text-wrap": "wrap",
+          "text-max-width": 220,
+          "overlay-padding": 8,
         },
       },
       {
         selector: 'node[kind = "instance_port"]',
         style: {
-          shape: "ellipse",
-          width: 9,
-          height: 9,
+          shape: "round-rectangle",
+          width: 8,
+          height: 8,
           "background-color": "#ffd38a",
           "border-width": 1,
           "border-color": "#5b4a2f",
-          label: "",
+          label: "data(port_name)",
+          "font-size": 9,
+          color: "#e6eef3",
+          "text-valign": "center",
+          "text-wrap": "ellipsis",
+          "text-max-width": 108,
+          "overlay-padding": 3,
         },
       },
       {
         selector: 'node[kind = "instance_port"][direction = "output"]',
         style: {
           "background-color": "#f0b35f",
+          "text-halign": "right",
+          "text-margin-x": -14,
         },
       },
       {
         selector: 'node[kind = "instance_port"][direction = "input"]',
         style: {
           "background-color": "#a3c6ff",
+          "text-halign": "left",
+          "text-margin-x": 14,
+        },
+      },
+      {
+        selector: 'node[kind = "instance_port"][direction = "unknown"]',
+        style: {
+          "text-halign": "left",
+          "text-margin-x": 14,
         },
       },
       {
@@ -1070,23 +1096,23 @@ function placeInstancePortNodes(graph) {
       }
     }
 
-    const placeSide = (sidePorts, xOffset) => {
+    const placeSide = (sidePorts, xOffset, inset = 0) => {
       if (!sidePorts.length) {
         return;
       }
 
       const ordered = sortPorts(sidePorts);
-      const step = Math.max(14, (halfHeight * 1.8) / (ordered.length + 1));
+      const step = Math.max(18, (halfHeight * 1.75) / (ordered.length + 1));
       ordered.forEach((node, idx) => {
         node.position({
-          x: center.x + xOffset,
-          y: center.y - halfHeight * 0.9 + step * (idx + 1),
+          x: center.x + xOffset + inset,
+          y: center.y - halfHeight * 0.88 + step * (idx + 1),
         });
       });
     };
 
-    placeSide(leftPorts, -halfWidth - 12);
-    placeSide(rightPorts, halfWidth + 12);
+    placeSide(leftPorts, -halfWidth, 12);
+    placeSide(rightPorts, halfWidth, -12);
   });
 }
 
