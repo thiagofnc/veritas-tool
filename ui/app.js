@@ -962,6 +962,26 @@ function getAverageConnectedY(nodeId, graph, resolveToInstance = false) {
   return ys.reduce((sum, value) => sum + value, 0) / ys.length;
 }
 
+function spreadNodesVertically(nodes, minGap = 28) {
+  const ordered = [...nodes]
+    .filter((node) => node && !node.empty())
+    .sort((left, right) => left.position("y") - right.position("y"));
+
+  let lastBottom = null;
+  for (const node of ordered) {
+    const halfHeight = Math.max(14, node.outerHeight() / 2);
+    let centerY = node.position("y");
+    const topY = centerY - halfHeight;
+
+    if (lastBottom !== null && topY < lastBottom + minGap) {
+      centerY = lastBottom + minGap + halfHeight;
+      node.position({ x: node.position("x"), y: centerY });
+    }
+
+    lastBottom = centerY + halfHeight;
+  }
+}
+
 function orderInstancesWithinLevels(graph, groupedByLevel, levelByInstance) {
   const levels = Array.from(groupedByLevel.keys()).sort((a, b) => a - b);
   const incoming = new Map();
@@ -1169,7 +1189,7 @@ function placeModuleIoNodes(graph, leftX, rightX) {
         return a.name.localeCompare(b.name);
       });
 
-    const minGap = 34;
+    const minGap = 52;
     let nextY = fallbackStartY;
     for (const item of enriched) {
       let y = item.y === null ? nextY : item.y;
@@ -1199,7 +1219,11 @@ function placeModuleIoNodes(graph, leftX, rightX) {
 
   placeList(inputNodes, leftX, 110);
   placeList(outputNodes, rightX, 110);
-  placeList(unknownNodes, leftX, 110 + inputNodes.length * 34 + 18);
+  placeList(unknownNodes, leftX, 110 + inputNodes.length * 52 + 24);
+
+  spreadNodesVertically(inputNodes, 28);
+  spreadNodesVertically(outputNodes, 28);
+  spreadNodesVertically(unknownNodes, 28);
 }
 
 function placePortViewRoutes(graph) {
@@ -1236,7 +1260,7 @@ function placePortViewRoutes(graph) {
   const minY = Math.min(...allYs);
   const maxY = Math.max(...allYs);
   const midY = (minY + maxY) / 2;
-  const laneGap = 18;
+  const laneGap = 26;
 
   const assignCenterLanes = (items) => {
     let nextY = minY - 24;
@@ -1266,11 +1290,11 @@ function placePortViewRoutes(graph) {
   assignCenterLanes(forwardRoutes);
 
   [...topRoutes].sort((left, right) => left.preferredY - right.preferredY).forEach((route, idx) => {
-    route.laneY = minY - 70 - idx * laneGap;
+    route.laneY = minY - 100 - idx * laneGap;
   });
 
   [...bottomRoutes].sort((left, right) => left.preferredY - right.preferredY).forEach((route, idx) => {
-    route.laneY = maxY + 70 + idx * laneGap;
+    route.laneY = maxY + 100 + idx * laneGap;
   });
 
   const getStubX = (node, side) => {
@@ -1335,12 +1359,12 @@ function applyPortViewBlockLayout(graph) {
   const { levels, ordered } = orderInstancesWithinLevels(graph, groupedByLevel, levelByInstance);
   const canvasHeight = cyGraph.clientHeight || 760;
   const centerY = canvasHeight / 2;
-  const levelXStart = 360;
-  const levelXStep = 280;
+  const levelXStart = 380;
+  const levelXStep = 360;
 
   for (const level of levels) {
     const group = ordered.get(level) || [];
-    const rowGap = group.length > 12 ? 132 : 156;
+    const rowGap = group.length > 12 ? 172 : 220;
     const totalHeight = Math.max(0, (group.length - 1) * rowGap);
     const startY = centerY - totalHeight / 2;
 
@@ -1350,6 +1374,8 @@ function applyPortViewBlockLayout(graph) {
         y: startY + idx * rowGap,
       });
     });
+
+    spreadNodesVertically(group, 36);
   }
 
   placeInstancePortNodes(graph);
@@ -1357,7 +1383,7 @@ function applyPortViewBlockLayout(graph) {
   const xs = instanceNodes.map((node) => node.position("x"));
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
-  placeModuleIoNodes(graph, minX - 250, maxX + 250);
+  placeModuleIoNodes(graph, minX - 320, maxX + 320);
   placePortViewRoutes(graph);
 }
 
@@ -1391,7 +1417,7 @@ function renderCyGraph(graph) {
     state.cy.layout(layout).run();
   }
 
-  state.cy.fit(undefined, 30);
+  state.cy.fit(undefined, 60);
   graphEmpty.classList.add("hidden");
 }
 function renderInspector() {
