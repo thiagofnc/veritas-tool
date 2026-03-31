@@ -63,7 +63,7 @@ const PORT_SIDE_INSET = 12;
 const ROUTE_LANE_GAP = 28;
 const ROUTE_FANOUT_GAP = 10;
 const ROUTE_PARALLEL_GAP = 6;
-const PORT_STUB_LENGTH = 26;
+const PORT_STUB_LENGTH = 34;
 
 function setStatus(text, kind) {
   if (!statusBadge) {
@@ -402,98 +402,126 @@ function ensureCytoscape() {
       {
         selector: 'node[kind = "instance"]',
         style: {
-          "background-color": "#183247",
-          shape: "round-rectangle",
-          width: "mapData(port_count, 0, 40, 120, 220)",
-          height: 54,
+          "background-color": "#0e1f2e",
+          shape: "rectangle",
+          width: "mapData(port_count, 0, 40, 130, 230)",
+          height: 56,
           "border-width": 2,
-          "border-color": "#78b8e8",
+          "border-color": "#4a90c0",
           label: "data(label)",
           "font-size": 10,
-          color: "#eef5f9",
+          "font-weight": "bold",
+          color: "#cce0f0",
           "text-valign": "center",
           "text-halign": "center",
           "text-wrap": "wrap",
-          "text-max-width": 150,
+          "text-max-width": 160,
         },
       },
       {
         selector: 'node[kind = "instance"][port_view = 1]',
         style: {
-          shape: "round-rectangle",
+          shape: "rectangle",
           width: "data(layout_width)",
           height: "data(layout_height)",
-          "background-color": "#142c3f",
-          "border-width": 2.4,
-          "border-color": "#78b8e8",
+          "background-color": "#0b1d2e",
+          "border-width": 2,
+          "border-color": "#3a8fc4",
           label: "data(label)",
           "font-size": 11,
-          color: "#eef5f9",
+          "font-weight": "bold",
+          color: "#bdd8ee",
           "text-valign": "top",
           "text-halign": "center",
-          "text-margin-y": 10,
+          "text-margin-y": 14,
           "text-wrap": "wrap",
           "text-max-width": 220,
-          "overlay-padding": 8,
+          "overlay-padding": 6,
         },
       },
       {
         selector: 'node[kind = "instance_port"]',
         style: {
-          shape: "round-rectangle",
-          width: 10,
-          height: 10,
-          "background-color": "#ffd38a",
-          "border-width": 1,
-          "border-color": "#5b4a2f",
+          shape: "rectangle",
+          width: 8,
+          height: 8,
+          "background-color": "#7aafc8",
+          "border-width": 1.5,
+          "border-color": "#263d50",
           label: "data(port_name)",
           "font-size": 9,
-          color: "#e6eef3",
+          "font-family": "monospace",
+          color: "#a8cce0",
           "text-valign": "center",
           "text-wrap": "ellipsis",
-          "text-max-width": 96,
-          "overlay-padding": 4,
+          "text-max-width": 90,
+          "overlay-padding": 3,
         },
       },
       {
         selector: 'node[kind = "instance_port"][direction = "output"]',
         style: {
-          "background-color": "#f0b35f",
-          "text-halign": "right",
-          "text-margin-x": -16,
+          "background-color": "#d47a18",
+          "border-color": "#5a3208",
+          "text-halign": "left",
+          "text-margin-x": -20,
+          color: "#f0c070",
         },
       },
       {
         selector: 'node[kind = "instance_port"][direction = "input"]',
         style: {
-          "background-color": "#a3c6ff",
-          "text-halign": "left",
-          "text-margin-x": 16,
+          "background-color": "#2e7abf",
+          "border-color": "#102840",
+          "text-halign": "right",
+          "text-margin-x": 20,
+          color: "#90c8f0",
         },
       },
       {
         selector: 'node[kind = "instance_port"][direction = "unknown"]',
         style: {
-          "text-halign": "left",
-          "text-margin-x": 16,
+          "background-color": "#5a7a8f",
+          "border-color": "#2a3c48",
+          "text-halign": "right",
+          "text-margin-x": 20,
+          color: "#a0b8c8",
         },
       },
       {
         selector: 'node[kind = "module_io"]',
         style: {
-          "background-color": "#174868",
-          shape: "round-rectangle",
-          width: "mapData(bit_width, 1, 64, 94, 148)",
-          height: 26,
+          "background-color": "#0e2c40",
+          shape: "tag",
+          width: "mapData(bit_width, 1, 64, 100, 156)",
+          height: 28,
           label: "data(port_name)",
-          color: "#d7e2e8",
-          "font-size": 9,
+          color: "#90c8e8",
+          "font-size": 10,
+          "font-weight": "bold",
+          "font-family": "monospace",
           "text-valign": "center",
           "text-halign": "center",
           "text-wrap": "ellipsis",
-          "text-max-width": 128,
+          "text-max-width": 130,
           "border-width": 2,
-          "border-color": "#4ea6e2",
+          "border-color": "#2e7aaa",
+        },
+      },
+      {
+        selector: 'node[kind = "module_io"][direction = "input"]',
+        style: {
+          "background-color": "#0e2c40",
+          "border-color": "#2e8aaa",
+          color: "#70d0f8",
+        },
+      },
+      {
+        selector: 'node[kind = "module_io"][direction = "output"]',
+        style: {
+          "background-color": "#0e2c1a",
+          "border-color": "#2a7a40",
+          color: "#70e0a0",
         },
       },
       {
@@ -529,11 +557,37 @@ function ensureCytoscape() {
       {
         selector: 'node[kind = "port_stub_anchor"]',
         style: {
-          width: 1,
-          height: 1,
-          opacity: 0,
+          shape: "rectangle",
+          width: 4,
+          height: 4,
+          opacity: 0.9,
+          "background-color": "#3a5c72",
+          "border-width": 0,
           events: "no",
-          label: "",
+          label: "data(port_name)",
+          "font-size": 8.5,
+          "font-family": "monospace",
+          color: "#7aacc0",
+          "text-valign": "center",
+          "text-wrap": "none",
+        },
+      },
+      {
+        selector: 'node[kind = "port_stub_anchor"][direction = "output"]',
+        style: {
+          "background-color": "#5c3a10",
+          "text-halign": "right",
+          "text-margin-x": 6,
+          color: "#d4a060",
+        },
+      },
+      {
+        selector: 'node[kind = "port_stub_anchor"][direction = "input"]',
+        style: {
+          "background-color": "#103050",
+          "text-halign": "left",
+          "text-margin-x": -6,
+          color: "#70b0d8",
         },
       },
       {
@@ -567,9 +621,9 @@ function ensureCytoscape() {
         style: {
           "curve-style": "bezier",
           "control-point-step-size": 40,
-          "arrow-scale": 0.65,
-          "line-opacity": 0.92,
-          "line-cap": "round",
+          "arrow-scale": 0.60,
+          "line-opacity": 0.88,
+          "line-cap": "butt",
           "source-endpoint": "outside-to-line",
           "target-endpoint": "outside-to-line",
         },
@@ -589,16 +643,17 @@ function ensureCytoscape() {
           "target-arrow-shape": "none",
           "source-label": "data(net_label_text)",
           "target-label": "data(net_label_text)",
-          "source-text-offset": 26,
-          "target-text-offset": 26,
+          "source-text-offset": 30,
+          "target-text-offset": 30,
           "font-size": 9,
-          "color": "#9dcc60",
-          "text-background-color": "#1b2c10",
+          "font-family": "monospace",
+          "color": "#72cc50",
+          "text-background-color": "#0e1e09",
           "text-background-opacity": 1,
           "text-background-shape": "roundrectangle",
-          "text-background-padding": "2px",
-          "text-border-color": "#5a8030",
-          "text-border-width": 0.8,
+          "text-background-padding": "3px",
+          "text-border-color": "#3a6820",
+          "text-border-width": 1,
           "text-border-opacity": 1,
         },
       },
@@ -606,10 +661,13 @@ function ensureCytoscape() {
         selector: 'edge[port_stub = 1]',
         style: {
           "curve-style": "straight",
-          "target-arrow-shape": "none",
+          "target-arrow-shape": "tee",
+          "target-arrow-color": "#3a5c72",
+          "arrow-scale": 0.7,
           "source-arrow-shape": "none",
-          "line-cap": "round",
-          "line-opacity": 0.95,
+          "line-cap": "butt",
+          "line-opacity": 0.82,
+          width: 1.5,
         },
       },
       {
@@ -905,10 +963,15 @@ function buildPortViewCyElements(graph) {
       : 0;
     const longestPortName = node.kind === "instance" ? longestPortNameByInstance.get(node.id) || 0 : 0;
     const layoutWidth = node.kind === "instance"
-      ? Math.max(220, Math.min(420, 190 + longestPortName * 7))
+      ? Math.max(240, Math.min(460, 200 + longestPortName * 7.5))
       : undefined;
     const layoutHeight = node.kind === "instance"
-      ? Math.max(104, 56 + maxSidePortCount * 22)
+      ? Math.max(120, 72 + maxSidePortCount * 24)
+      : undefined;
+
+    // Compose a two-line label for instance blocks: "instance_name\n(module_name)"
+    const composedLabel = node.kind === "instance"
+      ? `${node.instance_name || node.label || node.id}\n(${node.module_name || ""})`
       : undefined;
 
     elements.push({
@@ -920,6 +983,7 @@ function buildPortViewCyElements(graph) {
         connection_count: connectionCounts.get(node.id) || 0,
         ...(layoutWidth ? { layout_width: layoutWidth } : {}),
         ...(layoutHeight ? { layout_height: layoutHeight } : {}),
+        ...(composedLabel ? { label: composedLabel } : {}),
       },
     });
   }

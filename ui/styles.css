@@ -646,94 +646,108 @@ body {
 
 .schematic-node {
   position: absolute;
-  border-radius: 14px;
-  border: 2px solid #6d8ca1;
-  background: linear-gradient(180deg, #172733, #10202a);
-  color: #eef5f9;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.26);
+  border-radius: 2px;
+  border: 2px solid #3a8fc4;
+  background: linear-gradient(180deg, #0d1f2e, #081624);
+  color: #bdd8ee;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(60, 140, 196, 0.15);
 }
 
 .schematic-node.instance {
-  background: linear-gradient(180deg, #163447, #122430);
+  background: linear-gradient(180deg, #0b1d2e, #071520);
+  border-color: #3a8fc4;
 }
 
 .schematic-node.module-io {
-  border-radius: 999px;
-  background: linear-gradient(180deg, #19405a, #143349);
+  border-radius: 4px;
+  background: linear-gradient(90deg, #0e2c40, #081e2e);
+  border-color: #2e7aaa;
 }
 
 .schematic-node.selected {
-  border-color: #ffd166;
-  box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.18), 0 12px 30px rgba(0, 0, 0, 0.28);
+  border-color: #ffc857;
+  box-shadow: 0 0 0 2px rgba(255, 200, 87, 0.2), 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
 .schematic-title {
   position: absolute;
-  top: 10px;
-  left: 14px;
-  right: 14px;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.25;
+  top: 8px;
+  left: 12px;
+  right: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  color: #bdd8ee;
+  border-bottom: 1px solid rgba(58, 143, 196, 0.3);
+  padding-bottom: 5px;
 }
 
 .schematic-subtitle {
   position: absolute;
-  top: 28px;
-  left: 14px;
-  right: 14px;
-  font-size: 10px;
-  color: #8db2ca;
+  top: 30px;
+  left: 12px;
+  right: 12px;
+  font-size: 9px;
+  color: #6a9ab8;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  font-family: monospace;
 }
 
 .schematic-port {
   position: absolute;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1px solid rgba(16, 18, 20, 0.85);
-  background: #9fc7f7;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  border: 1.5px solid rgba(16, 18, 20, 0.85);
+  background: #2e7abf;
   transform: translate(-50%, -50%);
 }
 
 .schematic-port.output {
-  background: #f0b35f;
+  background: #d47a18;
+  border-color: #5a3208;
 }
 
 .schematic-port.bus {
-  width: 12px;
-  height: 12px;
-  background: #70c1ff;
+  width: 10px;
+  height: 10px;
+  background: #4a9fd4;
 }
 
 .schematic-port-label {
   position: absolute;
   transform: translateY(-50%);
-  font-size: 10px;
-  color: #c9d8e1;
+  font-size: 9px;
+  font-family: monospace;
+  color: #90c8f0;
   white-space: nowrap;
 }
 
 .schematic-label {
   position: absolute;
   transform: translate(-50%, -100%);
-  font-size: 10px;
-  color: #b7cad8;
-  background: rgba(10, 18, 23, 0.86);
-  border: 1px solid rgba(93, 116, 132, 0.4);
-  border-radius: 999px;
-  padding: 1px 6px;
+  font-size: 9px;
+  font-family: monospace;
+  color: #72cc50;
+  background: rgba(14, 30, 9, 0.9);
+  border: 1px solid #3a6820;
+  border-radius: 3px;
+  padding: 1px 5px;
   white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 
 .schematic-chip {
   position: absolute;
-  top: 10px;
-  right: 12px;
-  font-size: 10px;
-  color: #9fc3d6;
+  top: 8px;
+  right: 10px;
+  font-size: 9px;
+  color: #4a7a9a;
+  font-family: monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .schematic-meta {
