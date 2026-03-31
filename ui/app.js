@@ -463,8 +463,8 @@ function ensureCytoscape() {
         style: {
           "background-color": "#d47a18",
           "border-color": "#5a3208",
-          "text-halign": "left",
-          "text-margin-x": -20,
+          "text-halign": "right",
+          "text-margin-x": 20,
           color: "#f0c070",
         },
       },
@@ -637,24 +637,32 @@ function ensureCytoscape() {
         },
       },
       {
-        selector: 'edge[routing_type = "netlabel"]',
+        selector: 'node[kind = "netlabel_node"]',
         style: {
-          "line-opacity": 0,
-          "target-arrow-shape": "none",
-          "source-label": "data(net_label_text)",
-          "target-label": "data(net_label_text)",
-          "source-text-offset": 30,
-          "target-text-offset": 30,
+          shape: "roundrectangle",
+          width: "data(label_width)",
+          height: 18,
+          "background-color": "#0e1e09",
+          "border-width": 1,
+          "border-color": "#3a6820",
+          label: "data(net_label_text)",
           "font-size": 9,
           "font-family": "monospace",
-          "color": "#72cc50",
-          "text-background-color": "#0e1e09",
-          "text-background-opacity": 1,
-          "text-background-shape": "roundrectangle",
-          "text-background-padding": "3px",
-          "text-border-color": "#3a6820",
-          "text-border-width": 1,
-          "text-border-opacity": 1,
+          color: "#72cc50",
+          "text-valign": "center",
+          "text-halign": "center",
+          "overlay-padding": 3,
+        },
+      },
+      {
+        selector: 'edge[netlabel_stub = 1]',
+        style: {
+          "curve-style": "straight",
+          width: 1.5,
+          "line-color": "#3a6820",
+          "target-arrow-shape": "none",
+          "source-arrow-shape": "none",
+          "line-opacity": 0.85,
         },
       },
       {
@@ -719,6 +727,29 @@ function ensureCytoscape() {
           "target-arrow-color": "#ffc857",
         },
       },
+      {
+        selector: 'node.netlabel-highlighted[kind = "netlabel_node"]',
+        style: {
+          "background-color": "#3a2800",
+          "border-color": "#ffc857",
+          "border-width": 2,
+          color: "#ffee66",
+        },
+      },
+      {
+        selector: 'edge.netlabel-highlighted[netlabel_stub = 1]',
+        style: {
+          "line-color": "#ffc857",
+          width: 2,
+        },
+      },
+      {
+        selector: 'node.netlabel-endpoint',
+        style: {
+          "border-color": "#ffc857",
+          "border-width": 3,
+        },
+      },
     ],
   });
 
@@ -726,6 +757,7 @@ function ensureCytoscape() {
     const data = event.target.data();
     state.selectedNode = data;
     state.selectedEdge = null;
+    state.cy.elements(".netlabel-highlighted, .netlabel-endpoint").removeClass("netlabel-highlighted netlabel-endpoint");
     renderInspector();
 
     const now = Date.now();
@@ -754,13 +786,41 @@ function ensureCytoscape() {
   state.cy.on("tap", "edge", (event) => {
     state.selectedEdge = event.target.data();
     state.selectedNode = null;
+
+    // Clear previous netlabel highlights
+    state.cy.elements(".netlabel-highlighted, .netlabel-endpoint").removeClass("netlabel-highlighted netlabel-endpoint");
+
     renderInspector();
+  });
+
+  // Click-to-highlight for netlabel nodes: highlight all labels with the same net name
+  state.cy.on("tap", 'node[kind = "netlabel_node"]', (event) => {
+    state.cy.elements(".netlabel-highlighted, .netlabel-endpoint").removeClass("netlabel-highlighted netlabel-endpoint");
+
+    const group = event.target.data("netlabel_group");
+    if (!group) {
+      return;
+    }
+
+    state.cy.nodes('[kind = "netlabel_node"]').forEach((node) => {
+      if (node.data("netlabel_group") === group) {
+        node.addClass("netlabel-highlighted");
+        // Highlight the stub edge connecting this label to its port
+        node.connectedEdges('[netlabel_stub = 1]').addClass("netlabel-highlighted");
+        // Highlight the connected port
+        const portId = node.data("connected_port");
+        if (portId) {
+          state.cy.getElementById(portId).addClass("netlabel-endpoint");
+        }
+      }
+    });
   });
 
   state.cy.on("tap", (event) => {
     if (event.target === state.cy) {
       state.selectedNode = null;
       state.selectedEdge = null;
+      state.cy.elements(".netlabel-highlighted, .netlabel-endpoint").removeClass("netlabel-highlighted netlabel-endpoint");
       renderInspector();
     }
   });
@@ -1038,15 +1098,57 @@ function buildPortViewCyElements(graph) {
       const labelText = (edge.nets && edge.nets.length > 1)
         ? `${firstName} +${edge.nets.length - 1}`
         : firstName;
+      const labelWidth = Math.max(50, labelText.length * 7 + 14);
+
+      // Create netlabel node at source port
+      const srcLabelId = `netlabel:${index}:src`;
       elements.push({
         data: {
-          ...edge,
-          is_bus: edge.is_bus ? 1 : 0,
-          sig_class: edge.sig_class || "wire",
-          port_view: 1,
-          routing_type: "netlabel",
+          id: srcLabelId,
+          kind: "netlabel_node",
           net_label_text: labelText,
-          id: `${edge.source}->${edge.target}:${edge.kind || "connection"}:${index}`,
+          netlabel_group: firstName,
+          label_width: labelWidth,
+          connected_port: edge.source,
+          port_view: 1,
+        },
+      });
+      elements.push({
+        data: {
+          id: `${srcLabelId}:edge`,
+          source: edge.source,
+          target: srcLabelId,
+          kind: "connection",
+          netlabel_stub: 1,
+          port_view: 1,
+          sig_class: edge.sig_class || "wire",
+          is_bus: edge.is_bus ? 1 : 0,
+        },
+      });
+
+      // Create netlabel node at target port
+      const tgtLabelId = `netlabel:${index}:tgt`;
+      elements.push({
+        data: {
+          id: tgtLabelId,
+          kind: "netlabel_node",
+          net_label_text: labelText,
+          netlabel_group: firstName,
+          label_width: labelWidth,
+          connected_port: edge.target,
+          port_view: 1,
+        },
+      });
+      elements.push({
+        data: {
+          id: `${tgtLabelId}:edge`,
+          source: tgtLabelId,
+          target: edge.target,
+          kind: "connection",
+          netlabel_stub: 1,
+          port_view: 1,
+          sig_class: edge.sig_class || "wire",
+          is_bus: edge.is_bus ? 1 : 0,
         },
       });
       return;
@@ -1480,8 +1582,8 @@ function placeInstancePortNodes(graph) {
       });
     };
 
-    placeSide(leftPorts, -halfWidth, PORT_SIDE_INSET);
-    placeSide(rightPorts, halfWidth, -PORT_SIDE_INSET);
+    placeSide(leftPorts, -halfWidth, 0);
+    placeSide(rightPorts, halfWidth, 0);
   });
 }
 
@@ -1517,6 +1619,42 @@ function placeUnconnectedPortStubs() {
     anchor.position({
       x: snapToGrid(portNode.position("x") + side * PORT_STUB_LENGTH),
       y: snapToGrid(portNode.position("y")),
+    });
+  });
+}
+
+function placeNetlabelNodes() {
+  if (!state.cy) {
+    return;
+  }
+
+  state.cy.nodes('[kind = "netlabel_node"]').forEach((node) => {
+    const portId = node.data("connected_port");
+    const portNode = state.cy.getElementById(portId);
+    if (!portNode || portNode.empty()) {
+      return;
+    }
+
+    const portPos = portNode.position();
+    const portDirection = String(portNode.data("direction") || "unknown").toLowerCase();
+    const portKind = String(portNode.data("kind") || "");
+
+    // Determine which side the port faces: outputs face right, inputs face left
+    let side;
+    if (portDirection === "output") {
+      side = 1;
+    } else if (portDirection === "input") {
+      side = -1;
+    } else if (portKind === "module_io") {
+      side = portPos.x <= (cyGraph.clientWidth || 0) / 2 ? -1 : 1;
+    } else {
+      side = -1;
+    }
+
+    const labelWidth = node.data("label_width") || 50;
+    node.position({
+      x: snapToGrid(portPos.x + side * (labelWidth / 2 + 14)),
+      y: snapToGrid(portPos.y),
     });
   });
 }
@@ -1748,6 +1886,7 @@ function applyPortViewBlockLayout(graph) {
     placeModuleIoNodes(graph, 120, 420);
     placePortViewRoutes(graph);
     placeUnconnectedPortStubs();
+    placeNetlabelNodes();
     return;
   }
 
@@ -1796,6 +1935,7 @@ function applyPortViewBlockLayout(graph) {
   placeModuleIoNodes(graph, snapToGrid(minLeft - IO_COLUMN_MARGIN), snapToGrid(maxRight + IO_COLUMN_MARGIN));
   placePortViewRoutes(graph);
   placeUnconnectedPortStubs();
+  placeNetlabelNodes();
 }
 
 function renderCyGraph(graph) {
