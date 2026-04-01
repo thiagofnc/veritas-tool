@@ -750,6 +750,40 @@ function ensureCytoscape() {
           "border-width": 3,
         },
       },
+      // Signal trace highlighting on hover
+      {
+        selector: "edge.trace-highlight",
+        style: {
+          "line-color": "#ffc857",
+          "target-arrow-color": "#ffc857",
+          width: 3.4,
+          "z-index": 100,
+          "line-opacity": 1,
+        },
+      },
+      {
+        selector: "node.trace-highlight",
+        style: {
+          "border-color": "#ffc857",
+          "border-width": 2.5,
+          "z-index": 100,
+        },
+      },
+      // Bus width label on trunk segments
+      {
+        selector: 'edge[route_segment = 1][segment_role = "trunk"][bus_width_label]',
+        style: {
+          label: "data(bus_width_label)",
+          "font-size": 8,
+          "font-family": "monospace",
+          color: "#90caf9",
+          "text-background-color": "#1a1f2e",
+          "text-background-opacity": 0.92,
+          "text-background-padding": "2px",
+          "text-rotation": "autorotate",
+          "text-margin-y": -8,
+        },
+      },
     ],
   });
 
@@ -866,6 +900,23 @@ function ensureCytoscape() {
 
   state.cy.on("mouseout", "node, edge", hideTooltip);
   state.cy.on("zoom pan", hideTooltip);
+
+  // Signal trace highlighting: hovering a route segment highlights all segments of that route
+  state.cy.on("mouseover", "edge[route_id]", (event) => {
+    const routeId = event.target.data("route_id");
+    if (!routeId) return;
+    state.cy.edges(`[route_id = "${routeId}"]`).addClass("trace-highlight");
+    state.cy.nodes(`[route_id = "${routeId}"]`).addClass("trace-highlight");
+    // Also highlight source and target ports
+    const srcId = event.target.data("source");
+    const tgtId = event.target.data("target");
+    if (srcId) state.cy.getElementById(srcId).addClass("trace-highlight");
+    if (tgtId) state.cy.getElementById(tgtId).addClass("trace-highlight");
+  });
+
+  state.cy.on("mouseout", "edge[route_id]", (event) => {
+    state.cy.elements(".trace-highlight").removeClass("trace-highlight");
+  });
 
   return true;
 }
@@ -1182,10 +1233,12 @@ function buildPortViewCyElements(graph) {
       });
     });
 
+    const busWidthLabel = edge.is_bus && edge.bit_width > 1 ? `[${edge.bit_width - 1}:0]` : undefined;
+
     [
       { id: `${baseId}:seg0`, source: edge.source, target: `${baseId}:a`, segment_role: "source" },
       { id: `${baseId}:seg1`, source: `${baseId}:a`, target: `${baseId}:b`, segment_role: "vertical_entry" },
-      { id: `${baseId}:seg2`, source: `${baseId}:b`, target: `${baseId}:c`, segment_role: "trunk" },
+      { id: `${baseId}:seg2`, source: `${baseId}:b`, target: `${baseId}:c`, segment_role: "trunk", ...(busWidthLabel ? { bus_width_label: busWidthLabel } : {}) },
       { id: `${baseId}:seg3`, source: `${baseId}:c`, target: `${baseId}:d`, segment_role: "vertical_exit" },
       { id: `${baseId}:seg4`, source: `${baseId}:d`, target: edge.target, segment_role: "target" },
     ].forEach((segment) => {
@@ -1576,7 +1629,7 @@ function placeInstancePortNodes(graph) {
       const startY = snapToGrid(center.y - totalHeight / 2);
       ordered.forEach((node, idx) => {
         node.position({
-          x: snapToGrid(center.x + xOffset + inset),
+          x: center.x + xOffset + inset,
           y: startY + idx * step,
         });
       });
@@ -1628,7 +1681,12 @@ function placeNetlabelNodes() {
     return;
   }
 
-  state.cy.nodes('[kind = "netlabel_node"]').forEach((node) => {
+  const MIN_LABEL_GAP = 22;
+  const netlabelNodes = state.cy.nodes('[kind = "netlabel_node"]');
+
+  // First pass: compute ideal positions for each netlabel
+  const placements = [];
+  netlabelNodes.forEach((node) => {
     const portId = node.data("connected_port");
     const portNode = state.cy.getElementById(portId);
     if (!portNode || portNode.empty()) {
@@ -1639,7 +1697,6 @@ function placeNetlabelNodes() {
     const portDirection = String(portNode.data("direction") || "unknown").toLowerCase();
     const portKind = String(portNode.data("kind") || "");
 
-    // Determine which side the port faces: outputs face right, inputs face left
     let side;
     if (portDirection === "output") {
       side = 1;
@@ -1652,11 +1709,45 @@ function placeNetlabelNodes() {
     }
 
     const labelWidth = node.data("label_width") || 50;
-    node.position({
-      x: snapToGrid(portPos.x + side * (labelWidth / 2 + 14)),
-      y: snapToGrid(portPos.y),
+    placements.push({
+      node,
+      x: portPos.x + side * (labelWidth / 2 + 14),
+      y: portPos.y,
+      side,
     });
   });
+
+  // Second pass: group by approximate X band and deconflict Y positions
+  // Sort by X then Y so nearby labels get spread apart
+  placements.sort((a, b) => {
+    const xBandA = Math.round(a.x / 80);
+    const xBandB = Math.round(b.x / 80);
+    if (xBandA !== xBandB) return xBandA - xBandB;
+    return a.y - b.y;
+  });
+
+  // Deconflict: within each X band, ensure minimum vertical gap
+  let prevXBand = null;
+  let prevY = -Infinity;
+  for (const p of placements) {
+    const xBand = Math.round(p.x / 80);
+    if (xBand !== prevXBand) {
+      prevXBand = xBand;
+      prevY = -Infinity;
+    }
+    if (p.y - prevY < MIN_LABEL_GAP) {
+      p.y = prevY + MIN_LABEL_GAP;
+    }
+    prevY = p.y;
+  }
+
+  // Apply positions
+  for (const p of placements) {
+    p.node.position({
+      x: snapToGrid(p.x),
+      y: snapToGrid(p.y),
+    });
+  }
 }
 
 function placeModuleIoNodes(graph, leftX, rightX) {
