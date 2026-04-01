@@ -53,10 +53,10 @@ if (typeof cytoscape === "function" && typeof cytoscapeElk === "function") {
 
 const LAYOUT_GRID = 20;
 const INSTANCE_COLUMN_START = 420;
-const INSTANCE_COLUMN_STEP = 340;
+const INSTANCE_COLUMN_STEP = 500;
 const INSTANCE_ROW_GAP = 180;
 const INSTANCE_ROW_GAP_DENSE = 140;
-const IO_COLUMN_MARGIN = 260;
+const IO_COLUMN_MARGIN = 360;
 const IO_ROW_GAP = 60;
 const PORT_ROW_GAP = 20;
 const PORT_SIDE_INSET = 12;
@@ -840,25 +840,29 @@ function ensureCytoscape() {
     renderInspector();
   });
 
-  // Click-to-highlight for netlabel nodes: highlight all labels with the same net name
+  // Click-to-highlight for grouped netlabels: one source label can fan out to multiple targets.
   state.cy.on("tap", 'node[kind = "netlabel_node"]', (event) => {
     state.cy.elements(".netlabel-highlighted, .netlabel-endpoint").removeClass("netlabel-highlighted netlabel-endpoint");
 
-    const group = event.target.data("netlabel_group");
-    if (!group) {
+    const traceGroup = event.target.data("netlabel_trace_group") || event.target.data("netlabel_group");
+    if (!traceGroup) {
       return;
     }
 
     state.cy.nodes('[kind = "netlabel_node"]').forEach((node) => {
-      if (node.data("netlabel_group") === group) {
+      if ((node.data("netlabel_trace_group") || node.data("netlabel_group")) === traceGroup) {
         node.addClass("netlabel-highlighted");
-        // Highlight the stub edge connecting this label to its port
         node.connectedEdges('[netlabel_stub = 1]').addClass("netlabel-highlighted");
-        // Highlight the connected port
         const portId = node.data("connected_port");
         if (portId) {
           state.cy.getElementById(portId).addClass("netlabel-endpoint");
         }
+      }
+    });
+
+    state.cy.edges('[netlabel_stub = 1]').forEach((edge) => {
+      if ((edge.data("netlabel_trace_group") || "") === traceGroup) {
+        edge.addClass("netlabel-highlighted");
       }
     });
   });
@@ -1207,6 +1211,7 @@ function buildPortViewCyElements(graph) {
   });
 
   const classifyEdge = computeEdgeRoutingTypes(graph);
+  const sourceNetlabels = new Map();
 
   (graph.edges || []).forEach((edge, index) => {
     const routingDecision = classifyEdge(edge);
@@ -1219,38 +1224,44 @@ function buildPortViewCyElements(graph) {
         ? `${firstName} +${edge.nets.length - 1}`
         : firstName;
       const labelWidth = Math.max(50, labelText.length * 7 + 14);
+      const traceGroup = `nettrace:${edge.source}:${firstName}`;
+      const sourceKey = `${edge.source}:${firstName}`;
 
-      // Create netlabel node at source port
-      const srcLabelId = `netlabel:${index}:src`;
-      elements.push({
-        data: {
-          id: srcLabelId,
-          kind: "netlabel_node",
-          net_label_text: labelText,
-          netlabel_group: firstName,
-          label_width: labelWidth,
-          connected_port: edge.source,
-          routing_mode: routingType,
-          routing_reason: routingDecision.reason,
-          port_view: 1,
-        },
-      });
-      elements.push({
-        data: {
-          id: `${srcLabelId}:edge`,
-          source: edge.source,
-          target: srcLabelId,
-          kind: "connection",
-          netlabel_stub: 1,
-          port_view: 1,
-          routing_mode: routingType,
-          routing_reason: routingDecision.reason,
-          sig_class: edge.sig_class || "wire",
-          is_bus: edge.is_bus ? 1 : 0,
-        },
-      });
+      if (!sourceNetlabels.has(sourceKey)) {
+        const srcLabelId = `netlabel:${index}:src`;
+        sourceNetlabels.set(sourceKey, srcLabelId);
+        elements.push({
+          data: {
+            id: srcLabelId,
+            kind: "netlabel_node",
+            net_label_text: labelText,
+            netlabel_group: firstName,
+            netlabel_trace_group: traceGroup,
+            netlabel_role: "source",
+            label_width: labelWidth,
+            connected_port: edge.source,
+            routing_mode: routingType,
+            routing_reason: routingDecision.reason,
+            port_view: 1,
+          },
+        });
+        elements.push({
+          data: {
+            id: `${srcLabelId}:edge`,
+            source: edge.source,
+            target: srcLabelId,
+            kind: "connection",
+            netlabel_stub: 1,
+            netlabel_trace_group: traceGroup,
+            port_view: 1,
+            routing_mode: routingType,
+            routing_reason: routingDecision.reason,
+            sig_class: edge.sig_class || "wire",
+            is_bus: edge.is_bus ? 1 : 0,
+          },
+        });
+      }
 
-      // Create netlabel node at target port
       const tgtLabelId = `netlabel:${index}:tgt`;
       elements.push({
         data: {
@@ -1258,6 +1269,8 @@ function buildPortViewCyElements(graph) {
           kind: "netlabel_node",
           net_label_text: labelText,
           netlabel_group: firstName,
+          netlabel_trace_group: traceGroup,
+          netlabel_role: "target",
           label_width: labelWidth,
           connected_port: edge.target,
           routing_mode: routingType,
@@ -1272,6 +1285,7 @@ function buildPortViewCyElements(graph) {
           target: edge.target,
           kind: "connection",
           netlabel_stub: 1,
+          netlabel_trace_group: traceGroup,
           port_view: 1,
           routing_mode: routingType,
           routing_reason: routingDecision.reason,
@@ -1526,7 +1540,7 @@ function spreadNodesVertically(nodes, minGap = 28, anchorY = null) {
   }
 }
 
-function distributeColumns(columnEntries, startX, minGap = 170) {
+function distributeColumns(columnEntries, startX, minGap = 300) {
   let nextLeft = startX;
 
   columnEntries.forEach((entry) => {
@@ -1760,10 +1774,9 @@ function placeNetlabelNodes() {
     return;
   }
 
-  const MIN_LABEL_GAP = 24;
-  const BAND_WIDTH = 120;
-  const BASE_CLEARANCE = 18;
-  const EXTRA_LANE_OFFSET = 22;
+  const MIN_LABEL_GAP = 20;
+  const BASE_CLEARANCE = 14;
+  const EXTRA_LANE_OFFSET = 14;
   const netlabelNodes = state.cy.nodes('[kind = "netlabel_node"]');
 
   const placements = [];
@@ -1777,6 +1790,7 @@ function placeNetlabelNodes() {
     const portPos = portNode.position();
     const portDirection = String(portNode.data("direction") || "unknown").toLowerCase();
     const portKind = String(portNode.data("kind") || "");
+    const role = String(node.data("netlabel_role") || "target");
 
     let side;
     if (portDirection === "output") {
@@ -1789,56 +1803,69 @@ function placeNetlabelNodes() {
       side = -1;
     }
 
+    const ownerId = portKind === "instance_port"
+      ? (portNode.data("instance_node_id") || portId)
+      : portId;
     const labelWidth = node.data("label_width") || 50;
+
     placements.push({
       node,
+      ownerId,
+      role,
+      side,
       portX: portPos.x,
       portY: portPos.y,
       idealY: portPos.y,
-      side,
       labelWidth,
-      band: `${side}:${Math.round(portPos.x / BAND_WIDTH)}`,
       lane: 0,
       x: portPos.x + side * (labelWidth / 2 + BASE_CLEARANCE),
       y: portPos.y,
+      groupKey: `${ownerId}:${side}`,
     });
   });
 
   const groups = new Map();
   for (const placement of placements) {
-    if (!groups.has(placement.band)) {
-      groups.set(placement.band, []);
+    if (!groups.has(placement.groupKey)) {
+      groups.set(placement.groupKey, []);
     }
-    groups.get(placement.band).push(placement);
+    groups.get(placement.groupKey).push(placement);
   }
 
   groups.forEach((group) => {
-    group.sort((a, b) => a.idealY - b.idealY);
-
-    const occupied = [];
-    group.forEach((placement) => {
-      let candidateY = placement.idealY;
-      let candidateLane = 0;
-
-      for (;;) {
-        const conflict = occupied.find((slot) => Math.abs(slot.y - candidateY) < MIN_LABEL_GAP);
-        if (!conflict) {
-          break;
-        }
-
-        candidateLane = Math.max(candidateLane, conflict.lane + 1);
-        const direction = conflict.y <= placement.idealY ? 1 : -1;
-        candidateY = placement.idealY + direction * candidateLane * MIN_LABEL_GAP;
+    group.sort((a, b) => {
+      if (a.idealY !== b.idealY) {
+        return a.idealY - b.idealY;
       }
-
-      placement.lane = candidateLane;
-      placement.y = candidateY;
-      occupied.push({ y: candidateY, lane: candidateLane });
-      occupied.sort((left, right) => left.y - right.y);
+      if (a.role !== b.role) {
+        return a.role === "source" ? -1 : 1;
+      }
+      return String(a.node.id()).localeCompare(String(b.node.id()), undefined, { numeric: true, sensitivity: "base" });
     });
 
-    group.forEach((placement) => {
-      placement.x = placement.portX + placement.side * (placement.labelWidth / 2 + BASE_CLEARANCE + placement.lane * EXTRA_LANE_OFFSET);
+    let nextY = -Infinity;
+    for (const placement of group) {
+      placement.y = nextY === -Infinity
+        ? placement.idealY
+        : Math.max(placement.idealY, nextY + MIN_LABEL_GAP);
+      nextY = placement.y;
+    }
+
+    for (let index = group.length - 2; index >= 0; index -= 1) {
+      const current = group[index];
+      const below = group[index + 1];
+      const maxAllowed = below.y - MIN_LABEL_GAP;
+      if (current.y > maxAllowed) {
+        current.y = maxAllowed;
+      }
+    }
+
+    const centerOffset = (group.length - 1) / 2;
+    group.forEach((placement, index) => {
+      const laneBias = Math.abs(index - centerOffset);
+      placement.lane = laneBias;
+      const roleOffset = placement.role === "source" ? EXTRA_LANE_OFFSET : 0;
+      placement.x = placement.portX + placement.side * (placement.labelWidth / 2 + BASE_CLEARANCE + roleOffset + laneBias * EXTRA_LANE_OFFSET * 0.35);
     });
   });
 
@@ -2112,7 +2139,7 @@ function applyPortViewBlockLayout(graph) {
     });
   });
 
-  distributeColumns(levelColumns, INSTANCE_COLUMN_START - 40, 180);
+  distributeColumns(levelColumns, INSTANCE_COLUMN_START - 40, 320);
   levelColumns.forEach((entry) => {
     spreadNodesVertically(entry.nodes, LAYOUT_GRID + 12, centerY);
   });
