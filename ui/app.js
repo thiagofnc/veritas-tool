@@ -566,6 +566,67 @@ function ensureCytoscape() {
         },
       },
       {
+        selector: 'node[kind = "gate"]',
+        style: {
+          "background-color": "#1a3a2a",
+          shape: "diamond",
+          width: 80,
+          height: 44,
+          "border-width": 2,
+          "border-color": "#48b880",
+          label: "data(label)",
+          "font-size": 9,
+          "font-weight": "bold",
+          "font-family": "monospace",
+          color: "#80e8b0",
+          "text-valign": "center",
+          "text-halign": "center",
+          "text-wrap": "wrap",
+          "text-max-width": 70,
+        },
+      },
+      {
+        selector: 'node[kind = "assign"]',
+        style: {
+          "background-color": "#2a1a3a",
+          shape: "roundrectangle",
+          width: 120,
+          height: 36,
+          "border-width": 2,
+          "border-color": "#a070d0",
+          label: "data(label)",
+          "font-size": 9,
+          "font-weight": "bold",
+          "font-family": "monospace",
+          color: "#c8a0e8",
+          "text-valign": "center",
+          "text-halign": "center",
+          "text-wrap": "wrap",
+          "text-max-width": 110,
+        },
+      },
+      {
+        selector: 'node[kind = "always"]',
+        style: {
+          "background-color": "#2a2a10",
+          shape: "rectangle",
+          width: 160,
+          height: 48,
+          "border-width": 2,
+          "border-color": "#c0a040",
+          "border-style": "double",
+          label: "data(label)",
+          "font-size": 9,
+          "font-weight": "bold",
+          "font-family": "monospace",
+          color: "#e0d080",
+          "text-valign": "center",
+          "text-halign": "center",
+          "text-wrap": "wrap",
+          "text-max-width": 150,
+        },
+      },
+      {
         selector: 'node[kind = "route_anchor"]',
         style: {
           width: 1,
@@ -899,10 +960,14 @@ function ensureCytoscape() {
     const data = event.target.data();
     const widthHint = data.bit_width && data.bit_width > 1 ? ` | bus [${data.bit_width}]` : data.is_bus ? " | bus" : " | wire";
     const drillHint = data.kind === "instance" ? '<div class="kind">Double-click to drill into module</div>' : "";
+    const extraHint = data.kind === "gate" ? `<div class="kind">Gate type: ${escapeHtml(data.gate_type)}</div>`
+      : data.kind === "assign" ? `<div class="kind">expr: ${escapeHtml(data.expression || "")}</div>`
+      : data.kind === "always" ? `<div class="kind">sensitivity: @(${escapeHtml(data.sensitivity || "")})</div>`
+      : "";
     hoverTooltip.innerHTML = `
       <div>${escapeHtml(data.label || data.id)}</div>
       <div class="kind">${escapeHtml(data.kind || "node")} | ${escapeHtml(data.id)}${escapeHtml(widthHint)}</div>
-      ${drillHint}
+      ${drillHint}${extraHint}
     `;
     hoverTooltip.style.display = "block";
     const p = event.renderedPosition;
@@ -2113,32 +2178,56 @@ function placePortViewRoutes(graph) {
   targetGroups.forEach((items) => assignCenteredOffsets(items, "targetOffset"));
   pairGroups.forEach((items) => assignCenteredOffsets(items, "parallelOffset"));
 
-  const getStubX = (node, side, offset = 0) => {
+  // Stagger vertical segments for routes leaving/entering the same instance side.
+  // Without this, all ports on the same side share the same stub X, causing
+  // their vertical entry/exit segments to overlap visually.
+  const instanceSideSourceGroups = new Map();
+  const instanceSideTargetGroups = new Map();
+  routes.forEach((route) => {
+    const side = route.forward ? 1 : -1;
+    const srcParent = route.sourceNode.data("instance_node_id") || route.sourceNode.id();
+    const tgtParent = route.targetNode.data("instance_node_id") || route.targetNode.id();
+    const srcKey = `${srcParent}:${side}`;
+    const tgtKey = `${tgtParent}:${-side}`;
+    if (!instanceSideSourceGroups.has(srcKey)) {
+      instanceSideSourceGroups.set(srcKey, []);
+    }
+    if (!instanceSideTargetGroups.has(tgtKey)) {
+      instanceSideTargetGroups.set(tgtKey, []);
+    }
+    instanceSideSourceGroups.get(srcKey).push(route);
+    instanceSideTargetGroups.get(tgtKey).push(route);
+  });
+  instanceSideSourceGroups.forEach((items) => assignCenteredOffsets(items, "instanceSourceOffset"));
+  instanceSideTargetGroups.forEach((items) => assignCenteredOffsets(items, "instanceTargetOffset"));
+
+  const getStubX = (node, side, offset = 0, instanceOffset = 0) => {
     const kind = node.data("kind");
     const centerX = node.position("x");
     const halfWidth = Math.max(6, node.outerWidth() / 2);
     const magnitude = Math.abs(offset);
     const signedOffset = side * magnitude;
+    const instanceStagger = side * Math.abs(instanceOffset);
 
     if (kind === "instance_port") {
-      return snapToGrid(centerX + side * 18 + signedOffset, ROUTE_FANOUT_GAP);
+      return snapToGrid(centerX + side * 18 + signedOffset + instanceStagger, ROUTE_FANOUT_GAP);
     }
 
     if (kind === "module_io") {
-      return snapToGrid(centerX + side * (halfWidth + 22) + signedOffset, ROUTE_FANOUT_GAP);
+      return snapToGrid(centerX + side * (halfWidth + 22) + signedOffset + instanceStagger, ROUTE_FANOUT_GAP);
     }
 
     if (kind === "instance") {
-      return snapToGrid(centerX + side * (halfWidth + 20) + signedOffset, ROUTE_FANOUT_GAP);
+      return snapToGrid(centerX + side * (halfWidth + 20) + signedOffset + instanceStagger, ROUTE_FANOUT_GAP);
     }
 
-    return snapToGrid(centerX + side * 26 + signedOffset, ROUTE_FANOUT_GAP);
+    return snapToGrid(centerX + side * 26 + signedOffset + instanceStagger, ROUTE_FANOUT_GAP);
   };
 
   routes.forEach((route) => {
     const side = route.forward ? 1 : -1;
-    const sourceStubX = getStubX(route.sourceNode, side, route.sourceOffset || 0);
-    const targetStubX = getStubX(route.targetNode, -side, route.targetOffset || 0);
+    const sourceStubX = getStubX(route.sourceNode, side, route.sourceOffset || 0, route.instanceSourceOffset || 0);
+    const targetStubX = getStubX(route.targetNode, -side, route.targetOffset || 0, route.instanceTargetOffset || 0);
     const laneY = snapToGrid(route.laneY + (route.parallelOffset || 0), ROUTE_PARALLEL_GAP);
     const points = {
       a: { x: sourceStubX, y: snapToGrid(route.sourcePos.y) },
@@ -2158,8 +2247,27 @@ function placePortViewRoutes(graph) {
 
 function applyPortViewBlockLayout(graph) {
   const instanceNodes = state.cy.nodes('[kind = "instance"]');
-  if (!instanceNodes.length) {
+  const logicNodes = state.cy.nodes('[kind = "gate"], [kind = "assign"], [kind = "always"]');
+
+  if (!instanceNodes.length && !logicNodes.length) {
     placeModuleIoNodes(graph, 120, 420);
+    placePortViewRoutes(graph);
+    placeUnconnectedPortStubs();
+    placeNetlabelNodes();
+    return;
+  }
+
+  // Place internal logic nodes (gates, assigns, always blocks) alongside instances.
+  if (logicNodes.length && !instanceNodes.length) {
+    const canvasHeight = cyGraph.clientHeight || 760;
+    const centerY = snapToGrid(canvasHeight / 2);
+    const rowGap = snapToGrid(logicNodes.length > 12 ? INSTANCE_ROW_GAP_DENSE : INSTANCE_ROW_GAP);
+    const totalHeight = Math.max(0, (logicNodes.length - 1) * rowGap);
+    const startY = snapToGrid(centerY - totalHeight / 2);
+    logicNodes.forEach((node, idx) => {
+      node.position({ x: snapToGrid(INSTANCE_COLUMN_START), y: startY + idx * rowGap });
+    });
+    placeModuleIoNodes(graph, snapToGrid(INSTANCE_COLUMN_START - IO_COLUMN_MARGIN), snapToGrid(INSTANCE_COLUMN_START + IO_COLUMN_MARGIN));
     placePortViewRoutes(graph);
     placeUnconnectedPortStubs();
     placeNetlabelNodes();
@@ -2204,8 +2312,23 @@ function applyPortViewBlockLayout(graph) {
 
   placeInstancePortNodes(graph);
 
-  const leftBounds = instanceNodes.map((node) => node.position("x") - getNodeHalfSize(node).halfWidth);
-  const rightBounds = instanceNodes.map((node) => node.position("x") + getNodeHalfSize(node).halfWidth);
+  // Place internal logic nodes at the center column among instances.
+  if (logicNodes.length) {
+    const canvasHeight = cyGraph.clientHeight || 760;
+    const centerYLogic = snapToGrid(canvasHeight / 2);
+    const lastLevel = Math.max(...[...levelByInstance.values()]);
+    const logicX = snapToGrid(INSTANCE_COLUMN_START + (lastLevel + 1) * INSTANCE_COLUMN_STEP);
+    const rowGap = snapToGrid(logicNodes.length > 12 ? INSTANCE_ROW_GAP_DENSE : INSTANCE_ROW_GAP);
+    const totalHeight = Math.max(0, (logicNodes.length - 1) * rowGap);
+    const startY = snapToGrid(centerYLogic - totalHeight / 2);
+    logicNodes.forEach((node, idx) => {
+      node.position({ x: logicX, y: startY + idx * rowGap });
+    });
+  }
+
+  const allBlockNodes = instanceNodes.union(logicNodes);
+  const leftBounds = allBlockNodes.map((node) => node.position("x") - getNodeHalfSize(node).halfWidth);
+  const rightBounds = allBlockNodes.map((node) => node.position("x") + getNodeHalfSize(node).halfWidth);
   const minLeft = Math.min(...leftBounds);
   const maxRight = Math.max(...rightBounds);
   placeModuleIoNodes(graph, snapToGrid(minLeft - IO_COLUMN_MARGIN), snapToGrid(maxRight + IO_COLUMN_MARGIN));
@@ -2293,7 +2416,10 @@ function renderInspector() {
       <div><span class="k">Bit width:</span> ${escapeHtml(widthText)}</div>
       <div><span class="k">ID:</span><br>${escapeHtml(state.selectedNode.id)}</div>
       <div><span class="k">Connected edges:</span> ${connected}</div>
-      <div><span class="k">Double-click behavior:</span> ${state.selectedNode.kind === "instance" ? "Open instance module graph" : "N/A"}</div>
+      ${state.selectedNode.kind === "instance" ? `<div><span class="k">Double-click behavior:</span> Open instance module graph</div>` : ""}
+      ${state.selectedNode.kind === "gate" ? `<div><span class="k">Gate type:</span> ${escapeHtml(state.selectedNode.gate_type || "")}</div>` : ""}
+      ${state.selectedNode.kind === "assign" ? `<div><span class="k">Expression:</span> ${escapeHtml(state.selectedNode.expression || "")}</div>` : ""}
+      ${state.selectedNode.kind === "always" ? `<div><span class="k">Block type:</span> ${escapeHtml(state.selectedNode.always_kind || "always")}</div><div><span class="k">Sensitivity:</span> @(${escapeHtml(state.selectedNode.sensitivity || "")})</div>` : ""}
     `;
   } else if (state.selectedEdge) {
     const netInfo = state.selectedEdge.nets?.length

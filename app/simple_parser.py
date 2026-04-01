@@ -15,10 +15,16 @@ import re
 from pathlib import Path
 
 try:
-    from app.models import Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile
+    from app.models import (
+        AlwaysBlock, ContinuousAssign, GatePrimitive,
+        Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile,
+    )
     from app.parser_base import VerilogParserBackend
 except ImportError:  # Supports running as: python app/main.py
-    from models import Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile
+    from models import (
+        AlwaysBlock, ContinuousAssign, GatePrimitive,
+        Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile,
+    )
     from parser_base import VerilogParserBackend
 
 
@@ -47,6 +53,31 @@ SIGNAL_DECL_RE = re.compile(
     r"(?m)^\s*(wire|reg|logic)\b(?:\s+(?:signed|unsigned))*\s*(\[[^\]]+\])?\s*([^;]+);"
 )
 
+GATE_TYPES = {
+    "and", "nand", "or", "nor", "xor", "xnor", "not", "buf",
+    "bufif0", "bufif1", "notif0", "notif1",
+}
+
+# Matches: assign target = expression ;
+ASSIGN_RE = re.compile(
+    r"\bassign\s+([A-Za-z_][A-Za-z0-9_$]*(?:\[[^\]]*\])?)\s*=\s*([^;]+);",
+    flags=re.DOTALL,
+)
+
+# Matches gate primitives: and g1(out, in1, in2);  or  and (out, in1, in2);
+GATE_RE = re.compile(
+    r"\b(" + "|".join(GATE_TYPES) + r")\s+(?:([A-Za-z_][A-Za-z0-9_$]*)\s*)?\(([^)]+)\)\s*;",
+)
+
+# Matches the start of an always block with sensitivity list.
+ALWAYS_START_RE = re.compile(
+    r"\b(always_ff|always_comb|always_latch|always)\s*(?:@\s*\(([^)]*)\))?\s*",
+    flags=re.DOTALL,
+)
+
+# Extracts identifiers from expressions (for signal reference analysis).
+_IDENT_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_$]*)\b")
+
 KEYWORDS = {
     "if",
     "for",
@@ -60,6 +91,12 @@ KEYWORDS = {
     "initial",
     "generate",
     "endgenerate",
+}
+
+# Identifiers to ignore when extracting signal references from expressions.
+_EXPR_IGNORE = KEYWORDS | {
+    "begin", "end", "else", "posedge", "negedge", "or", "and", "not",
+    "reg", "wire", "logic", "integer", "signed", "unsigned",
 }
 
 
@@ -134,6 +171,122 @@ def _parse_signals(module_body: str) -> list[Signal]:
     return signals
 
 
+def _extract_signal_names(expression: str, port_names: set[str], signal_names: set[str]) -> list[str]:
+    """Extract signal identifiers from an expression, filtering out keywords and literals."""
+    known = port_names | signal_names
+    names: list[str] = []
+    for match in _IDENT_RE.finditer(expression):
+        name = match.group(1)
+        if name in _EXPR_IGNORE:
+            continue
+        # Skip numeric-prefixed tokens that leaked through (e.g. from width specs).
+        if name[0].isdigit():
+            continue
+        if name in known and name not in names:
+            names.append(name)
+    return names
+
+
+def _parse_gates(module_body: str) -> list[GatePrimitive]:
+    """Parse gate primitive instantiations."""
+    gates: list[GatePrimitive] = []
+    unnamed_counter = 0
+
+    for gate_type, gate_name, args_text in GATE_RE.findall(module_body):
+        args = [a.strip() for a in args_text.split(",") if a.strip()]
+        if len(args) < 2:
+            continue
+
+        if not gate_name:
+            gate_name = f"{gate_type}_{unnamed_counter}"
+            unnamed_counter += 1
+
+        output = args[0]
+        inputs = args[1:]
+        gates.append(GatePrimitive(name=gate_name, gate_type=gate_type, output=output, inputs=inputs))
+
+    return gates
+
+
+def _parse_assigns(module_body: str, port_names: set[str], signal_names: set[str]) -> list[ContinuousAssign]:
+    """Parse continuous assign statements."""
+    assigns: list[ContinuousAssign] = []
+
+    for target, expression in ASSIGN_RE.findall(module_body):
+        target = target.strip()
+        expression = " ".join(expression.split())
+        source_signals = _extract_signal_names(expression, port_names, signal_names)
+        assigns.append(ContinuousAssign(target=target, expression=expression, source_signals=source_signals))
+
+    return assigns
+
+
+def _extract_balanced_block(text: str, start: int) -> str:
+    """Extract a balanced begin...end block starting at position ``start``.
+
+    ``start`` should point to the 'b' in 'begin'. Returns the full block text
+    including outermost begin/end, or a single statement up to ';' if the body
+    does not start with 'begin'.
+    """
+    if text[start:start + 5] != "begin":
+        # Single statement body — up to next semicolon.
+        end = text.find(";", start)
+        return text[start:end + 1] if end != -1 else text[start:]
+
+    depth = 0
+    pos = start
+    while pos < len(text):
+        if text[pos:pos + 5] == "begin" and (pos == 0 or not text[pos - 1].isalnum()):
+            depth += 1
+            pos += 5
+        elif text[pos:pos + 3] == "end" and (pos + 3 >= len(text) or not text[pos + 3].isalnum()):
+            depth -= 1
+            if depth == 0:
+                return text[start:pos + 3]
+            pos += 3
+        else:
+            pos += 1
+    return text[start:]
+
+
+def _parse_always_blocks(module_body: str, port_names: set[str], signal_names: set[str]) -> list[AlwaysBlock]:
+    """Parse always blocks, extracting read and written signals."""
+    blocks: list[AlwaysBlock] = []
+    known = port_names | signal_names
+
+    for index, match in enumerate(ALWAYS_START_RE.finditer(module_body)):
+        kind = match.group(1)
+        sensitivity = " ".join((match.group(2) or "").split())
+        body_start = match.end()
+
+        # Skip whitespace to find the body.
+        while body_start < len(module_body) and module_body[body_start] in " \t\n\r":
+            body_start += 1
+
+        body_clean = _extract_balanced_block(module_body, body_start)
+
+        # Extract written signals (LHS of <= or =).
+        written: list[str] = []
+        for lhs_match in re.finditer(r"([A-Za-z_][A-Za-z0-9_$]*)\s*(?:<)?=", body_clean):
+            name = lhs_match.group(1)
+            if name in known and name not in written and name not in _EXPR_IGNORE:
+                written.append(name)
+
+        # Extract read signals (all identifiers in body minus written and keywords).
+        all_idents = _extract_signal_names(body_clean, port_names, signal_names)
+        read = [name for name in all_idents if name not in written]
+
+        blocks.append(AlwaysBlock(
+            name=f"{kind}_{index}",
+            sensitivity=sensitivity,
+            kind=kind,
+            written_signals=written,
+            read_signals=read,
+        ))
+
+    return blocks
+
+
 def _parse_connections(connection_text: str) -> dict[str, str]:
     """Parse named connections first; fallback to positional args for basic coverage."""
     named_connections: dict[str, str] = {}
@@ -155,7 +308,7 @@ def _parse_instances(module_body: str) -> list[Instance]:
     instances: list[Instance] = []
 
     for module_name, inst_name, conn_text in INSTANCE_RE.findall(module_body):
-        if module_name in KEYWORDS:
+        if module_name in KEYWORDS or module_name in GATE_TYPES:
             continue
 
         connections = _parse_connections(conn_text)
@@ -183,12 +336,20 @@ def _parse_modules_from_file(file_path: str) -> list[ModuleDef]:
 
     modules: list[ModuleDef] = []
     for module_name, header_text, body_text in MODULE_RE.findall(clean_text):
+        ports = _parse_ports_from_header(header_text)
+        signals = _parse_signals(body_text)
+        port_names = {p.name for p in ports}
+        signal_names = {s.name for s in signals}
+
         modules.append(
             ModuleDef(
                 name=module_name,
-                ports=_parse_ports_from_header(header_text),
-                signals=_parse_signals(body_text),
+                ports=ports,
+                signals=signals,
                 instances=_parse_instances(body_text),
+                gates=_parse_gates(body_text),
+                assigns=_parse_assigns(body_text, port_names, signal_names),
+                always_blocks=_parse_always_blocks(body_text, port_names, signal_names),
                 source_file=str(Path(file_path).resolve()),
             )
         )

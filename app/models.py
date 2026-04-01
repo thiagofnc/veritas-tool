@@ -88,11 +88,42 @@ class Instance:
 
 
 @dataclass
+class GatePrimitive:
+    """A Verilog gate primitive such as ``and g1(out, in1, in2);``."""
+    name: str
+    gate_type: str  # and, or, not, xor, nand, nor, xnor, buf, etc.
+    output: str
+    inputs: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ContinuousAssign:
+    """A continuous assignment: ``assign target = expression;``."""
+    target: str
+    expression: str
+    # Signal names referenced on the RHS, extracted by the parser.
+    source_signals: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AlwaysBlock:
+    """An always block with its sensitivity list and read/written signals."""
+    name: str  # auto-generated identifier (always_0, always_1, ...)
+    sensitivity: str  # e.g. "posedge clk or posedge rst"
+    kind: str = "always"  # always, always_ff, always_comb, always_latch
+    written_signals: list[str] = field(default_factory=list)
+    read_signals: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ModuleDef:
     name: str
     ports: list[Port] = field(default_factory=list)
     signals: list[Signal] = field(default_factory=list)
     instances: list[Instance] = field(default_factory=list)
+    gates: list[GatePrimitive] = field(default_factory=list)
+    assigns: list[ContinuousAssign] = field(default_factory=list)
+    always_blocks: list[AlwaysBlock] = field(default_factory=list)
     source_file: str = ""
 
 
