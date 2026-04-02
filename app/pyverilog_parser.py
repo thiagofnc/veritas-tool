@@ -272,6 +272,94 @@ def _walk_always_assignments(
     return results
 
 
+def _classify_always_sensitivity(sensitivity: str, kind: str) -> tuple[str, str, str, str, str]:
+    cleaned = " ".join((sensitivity or "").split())
+
+    if kind == "always_comb" or cleaned in {"*", "(*)"}:
+        return ("comb", "level", "", "ALWAYS @(*)", "COMB")
+
+    edge_matches = list(re.finditer(r"\b(posedge|negedge)\s+([A-Za-z_][A-Za-z0-9_$]*)", cleaned))
+    if kind == "always_ff" or edge_matches:
+        if edge_matches:
+            primary = edge_matches[0]
+            edge = primary.group(1)
+            clock_signal = primary.group(2)
+            edge_polarity = edge_matches[0].group(1) if len({m.group(1) for m in edge_matches}) == 1 else "mixed"
+            title = f"ALWAYS @({cleaned})" if cleaned else f"ALWAYS @({edge} {clock_signal})"
+            return ("seq", edge_polarity, clock_signal, title, f"SEQ {edge} {clock_signal}")
+        return ("seq", "level", "", f"ALWAYS @({cleaned})" if cleaned else "ALWAYS", "SEQ")
+
+    if kind == "always_latch":
+        return ("latch", "level", "", f"ALWAYS @({cleaned})" if cleaned else "ALWAYS", "LATCH")
+
+    title = f"ALWAYS @({cleaned})" if cleaned else "ALWAYS"
+    return ("generic", "", "", title, title)
+
+
+def _summarize_always_controls(node: object, codegen: ASTCodeGenerator) -> list[str]:
+    statement = getattr(node, "statement", None)
+    if statement is None:
+        return []
+
+    top_level = getattr(statement, "statements", None)
+    statements = top_level if isinstance(top_level, (list, tuple)) else [statement]
+    summary: list[str] = []
+
+    for stmt in statements:
+        stmt_type = type(stmt).__name__
+        if stmt_type == "IfStatement":
+            cond = _expr_to_text(getattr(stmt, "cond", None), codegen)
+            has_else = getattr(stmt, "false_statement", None) is not None
+            summary.append(f"if ({cond})" + (" / else" if has_else else ""))
+        elif stmt_type == "CaseStatement":
+            expr = _expr_to_text(getattr(stmt, "comp", None), codegen)
+            case_items = getattr(stmt, "caselist", None) or []
+            summary.append(f"case ({expr}) [{len(case_items)} arms]")
+        elif stmt_type in {"BlockingSubstitution", "NonblockingSubstitution"}:
+            op = "=" if stmt_type == "BlockingSubstitution" else "<="
+            summary.append(f"{_expr_to_text(getattr(stmt, 'left', None), codegen)} {op} {_expr_to_text(getattr(stmt, 'right', None), codegen)}")
+        else:
+            child_statements = getattr(stmt, "statements", None)
+            if isinstance(child_statements, (list, tuple)):
+                for child in child_statements:
+                    child_type = type(child).__name__
+                    if child_type == "IfStatement":
+                        cond = _expr_to_text(getattr(child, "cond", None), codegen)
+                        has_else = getattr(child, "false_statement", None) is not None
+                        summary.append(f"if ({cond})" + (" / else" if has_else else ""))
+                    elif child_type == "CaseStatement":
+                        expr = _expr_to_text(getattr(child, "comp", None), codegen)
+                        case_items = getattr(child, "caselist", None) or []
+                        summary.append(f"case ({expr}) [{len(case_items)} arms]")
+        if len(summary) >= 6:
+            break
+
+    return summary[:6]
+
+
+def _collect_always_read_signals(
+    assignments: list[AlwaysAssignment],
+    control_summary: list[str],
+    known_signals: set[str],
+) -> list[str]:
+    read: list[str] = []
+
+    def append_names(names: list[str]) -> None:
+        for name in names:
+            if name in known_signals and name not in read:
+                read.append(name)
+
+    for assignment in assignments:
+        append_names(list(assignment.source_signals))
+        if assignment.condition:
+            append_names(_extract_identifiers(assignment.condition, known_signals))
+
+    for summary in control_summary:
+        append_names(_extract_identifiers(summary, known_signals))
+
+    return read
+
+
 def _parse_always_blocks(module: PVModuleDef, codegen: ASTCodeGenerator, known_signals: set[str]) -> list[AlwaysBlock]:
     """Parse always blocks from the AST."""
     blocks: list[AlwaysBlock] = []
@@ -291,11 +379,11 @@ def _parse_always_blocks(module: PVModuleDef, codegen: ASTCodeGenerator, known_s
 
         sens_node = getattr(item, "sens_list", None)
         sensitivity = _expr_to_text(sens_node, codegen) if sens_node else ""
-
+        process_style, edge_polarity, clock_signal, sensitivity_title, sensitivity_label = _classify_always_sensitivity(sensitivity, kind)
         body_text = _expr_to_text(item, codegen)
 
-        # Collect written signals from assignment nodes in the AST subtree.
         written: list[str] = []
+
         def _walk_for_written(node: object) -> None:
             if isinstance(node, (BlockingSubstitution, NonblockingSubstitution)):
                 lv = getattr(node, "left", None)
@@ -308,20 +396,34 @@ def _parse_always_blocks(module: PVModuleDef, codegen: ASTCodeGenerator, known_s
 
         _walk_for_written(item)
 
-        # Collect all identifiers referenced in the body, excluding written ones.
-        all_idents = _extract_identifiers(body_text, known_signals)
-        read = [n for n in all_idents if n not in written]
-
-        # Extract individual assignments with condition context.
         assignments = _walk_always_assignments(item, codegen, known_signals)
+        control_summary = _summarize_always_controls(item, codegen)
+        read = _collect_always_read_signals(assignments, control_summary, known_signals)
+        summary_lines: list[str] = []
+        for assignment in assignments:
+            operator = "=" if assignment.blocking else "<="
+            line = f"{assignment.target} {operator} {assignment.expression}"
+            if assignment.condition:
+                line += f" when {assignment.condition}"
+            if line not in summary_lines:
+                summary_lines.append(line)
+            if len(summary_lines) >= 8:
+                break
 
         blocks.append(AlwaysBlock(
             name=f"{kind}_{counter}",
             sensitivity=sensitivity,
             kind=kind,
+            process_style=process_style,
+            edge_polarity=edge_polarity,
+            clock_signal=clock_signal,
+            sensitivity_title=sensitivity_title,
+            sensitivity_label=sensitivity_label,
             written_signals=written,
             read_signals=read,
             assignments=assignments,
+            control_summary=control_summary,
+            summary_lines=summary_lines,
         ))
         counter += 1
 
@@ -419,3 +521,5 @@ class PyVerilogParser(VerilogParserBackend):
 
         root_path = os.path.commonpath([str(Path(path).parent) for path in resolved_paths]) if resolved_paths else ""
         return Project(root_path=root_path, source_files=source_files, modules=modules)
+
+

@@ -344,6 +344,8 @@ function renderGraphStats(nodeCounts, edgeCounts, edgeSignalCounts) {
   const nodeKinds = [
     { key: "instance", label: "instance nodes" },
     { key: "instance_port", label: "instance pin nodes" },
+    { key: "process_port", label: "process pin nodes" },
+    { key: "always", label: "process nodes" },
     { key: "module_io", label: "module I/O nodes" },
     { key: "net", label: "net nodes" },
   ];
@@ -453,7 +455,7 @@ function ensureCytoscape() {
         },
       },
       {
-        selector: 'node[kind = "instance_port"]',
+        selector: 'node[kind = "instance_port"], node[kind = "process_port"]',
         style: {
           shape: "rectangle",
           width: 7,
@@ -472,7 +474,7 @@ function ensureCytoscape() {
         },
       },
       {
-        selector: 'node[kind = "instance_port"][direction = "output"]',
+        selector: 'node[kind = "instance_port"][direction = "output"], node[kind = "process_port"][direction = "output"]',
         style: {
           "background-color": "#c77724",
           "border-color": "#5a3208",
@@ -482,7 +484,7 @@ function ensureCytoscape() {
         },
       },
       {
-        selector: 'node[kind = "instance_port"][direction = "input"]',
+        selector: 'node[kind = "instance_port"][direction = "input"], node[kind = "process_port"][direction = "input"]',
         style: {
           "background-color": "#3778a8",
           "border-color": "#102840",
@@ -492,7 +494,7 @@ function ensureCytoscape() {
         },
       },
       {
-        selector: 'node[kind = "instance_port"][direction = "unknown"]',
+        selector: 'node[kind = "instance_port"][direction = "unknown"], node[kind = "process_port"][direction = "unknown"]',
         style: {
           "background-color": "#5a7a8f",
           "border-color": "#2a3c48",
@@ -608,43 +610,61 @@ function ensureCytoscape() {
       {
         selector: 'node[kind = "always"]',
         style: {
-          "background-color": "#1a1a08",
-          "background-opacity": 0.85,
+          "background-color": "#131a17",
+          "background-opacity": 0.94,
           shape: "roundrectangle",
-          "border-width": 2.5,
-          "border-color": "#9a8030",
-          "border-style": "double",
+          width: "data(layout_width)",
+          height: "data(layout_height)",
+          "border-width": 2.4,
+          "border-color": "#678377",
           label: "data(label)",
-          "font-size": 9,
+          "font-size": 11,
           "font-weight": "bold",
-          "font-family": "monospace",
-          color: "#c8b860",
+          color: "#d9e7df",
           "text-valign": "top",
           "text-halign": "center",
-          "text-margin-y": 8,
+          "text-margin-y": 12,
           "text-wrap": "wrap",
-          "text-max-width": 260,
-          "padding": "16px",
-          "compound-sizing-wrt-labels": "include",
+          "text-max-width": 220,
+          "overlay-padding": 6,
         },
       },
       {
-        selector: 'node[kind = "always_assign"]',
+        selector: 'node[kind = "always"][process_style = "comb"]',
         style: {
-          "background-color": "#28280e",
-          shape: "roundrectangle",
-          width: 180,
-          height: 28,
-          "border-width": 1.5,
-          "border-color": "#807020",
-          label: "data(label)",
-          "font-size": 8.5,
-          "font-family": "monospace",
-          color: "#d8c878",
-          "text-valign": "center",
-          "text-halign": "center",
-          "text-wrap": "ellipsis",
-          "text-max-width": 170,
+          "background-color": "#13201a",
+          "border-color": "#6b8e7d",
+          "border-style": "solid",
+          color: "#d7e5dd",
+        },
+      },
+      {
+        selector: 'node[kind = "always"][process_style = "seq"]',
+        style: {
+          "background-color": "#171821",
+          "border-color": "#7d879d",
+          "border-style": "double",
+          color: "#e0e3ec",
+        },
+      },
+      {
+        selector: 'node[kind = "always"][process_style = "latch"]',
+        style: {
+          "background-color": "#1b1913",
+          "border-color": "#9a8663",
+          "border-style": "dashed",
+          color: "#e8dfd0",
+        },
+      },
+      {
+        selector: 'node[kind = "process_port"][direction = "inout"]',
+        style: {
+          shape: "diamond",
+          "background-color": "#88b58f",
+          "border-color": "#2d5138",
+          color: "#a8d1af",
+          "text-halign": "right",
+          "text-margin-x": 17,
         },
       },
       {
@@ -876,6 +896,36 @@ function ensureCytoscape() {
         },
       },
       {
+        selector: "edge.relation-highlight",
+        style: {
+          "line-color": "#ffc857",
+          "target-arrow-color": "#ffc857",
+          width: 3.2,
+          "line-opacity": 1,
+          "z-index": 110,
+        },
+      },
+      {
+        selector: "node.relation-highlight",
+        style: {
+          "border-color": "#ffc857",
+          "border-width": 3,
+          "z-index": 110,
+        },
+      },
+      {
+        selector: "node.relation-source",
+        style: {
+          "border-color": "#72d7a7",
+        },
+      },
+      {
+        selector: "node.relation-sink",
+        style: {
+          "border-color": "#8cc9ff",
+        },
+      },
+      {
         selector: "node.trace-highlight",
         style: {
           "border-color": "#ffc857",
@@ -901,11 +951,55 @@ function ensureCytoscape() {
     ],
   });
 
+  function clearRelationHighlights() {
+    state.cy.elements(".relation-highlight, .relation-source, .relation-sink").removeClass("relation-highlight relation-source relation-sink");
+  }
+
+  function highlightNodeRelations(node) {
+    clearRelationHighlights();
+    node.addClass("relation-highlight");
+
+    const endpoints = node.union(
+      state.cy.nodes().filter((candidate) => {
+        const parentId = candidate.data("parent_node_id") || candidate.data("instance_node_id") || candidate.data("process_node_id");
+        return parentId === node.id();
+      })
+    );
+    endpoints.addClass("relation-highlight");
+
+    const incoming = endpoints.incomers("edge");
+    const outgoing = endpoints.outgoers("edge");
+    const relatedEdges = incoming.union(outgoing);
+    relatedEdges.addClass("relation-highlight");
+    relatedEdges.sources().addClass("relation-source");
+    relatedEdges.targets().addClass("relation-sink");
+
+    const parentId = node.data("parent_node_id") || node.data("instance_node_id") || node.data("process_node_id");
+    if (parentId) {
+      state.cy.getElementById(parentId).addClass("relation-highlight");
+    }
+  }
+
+  function highlightSignalRelations(edge) {
+    clearRelationHighlights();
+    const netName = summarizeEdgeNetName(edge.data()) || edge.data("signal_name") || edge.id();
+    state.cy.edges().forEach((candidate) => {
+      const candidateNet = summarizeEdgeNetName(candidate.data()) || candidate.data("signal_name") || candidate.id();
+      if (candidateNet !== netName) {
+        return;
+      }
+      candidate.addClass("relation-highlight");
+      candidate.sources().addClass("relation-source relation-highlight");
+      candidate.targets().addClass("relation-sink relation-highlight");
+    });
+  }
+
   state.cy.on("tap", "node", async (event) => {
     const data = event.target.data();
     state.selectedNode = data;
     state.selectedEdge = null;
     state.cy.elements(".netlabel-highlighted, .netlabel-endpoint").removeClass("netlabel-highlighted netlabel-endpoint");
+    highlightNodeRelations(event.target);
     renderInspector();
 
     const now = Date.now();
@@ -937,6 +1031,7 @@ function ensureCytoscape() {
 
     // Clear previous netlabel highlights
     state.cy.elements(".netlabel-highlighted, .netlabel-endpoint").removeClass("netlabel-highlighted netlabel-endpoint");
+    highlightSignalRelations(event.target);
 
     renderInspector();
   });
@@ -973,6 +1068,7 @@ function ensureCytoscape() {
       state.selectedNode = null;
       state.selectedEdge = null;
       state.cy.elements(".netlabel-highlighted, .netlabel-endpoint").removeClass("netlabel-highlighted netlabel-endpoint");
+      clearRelationHighlights();
       renderInspector();
     }
   });
@@ -983,8 +1079,8 @@ function ensureCytoscape() {
     const drillHint = data.kind === "instance" ? '<div class="kind">Double-click to drill into module</div>' : "";
     const extraHint = data.kind === "gate" ? `<div class="kind">Gate type: ${escapeHtml(data.gate_type)}</div>`
       : data.kind === "assign" ? `<div class="kind">${escapeHtml(data.target_signal || "")} = ${escapeHtml(data.expression || "")}</div>`
-      : data.kind === "always" ? `<div class="kind">sensitivity: @(${escapeHtml(data.sensitivity || "")})</div>`
-      : data.kind === "always_assign" ? `<div class="kind">${escapeHtml(data.target_signal || "")} ${escapeHtml(data.operator || "<=")} ${escapeHtml(data.expression || "")}</div>${data.condition ? `<div class="kind">when: ${escapeHtml(data.condition)}</div>` : ""}`
+      : data.kind === "always" ? `<div class="kind">${escapeHtml(data.sensitivity_title || data.title || (data.sensitivity ? `ALWAYS @(${data.sensitivity})` : "ALWAYS"))}</div><div class="kind">reads: ${escapeHtml((data.read_signals || []).slice(0, 4).join(", ") || "-")}</div><div class="kind">writes: ${escapeHtml((data.written_signals || []).slice(0, 4).join(", ") || "-")}</div>`
+      : data.kind === "process_port" ? `<div class="kind">process pin | ${escapeHtml(data.direction || "unknown")}</div>`
       : "";
     hoverTooltip.innerHTML = `
       <div>${escapeHtml(data.label || data.id)}</div>
@@ -1108,10 +1204,10 @@ function computeEdgeRoutingTypes(graph) {
     if (node.kind === "instance") {
       instanceIds.add(node.id);
     }
-    if (node.kind === "instance_port" && node.instance_node_id) {
-      portToInstance.set(node.id, node.instance_node_id);
+    if ((node.kind === "instance_port" || node.kind === "process_port") && (node.parent_node_id || node.instance_node_id || node.process_node_id)) {
+      portToInstance.set(node.id, node.parent_node_id || node.instance_node_id || node.process_node_id);
     }
-    if (node.kind === "instance_port" || node.kind === "module_io") {
+    if (node.kind === "instance_port" || node.kind === "process_port" || node.kind === "module_io") {
       portMeta.set(node.id, node);
     }
   }
@@ -1221,8 +1317,9 @@ function buildPortViewCyElements(graph) {
   });
 
   for (const node of graph.nodes || []) {
-    if (node.kind === "instance_port" && node.instance_node_id) {
-      const counts = sideCountsByInstance.get(node.instance_node_id) || { input: 0, output: 0, unknown: 0 };
+    if ((node.kind === "instance_port" || node.kind === "process_port") && (node.parent_node_id || node.instance_node_id || node.process_node_id)) {
+      const parentId = node.parent_node_id || node.instance_node_id || node.process_node_id;
+      const counts = sideCountsByInstance.get(parentId) || { input: 0, output: 0, unknown: 0 };
       const direction = String(node.direction || "unknown").toLowerCase();
       if (direction === "output") {
         counts.output += 1;
@@ -1231,24 +1328,24 @@ function buildPortViewCyElements(graph) {
       } else {
         counts.unknown += 1;
       }
-      sideCountsByInstance.set(node.instance_node_id, counts);
+      sideCountsByInstance.set(parentId, counts);
       longestPortNameByInstance.set(
-        node.instance_node_id,
-        Math.max(longestPortNameByInstance.get(node.instance_node_id) || 0, String(node.port_name || "").length)
+        parentId,
+        Math.max(longestPortNameByInstance.get(parentId) || 0, String(node.port_name || "").length)
       );
     }
   }
 
   for (const node of graph.nodes || []) {
-    const sideCounts = node.kind === "instance" ? sideCountsByInstance.get(node.id) : null;
+    const sideCounts = (node.kind === "instance" || node.kind === "always") ? sideCountsByInstance.get(node.id) : null;
     const maxSidePortCount = sideCounts
       ? Math.max(sideCounts.input, sideCounts.output, sideCounts.unknown)
       : 0;
-    const longestPortName = node.kind === "instance" ? longestPortNameByInstance.get(node.id) || 0 : 0;
-    const layoutWidth = node.kind === "instance"
+    const longestPortName = (node.kind === "instance" || node.kind === "always") ? longestPortNameByInstance.get(node.id) || 0 : 0;
+    const layoutWidth = (node.kind === "instance" || node.kind === "always")
       ? Math.max(240, Math.min(460, 200 + longestPortName * 7.5))
       : undefined;
-    const layoutHeight = node.kind === "instance"
+    const layoutHeight = (node.kind === "instance" || node.kind === "always")
       ? Math.max(120, 72 + maxSidePortCount * 24)
       : undefined;
 
@@ -1266,7 +1363,7 @@ function buildPortViewCyElements(graph) {
         ...node,
         is_bus: node.is_bus ? 1 : 0,
         port_view: 1,
-        ...(node.kind === "instance_port" ? { display_label: showPortLabel ? portName : "" } : {}),
+        ...((node.kind === "instance_port" || node.kind === "process_port") ? { display_label: showPortLabel ? portName : "" } : {}),
         max_side_port_count: maxSidePortCount,
         connection_count: connectionCounts.get(node.id) || 0,
         ...(layoutWidth ? { layout_width: layoutWidth } : {}),
@@ -1291,7 +1388,7 @@ function buildPortViewCyElements(graph) {
   }
 
   const portStubNodes = (graph.nodes || []).filter((node) => {
-    if (!["instance_port", "module_io"].includes(node.kind)) {
+    if (!["instance_port", "process_port", "module_io"].includes(node.kind)) {
       return false;
     }
     return (connectionCounts.get(node.id) || 0) === 0;
@@ -1463,7 +1560,7 @@ function buildPortViewCyElements(graph) {
 }
 
 function getLayoutRoots(graph) {
-  const nodes = (graph.nodes || []).filter((node) => node.kind !== "instance_port");
+  const nodes = (graph.nodes || []).filter((node) => !["instance_port", "process_port"].includes(node.kind));
   const edges = graph.edges || [];
 
   const incoming = new Map();
@@ -1504,12 +1601,12 @@ function endpointToInstanceId(nodeId) {
   }
 
   const kind = node.data("kind");
-  if (kind === "instance") {
+  if (kind === "instance" || kind === "always") {
     return node.id();
   }
 
-  if (kind === "instance_port") {
-    return node.data("instance_node_id") || null;
+  if (kind === "instance_port" || kind === "process_port") {
+    return node.data("parent_node_id") || node.data("instance_node_id") || node.data("process_node_id") || null;
   }
 
   return null;
@@ -1775,14 +1872,14 @@ function placeInstancePortNodes(graph) {
     return;
   }
 
-  const portNodes = state.cy.nodes('[kind = "instance_port"]');
+  const portNodes = state.cy.nodes('[kind = "instance_port"], [kind = "process_port"]');
   if (!portNodes.length) {
     return;
   }
 
   const grouped = new Map();
   portNodes.forEach((portNode) => {
-    const parentId = portNode.data("instance_node_id");
+    const parentId = portNode.data("parent_node_id") || portNode.data("instance_node_id") || portNode.data("process_node_id");
     if (!parentId) {
       return;
     }
@@ -2231,7 +2328,7 @@ function placePortViewRoutes(graph) {
     const signedOffset = side * magnitude;
     const instanceStagger = side * Math.abs(instanceOffset);
 
-    if (kind === "instance_port") {
+    if (kind === "instance_port" || kind === "process_port") {
       return snapToGrid(centerX + side * 18 + signedOffset + instanceStagger, ROUTE_FANOUT_GAP);
     }
 
@@ -2289,6 +2386,7 @@ function applyPortViewBlockLayout(graph) {
     logicNodes.forEach((node, idx) => {
       node.position({ x: snapToGrid(INSTANCE_COLUMN_START), y: startY + idx * rowGap });
     });
+    placeInstancePortNodes(graph);
     placeModuleIoNodes(graph, snapToGrid(INSTANCE_COLUMN_START - IO_COLUMN_MARGIN), snapToGrid(INSTANCE_COLUMN_START + IO_COLUMN_MARGIN));
     placePortViewRoutes(graph);
     placeUnconnectedPortStubs();
@@ -2332,7 +2430,6 @@ function applyPortViewBlockLayout(graph) {
     spreadNodesVertically(entry.nodes, LAYOUT_GRID + 12, centerY);
   });
 
-  placeInstancePortNodes(graph);
 
   // Place internal logic nodes at the center column among instances.
   if (logicNodes.length) {
@@ -2347,6 +2444,7 @@ function applyPortViewBlockLayout(graph) {
       node.position({ x: logicX, y: startY + idx * rowGap });
     });
   }
+  placeInstancePortNodes(graph);
 
   const allBlockNodes = instanceNodes.union(logicNodes);
   const leftBounds = allBlockNodes.map((node) => node.position("x") - getNodeHalfSize(node).halfWidth);
@@ -2441,8 +2539,8 @@ function renderInspector() {
       ${state.selectedNode.kind === "instance" ? `<div><span class="k">Double-click behavior:</span> Open instance module graph</div>` : ""}
       ${state.selectedNode.kind === "gate" ? `<div><span class="k">Gate type:</span> ${escapeHtml(state.selectedNode.gate_type || "")}</div>` : ""}
       ${state.selectedNode.kind === "assign" ? `<div><span class="k">Target:</span> ${escapeHtml(state.selectedNode.target_signal || "")}</div><div><span class="k">Expression:</span> ${escapeHtml(state.selectedNode.expression || "")}</div>` : ""}
-      ${state.selectedNode.kind === "always" ? `<div><span class="k">Block type:</span> ${escapeHtml(state.selectedNode.always_kind || "always")}</div><div><span class="k">Sensitivity:</span> @(${escapeHtml(state.selectedNode.sensitivity || "")})</div>` : ""}
-      ${state.selectedNode.kind === "always_assign" ? `<div><span class="k">Target:</span> ${escapeHtml(state.selectedNode.target_signal || "")}</div><div><span class="k">Expression:</span> ${escapeHtml(state.selectedNode.expression || "")}</div>${state.selectedNode.condition ? `<div><span class="k">Condition:</span> ${escapeHtml(state.selectedNode.condition)}</div>` : ""}` : ""}
+      ${state.selectedNode.kind === "always" ? `<div><span class="k">Process type:</span> ${escapeHtml(state.selectedNode.process_style || state.selectedNode.always_kind || "always")}</div><div><span class="k">Sensitivity:</span> ${escapeHtml(state.selectedNode.sensitivity_title || state.selectedNode.title || (state.selectedNode.sensitivity ? `ALWAYS @(${state.selectedNode.sensitivity})` : "ALWAYS"))}</div><div><span class="k">Reads:</span> ${escapeHtml((state.selectedNode.read_signals || []).join(", ") || "-")}</div><div><span class="k">Writes:</span> ${escapeHtml((state.selectedNode.written_signals || []).join(", ") || "-")}</div><div><span class="k">Feedback:</span> ${escapeHtml((state.selectedNode.feedback_signals || []).join(", ") || "-")}</div>${(state.selectedNode.control_summary || []).length ? `<div><span class="k">Top-level control:</span><br>${escapeHtml(state.selectedNode.control_summary.join(" | "))}</div>` : ""}${(state.selectedNode.summary_lines || []).length ? `<div><span class="k">Assignments:</span><br>${escapeHtml(state.selectedNode.summary_lines.join(" | "))}</div>` : ""}` : ""}
+      ${state.selectedNode.kind === "process_port" ? `<div><span class="k">Process pin:</span> ${escapeHtml(state.selectedNode.port_name || "")}</div><div><span class="k">Direction:</span> ${escapeHtml(state.selectedNode.direction || "unknown")}</div>` : ""}
     `;
   } else if (state.selectedEdge) {
     const netInfo = state.selectedEdge.nets?.length
@@ -2775,6 +2873,12 @@ renderInspector();
     setStatus("API unavailable", "error");
   }
 })();
+
+
+
+
+
+
 
 
 

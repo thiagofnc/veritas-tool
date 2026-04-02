@@ -313,6 +313,75 @@ def _extract_always_assignments(
     return assignments
 
 
+def _classify_always_sensitivity(sensitivity: str, kind: str) -> tuple[str, str, str, str, str]:
+    cleaned = " ".join((sensitivity or "").split())
+
+    if kind == "always_comb" or cleaned in {"*", "(*)"}:
+        return ("comb", "level", "", "ALWAYS @(*)", "COMB")
+
+    edge_matches = list(re.finditer(r"\b(posedge|negedge)\s+([A-Za-z_][A-Za-z0-9_$]*)", cleaned))
+    if kind == "always_ff" or edge_matches:
+        if edge_matches:
+            primary = edge_matches[0]
+            edge = primary.group(1)
+            clock_signal = primary.group(2)
+            edge_polarity = edge if len({m.group(1) for m in edge_matches}) == 1 else "mixed"
+            title = f"ALWAYS @({cleaned})" if cleaned else f"ALWAYS @({edge} {clock_signal})"
+            return ("seq", edge_polarity, clock_signal, title, f"SEQ {edge} {clock_signal}")
+        return ("seq", "level", "", f"ALWAYS @({cleaned})" if cleaned else "ALWAYS", "SEQ")
+
+    if kind == "always_latch":
+        return ("latch", "level", "", f"ALWAYS @({cleaned})" if cleaned else "ALWAYS", "LATCH")
+
+    title = f"ALWAYS @({cleaned})" if cleaned else "ALWAYS"
+    return ("generic", "", "", title, title)
+
+
+def _summarize_always_controls(body: str) -> list[str]:
+    summary: list[str] = []
+    for raw_line in body.splitlines():
+        line = " ".join(raw_line.strip().split())
+        if not line:
+            continue
+        if line.startswith("if ") or line.startswith("if("):
+            condition_match = re.match(r"if\s*\((.+?)\)", line)
+            if condition_match:
+                summary.append(f"if ({condition_match.group(1)})")
+        elif re.match(r"(end\s+)?else\b", line):
+            summary.append("else")
+        elif line.startswith("case ") or line.startswith("case("):
+            expr_match = re.match(r"case\s*\((.+?)\)", line)
+            if expr_match:
+                summary.append(f"case ({expr_match.group(1)})")
+        if len(summary) >= 6:
+            break
+    return summary[:6]
+
+
+def _collect_always_read_signals(
+    assignments: list[AlwaysAssignment],
+    control_summary: list[str],
+    port_names: set[str],
+    signal_names: set[str],
+) -> list[str]:
+    read: list[str] = []
+
+    def append_names(names: list[str]) -> None:
+        for name in names:
+            if name not in read:
+                read.append(name)
+
+    for assignment in assignments:
+        append_names(assignment.source_signals)
+        if assignment.condition:
+            append_names(_extract_signal_names(assignment.condition, port_names, signal_names))
+
+    for summary in control_summary:
+        append_names(_extract_signal_names(summary, port_names, signal_names))
+
+    return read
+
+
 def _parse_always_blocks(module_body: str, port_names: set[str], signal_names: set[str]) -> list[AlwaysBlock]:
     """Parse always blocks, extracting read and written signals and individual assignments."""
     blocks: list[AlwaysBlock] = []
@@ -321,35 +390,48 @@ def _parse_always_blocks(module_body: str, port_names: set[str], signal_names: s
     for index, match in enumerate(ALWAYS_START_RE.finditer(module_body)):
         kind = match.group(1)
         sensitivity = " ".join((match.group(2) or "").split())
+        process_style, edge_polarity, clock_signal, sensitivity_title, sensitivity_label = _classify_always_sensitivity(sensitivity, kind)
         body_start = match.end()
 
-        # Skip whitespace to find the body.
         while body_start < len(module_body) and module_body[body_start] in " \t\n\r":
             body_start += 1
 
         body_clean = _extract_balanced_block(module_body, body_start)
 
-        # Extract written signals (LHS of <= or =).
         written: list[str] = []
         for lhs_match in re.finditer(r"([A-Za-z_][A-Za-z0-9_$]*)\s*(?:<)?=", body_clean):
             name = lhs_match.group(1)
             if name in known and name not in written and name not in _EXPR_IGNORE:
                 written.append(name)
 
-        # Extract read signals (all identifiers in body minus written and keywords).
-        all_idents = _extract_signal_names(body_clean, port_names, signal_names)
-        read = [name for name in all_idents if name not in written]
-
-        # Extract individual assignments with their condition context.
         assignments = _extract_always_assignments(body_clean, port_names, signal_names)
+        control_summary = _summarize_always_controls(body_clean)
+        read = _collect_always_read_signals(assignments, control_summary, port_names, signal_names)
+        summary_lines: list[str] = []
+        for assignment in assignments:
+            operator = "=" if assignment.blocking else "<="
+            line = f"{assignment.target} {operator} {assignment.expression}"
+            if assignment.condition:
+                line += f" when {assignment.condition}"
+            if line not in summary_lines:
+                summary_lines.append(line)
+            if len(summary_lines) >= 8:
+                break
 
         blocks.append(AlwaysBlock(
             name=f"{kind}_{index}",
             sensitivity=sensitivity,
             kind=kind,
+            process_style=process_style,
+            edge_polarity=edge_polarity,
+            clock_signal=clock_signal,
+            sensitivity_title=sensitivity_title,
+            sensitivity_label=sensitivity_label,
             written_signals=written,
             read_signals=read,
             assignments=assignments,
+            control_summary=control_summary,
+            summary_lines=summary_lines,
         ))
 
     return blocks
@@ -445,3 +527,5 @@ class SimpleRegexParser(VerilogParserBackend):
             root_path = ""
 
         return Project(root_path=root_path, source_files=source_files, modules=modules)
+
+

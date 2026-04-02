@@ -121,9 +121,16 @@ class AlwaysBlock:
     name: str  # auto-generated identifier (always_0, always_1, ...)
     sensitivity: str  # e.g. "posedge clk or posedge rst"
     kind: str = "always"  # always, always_ff, always_comb, always_latch
+    process_style: str = "generic"  # comb, seq, latch, generic
+    edge_polarity: str = ""  # posedge, negedge, level, mixed, or empty
+    clock_signal: str = ""
+    sensitivity_title: str = ""
+    sensitivity_label: str = ""
     written_signals: list[str] = field(default_factory=list)
     read_signals: list[str] = field(default_factory=list)
     assignments: list[AlwaysAssignment] = field(default_factory=list)
+    control_summary: list[str] = field(default_factory=list)
+    summary_lines: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -140,11 +140,14 @@ def _port_role(port_name: str, is_bus: bool) -> tuple[int, str]:
 
 
 def _expand_port_nodes(graph: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    by_instance: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    by_parent: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for node in graph["nodes"]:
-        if node.get("kind") == "instance_port" and node.get("instance_node_id"):
-            by_instance[node["instance_node_id"]].append(node)
-    return by_instance
+        if node.get("kind") not in {"instance_port", "process_port"}:
+            continue
+        parent_id = node.get("parent_node_id") or node.get("instance_node_id") or node.get("process_node_id")
+        if parent_id:
+            by_parent[str(parent_id)].append(node)
+    return by_parent
 
 
 def _block_edge_endpoints(node_map: dict[str, dict[str, Any]], edge: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -152,8 +155,8 @@ def _block_edge_endpoints(node_map: dict[str, dict[str, Any]], edge: dict[str, A
         node = node_map.get(node_id)
         if node is None:
             return None
-        if node.get("kind") == "instance_port":
-            return node.get("instance_node_id")
+        if node.get("kind") in {"instance_port", "process_port"}:
+            return node.get("parent_node_id") or node.get("instance_node_id") or node.get("process_node_id")
         return node_id
 
     return (to_block(edge["source"]), to_block(edge["target"]))
@@ -164,8 +167,8 @@ def _compute_layers(
     node_map: dict[str, dict[str, Any]],
     edges: list[dict[str, Any]],
 ) -> dict[str, int]:
-    instance_ids = [block_id for block_id, block in blocks.items() if block.kind == "instance"]
-    adjacency: dict[str, set[str]] = {block_id: set() for block_id in instance_ids}
+    layout_ids = [block_id for block_id, block in blocks.items() if block.kind in {"instance", "gate", "assign", "always"}]
+    adjacency: dict[str, set[str]] = {block_id: set() for block_id in layout_ids}
 
     for edge in edges:
         source_id, target_id = _block_edge_endpoints(node_map, edge)
@@ -175,7 +178,7 @@ def _compute_layers(
             continue
         adjacency[source_id].add(target_id)
 
-    components = _tarjan_scc(instance_ids, adjacency)
+    components = _tarjan_scc(layout_ids, adjacency)
     component_by_node: dict[str, int] = {}
     for index, component in enumerate(components):
         for node_id in component:
@@ -221,7 +224,7 @@ def _order_layers(
     grouped: dict[int, list[str]] = defaultdict(list)
 
     for block_id, block in blocks.items():
-        if block.kind == "instance":
+        if block.kind in {"instance", "gate", "assign", "always"}:
             grouped[block.layer].append(block_id)
 
     for edge in edges:
@@ -353,7 +356,7 @@ def _build_port_layout(
         if block is None:
             continue
 
-        left_ports = [port for port in ports if _normalize(port.get("direction")) != "output"]
+        left_ports = [port for port in ports if _normalize(port.get("direction")) not in {"output"}]
         right_ports = [port for port in ports if _normalize(port.get("direction")) == "output"]
         left_ports.sort(key=lambda port: _port_role(str(port.get("port_name", "")), bool(port.get("is_bus"))))
         right_ports.sort(key=lambda port: _port_role(str(port.get("port_name", "")), bool(port.get("is_bus"))))
@@ -368,7 +371,7 @@ def _build_port_layout(
                 x = block.x - block.width / 2 if side == "left" else block.x + block.width / 2
                 layout_by_port[port["id"]] = {
                     "id": port["id"],
-                    "kind": "instance_port",
+                    "kind": port.get("kind") or "instance_port",
                     "parent_id": instance_id,
                     "x": _snap(x),
                     "y": y,
@@ -426,17 +429,17 @@ def _build_port_layout(
 
     # always_assign children: place at their parent always block's position.
     for node in graph["nodes"]:
-        if node.get("kind") != "always_assign":
+        if node.get("kind") != "process_port":
             continue
         if node["id"] in layout_by_port:
             continue
-        parent_id = node.get("parent", "")
+        parent_id = node.get("parent_node_id") or node.get("process_node_id") or ""
         parent_block = blocks.get(parent_id)
         px = parent_block.x if parent_block else 0
         py = parent_block.y if parent_block else 0
         layout_by_port[node["id"]] = {
             "id": node["id"],
-            "kind": "always_assign",
+            "kind": "process_port",
             "x": px,
             "y": py,
             "side": "left",
@@ -445,8 +448,8 @@ def _build_port_layout(
             "direction": "unknown",
             "is_bus": False,
             "bit_width": None,
-            "width": 120,
-            "height": 28,
+            "width": 16,
+            "height": 16,
         }
 
     return layout_by_port
@@ -694,7 +697,7 @@ def build_schematic_connectivity_graph(project: Project, module_name: str, schem
 
     blocks: dict[str, _Block] = {}
     for node in graph["nodes"]:
-        if node.get("kind") in ("instance_port", "always_assign"):
+        if node.get("kind") in ("instance_port", "process_port"):
             continue
         module_def = module_defs.get(str(node.get("module_name")))
         block = _Block(
@@ -781,3 +784,4 @@ def build_schematic_connectivity_graph(project: Project, module_name: str, schem
             "metrics": metrics,
         },
     }
+
