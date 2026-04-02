@@ -2,6 +2,8 @@
 
 Backend + API + browser UI for scanning and analyzing Verilog/SystemVerilog projects, with hierarchy navigation, module connectivity views, and schematic-style layouts.
 
+Still deciding on the final project name: Verilogix, Silica, Verilium, or ArchRTL.
+
 ## Current Status
 
 This repo is still an MVP, but it is beyond the original "just hierarchy + basic graph" stage.
