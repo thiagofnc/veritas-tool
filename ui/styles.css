@@ -107,6 +107,10 @@ body {
   min-width: 360px;
 }
 
+#folderInput {
+  min-width: 260px;
+}
+
 .controls button,
 .canvas-actions button {
   background: #183241;

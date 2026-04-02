@@ -558,9 +558,9 @@ def _build_routes(
         target_xs = [point[0] for _, point in sink_points] or [source_block_x]
         far_x = max(target_xs + [source_block_x])
         back_edge = any(point[0] < source_block_x for _, point in sink_points)
-        long_span = abs(far_x - source_block_x) > 520
+        long_span = abs(far_x - source_block_x) > 350
         fanout = len(sink_points)
-        collapse = long_span or back_edge or (fanout > 3 and is_control)
+        collapse = long_span or back_edge or fanout > 1
 
         important_control = any(word in _normalize(label) for word in ("clk", "clock", "rst", "reset", "start", "busy", "valid", "ready"))
         if mode == "simplified" and not (is_bus or fanout > 1 or important_control):

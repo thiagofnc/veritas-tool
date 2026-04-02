@@ -1,5 +1,24 @@
-﻿const state = {
-  folder: "",
+﻿const PROJECT_OPTIONS = [
+  {
+    label: "Processor",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05",
+  },
+  {
+    label: "Linear Chain",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\sample_projects\\01_linear_chain",
+  },
+  {
+    label: "Serial Subsystem",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\sample_projects\\02_serial_subsystem",
+  },
+  {
+    label: "Module chain",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\sample_projects\\04_three_module_chain",
+  },
+];
+
+const state = {
+  folder: PROJECT_OPTIONS[0].folder,
   parser: "pyverilog",
   tops: [],
   modules: [],
@@ -80,6 +99,22 @@ function escapeHtml(text) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function populateProjectOptions() {
+  if (!folderInput) {
+    return;
+  }
+
+  folderInput.innerHTML = "";
+  for (const project of PROJECT_OPTIONS) {
+    const option = document.createElement("option");
+    option.value = project.folder;
+    option.textContent = project.label;
+    folderInput.appendChild(option);
+  }
+
+  folderInput.value = state.folder;
 }
 
 function snapToGrid(value, grid = LAYOUT_GRID) {
@@ -1267,41 +1302,31 @@ function computeEdgeRoutingTypes(graph) {
     const dstInst = portToInstance.get(edge.target) || (instanceIds.has(edge.target) ? edge.target : null);
     const netName = summarizeEdgeNetName(edge) || "(unnamed net)";
     const netStat = netStats.get(netName) || { fanout: 1, endpoints: new Set([edge.source, edge.target]), controlLike: false, busLike: false };
-    const isBus = Boolean(edge.is_bus || ((edge.bit_width || 1) > 1) || edge.sig_class === "bus" || netStat.busLike);
-    const pairKey = `${srcInst || edge.source}->${dstInst || edge.target}`;
-    const pairCount = pairCounts.get(pairKey) || 1;
-    const srcNode = portMeta.get(edge.source);
-    const dstNode = portMeta.get(edge.target);
 
+    // Module IO boundary: always netlabel so inputs/outputs look clean with wire->label
     if (!srcInst || !dstInst) {
-      const boundaryControl = isControlSignalName(srcNode?.port_name || srcNode?.label) || isControlSignalName(dstNode?.port_name || dstNode?.label);
-      if (boundaryControl && netStat.fanout > 1) {
-        return { mode: "netlabel", reason: "Boundary control net is repeated and reads better by name." };
-      }
-      return { mode: "routed", reason: "Boundary connection is local to the module interface." };
+      return { mode: "netlabel", reason: "Boundary connection uses net name for clean I/O appearance." };
     }
 
+    // Feedback or lateral: always netlabel to avoid crossing wires
     const srcLvl = level.get(srcInst) ?? 0;
     const dstLvl = level.get(dstInst) ?? 0;
     if (srcLvl >= dstLvl) {
       return { mode: "netlabel", reason: "Feedback or lateral connection is clearer by shared net name." };
     }
+
+    // Long distance: always netlabel to prevent wires going under modules
     if (dstLvl - srcLvl > 1) {
-      return { mode: "netlabel", reason: "Long cross-stage connection is clearer by shared net name." };
+      return { mode: "netlabel", reason: "Long cross-stage connection uses net name to avoid overlap." };
     }
-    if (netStat.controlLike && netStat.fanout > 1) {
-      return { mode: "netlabel", reason: "Global control-style nets are less cluttered when named instead of fully traced." };
+
+    // Multi-fanout: always netlabel (no wires for multi-destination signals)
+    if (netStat.fanout > 1) {
+      return { mode: "netlabel", reason: "Multi-destination signal uses connection by name only." };
     }
-    if (!isBus && netStat.fanout > 2) {
-      return { mode: "netlabel", reason: "High-fanout scalar net is clearer by name than by repeated stubs." };
-    }
-    if (!isBus && pairCount > 2) {
-      return { mode: "netlabel", reason: "Dense scalar bundle between the same blocks is clearer by name." };
-    }
-    if (isBus) {
-      return { mode: "routed", reason: "Local datapath bus is worth tracing explicitly." };
-    }
-    return { mode: "routed", reason: "Short forward connection is worth tracing explicitly." };
+
+    // Single connection, adjacent: use direct wire (no netlabel)
+    return { mode: "routed", reason: "Single direct connection uses wire." };
   };
 }
 
@@ -1373,17 +1398,22 @@ function buildPortViewCyElements(graph) {
     });
 
     if (node.kind === "module_io") {
-      elements.push({
-        data: {
-          id: `module-io-label:${node.id}`,
-          kind: "module_io_tip_label",
-          label: node.port_name || node.label || node.id,
-          label_width: Math.max(56, String(node.port_name || node.label || node.id).length * 8 + 16),
-          anchor_for: node.id,
-          direction: String(node.direction || "unknown").toLowerCase(),
-          port_view: 1,
-        },
-      });
+      // Only create tip label if the module_io has no connections
+      // (connected module_io nodes get a netlabel instead, avoiding duplicate labels)
+      const hasConnections = (connectionCounts.get(node.id) || 0) > 0;
+      if (!hasConnections) {
+        elements.push({
+          data: {
+            id: `module-io-label:${node.id}`,
+            kind: "module_io_tip_label",
+            label: node.port_name || node.label || node.id,
+            label_width: Math.max(56, String(node.port_name || node.label || node.id).length * 8 + 16),
+            anchor_for: node.id,
+            direction: String(node.direction || "unknown").toLowerCase(),
+            port_view: 1,
+          },
+        });
+      }
     }
   }
 
@@ -1429,6 +1459,7 @@ function buildPortViewCyElements(graph) {
 
   const classifyEdge = computeEdgeRoutingTypes(graph);
   const sourceNetlabels = new Map();
+  const targetNetlabels = new Map();
 
   (graph.edges || []).forEach((edge, index) => {
     const routingDecision = classifyEdge(edge);
@@ -1479,37 +1510,42 @@ function buildPortViewCyElements(graph) {
         });
       }
 
-      const tgtLabelId = `netlabel:${index}:tgt`;
-      elements.push({
-        data: {
-          id: tgtLabelId,
-          kind: "netlabel_node",
-          net_label_text: labelText,
-          netlabel_group: firstName,
-          netlabel_trace_group: traceGroup,
-          netlabel_role: "target",
-          label_width: labelWidth,
-          connected_port: edge.target,
-          routing_mode: routingType,
-          routing_reason: routingDecision.reason,
-          port_view: 1,
-        },
-      });
-      elements.push({
-        data: {
-          id: `${tgtLabelId}:edge`,
-          source: tgtLabelId,
-          target: edge.target,
-          kind: "connection",
-          netlabel_stub: 1,
-          netlabel_trace_group: traceGroup,
-          port_view: 1,
-          routing_mode: routingType,
-          routing_reason: routingDecision.reason,
-          sig_class: edge.sig_class || "wire",
-          is_bus: edge.is_bus ? 1 : 0,
-        },
-      });
+      // Deduplicate target netlabels by target port + signal name
+      const targetKey = `${edge.target}:${firstName}`;
+      if (!targetNetlabels.has(targetKey)) {
+        targetNetlabels.set(targetKey, true);
+        const tgtLabelId = `netlabel:${index}:tgt`;
+        elements.push({
+          data: {
+            id: tgtLabelId,
+            kind: "netlabel_node",
+            net_label_text: labelText,
+            netlabel_group: firstName,
+            netlabel_trace_group: traceGroup,
+            netlabel_role: "target",
+            label_width: labelWidth,
+            connected_port: edge.target,
+            routing_mode: routingType,
+            routing_reason: routingDecision.reason,
+            port_view: 1,
+          },
+        });
+        elements.push({
+          data: {
+            id: `${tgtLabelId}:edge`,
+            source: tgtLabelId,
+            target: edge.target,
+            kind: "connection",
+            netlabel_stub: 1,
+            netlabel_trace_group: traceGroup,
+            port_view: 1,
+            routing_mode: routingType,
+            routing_reason: routingDecision.reason,
+            sig_class: edge.sig_class || "wire",
+            is_bus: edge.is_bus ? 1 : 0,
+          },
+        });
+      }
       return;
     }
 
@@ -2845,12 +2881,12 @@ schematicModeSelect.addEventListener("change", async () => {
   }
 });
 
-folderInput?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    handleLoad();
-  }
+folderInput?.addEventListener("change", () => {
+  state.folder = folderInput.value;
 });
 
+
+populateProjectOptions();
 enforcePortViewMode();
 graphModeSelect.value = getEffectiveGraphMode();
 aggregateToggle.checked = getEffectiveAggregateEdges();
