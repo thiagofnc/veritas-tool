@@ -4,6 +4,10 @@ Backend + API + browser UI for scanning and analyzing Verilog/SystemVerilog proj
 
 Still deciding on the final project name: Verilogix, Silica, Verilium, or ArchRTL.
 
+## Current State Preview
+
+![Current state of the software](docs/images/mvp_ui.png)
+
 ## Current State
 
 This is no longer just a "load RTL, print a tree" prototype. The project now has a reasonably complete scan -> parse -> model -> query -> visualize pipeline, with multiple ways to inspect the same module depending on how much detail you want.
