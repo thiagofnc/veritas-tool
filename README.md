@@ -1,202 +1,144 @@
 ﻿# rtl_arch_visualizer
 
-Backend + API + browser UI for scanning and analyzing Verilog/SystemVerilog projects, with hierarchy navigation, module connectivity views, and schematic-style layouts.
+Backend + API + browser UI for scanning and analyzing Verilog/SystemVerilog projects. The current build is focused on hierarchy exploration, module-level connectivity inspection, and schematic-style visualization of how signals move through a design.
 
 Still deciding on the final project name: Verilogix, Silica, Verilium, or ArchRTL.
 
-## Current Status
+## Current State
 
-This repo is still an MVP, but it is beyond the original "just hierarchy + basic graph" stage.
+This is no longer just a "load RTL, print a tree" prototype. The project now has a reasonably complete scan -> parse -> model -> query -> visualize pipeline, with multiple ways to inspect the same module depending on how much detail you want.
 
-Implemented today:
+Major capabilities in the current codebase:
 
-- recursive `.v` / `.sv` discovery with hidden-file and hidden-folder filtering
+- recursive `.v` / `.sv` project discovery with hidden-file and hidden-folder filtering
 - two parser backends:
   - `pyverilog` for AST-based parsing
-  - `simple` for regex-based fallback
-- normalized project model for files, modules, ports, signals, instances, and pin mappings
+  - `simple` for regex-based fallback parsing
+- normalized project model covering files, modules, ports, signals, instances, pin mappings, gate primitives, continuous assigns, and always blocks
 - top-module inference and hierarchy tree generation
-- module connectivity graphs in:
-  - `compact` mode
-  - `detailed` mode
-  - schematic view (`full`, `simplified`, `bus`)
-- width-aware signal metadata with directed flow inference where possible
-- optional compact-edge aggregation to reduce clutter
-- extraction and visualization of:
-  - module I/O
-  - instance pins
-  - gate primitives
-  - continuous `assign` statements
-  - `always` / `always_ff` / `always_comb` / `always_latch` blocks
+- module connectivity graphs in `compact` and `detailed` modes
+- schematic rendering built from the connectivity graph with `full`, `simplified`, and `bus` routing modes
+- width-aware signal metadata, bus classification, and directed-flow inference where possible
+- compact-edge aggregation to reduce repeated parallel edges
+- process-aware visualization for `always`, `always_ff`, `always_comb`, and `always_latch` blocks
+- browser UI with hierarchy drill-down, breadcrumbs, graph stats, inspector panels, hover tooltips, signal tracing, and always-block detail overlays
+- FastAPI endpoints for loading projects and querying hierarchy/connectivity data
 - JSON export of parsed project data
-- FastAPI endpoints for loading/querying projects
-- browser UI for hierarchy drill-down, graph inspection, and schematic rendering
 
-## MVP Snapshot
+## What Changed Since The Early MVP
 
-![First MVP UI](docs/images/mvp_ui.png)
+The software has moved past the original "module hierarchy plus a basic graph" stage.
 
-## Project Goal
+Notable additions and changes:
 
-Build an architecture explorer that lets a user load a local RTL project and inspect:
+- connectivity is now modeled explicitly instead of only showing hierarchy relationships
+- the graph builder now includes module I/O, instance pins, internal nets, gate primitives, continuous assigns, and collapsed process nodes
+- the UI can switch between abstract graph views and routed schematic-style views
+- process blocks are no longer opaque: the parsers extract read signals, written signals, control summaries, and assignment summaries
+- port-level visualization is now first-class, which makes it easier to understand how a signal enters and leaves an instance or process
+- schematic routing has multiple display modes so dense modules can be viewed either as a fuller routed drawing or a more compressed bus-centric summary
+- edge aggregation and unknown-flow filtering were added to keep noisy modules readable
+- the inspector and preview panels expose the graph metadata that the renderer is using, which helps with debugging and interpretation
 
-- project hierarchy
-- module internals
-- instance relationships
-- signal connectivity
-- process-level behavior at a structural/debugging level
+## How The Main Features Work
 
-## Pipeline Overview
+### 1) Project Scanning
 
-### 1) Scanner (`app/scanner.py`)
+`app/scanner.py` walks a root folder recursively, ignores hidden files/folders, and keeps only `.v` and `.sv` files. The result is a deterministic file list that gets passed into the selected parser backend.
 
-Input: root folder path
+### 2) Parsing
 
-Output: deterministic sorted file list of Verilog/SystemVerilog files
+The parser stage converts source files into a normalized `Project` dataclass model.
 
-Behavior:
+- `pyverilog` is the richer backend and the default option in the API/UI
+- `simple` is a fallback backend that uses regex-based extraction when PyVerilog is unavailable or when AST coverage is not enough for a file
 
-- recursively walks the folder tree
-- ignores hidden files and folders
-- keeps `.v` and `.sv`
-
-### 2) Parser Backend (`app/pyverilog_parser.py` or `app/simple_parser.py`)
-
-Input: file path list
-
-Output: `Project` dataclass instance
-
-Current extraction scope:
+Both backends currently extract:
 
 - module definitions
-- module ports and directions
-- declared signals/nets
-- instances and named pin mappings
+- ports and directions
+- declared signals
+- child instances and named pin mappings
 - gate primitives
-- continuous assigns
-- always blocks and summarized read/write behavior
+- continuous `assign` statements
+- always blocks with assignment summaries and read/write signal summaries
 
-Notes:
+The always-block extraction is one of the bigger improvements over the earlier version. Instead of only recording that a process exists, the code now collects which signals are read, which are written, and what assignments appear inside the process. That metadata is what powers the always-block overlay in the UI.
 
-- `pyverilog` is the richer backend and the default everywhere in the app
-- `simple` is useful as a fallback when PyVerilog is unavailable or the source is outside current AST coverage
+### 3) Service Layer
 
-### 3) Service Layer (`app/project_service.py`)
+`app/project_service.py` is the orchestration layer used by the CLI and API. It is responsible for:
 
-Backend orchestration layer used by the CLI and API.
+- loading a project
+- returning sorted module names
+- inferring top-module candidates
+- generating hierarchy trees
+- generating connectivity graphs
+- switching between raw connectivity graphs and schematic-formatted output
 
-Key methods:
+This layer keeps the API thin. The UI asks for graphs with a few query parameters, and the service decides whether to build a compact/detailed connectivity graph or a routed schematic graph.
 
-- `load_project(folder)`
-- `get_top_candidates(include_testbenches=False)`
-- `get_hierarchy_tree(top_module)`
-- `get_module_connectivity_graph(module_name, mode, aggregate_edges, port_view, schematic, schematic_mode)`
-- `get_module_graph(module_name)` for the legacy hierarchy graph route
-- `get_project()`, `get_module()`, `get_module_names()`
+### 4) Connectivity Graphs
 
-### 4) Graph Builders (`app/graph_builder.py`, `app/schematic_layout.py`)
+Connectivity graphs are built primarily in `app/graph_builder.py`.
 
-Connectivity graph modes:
+There are two main modes:
 
-- `compact`: endpoint-to-endpoint connections
-- `detailed`: explicit `net` nodes between endpoints
-- `schematic`: block-and-route style layout built from compact connectivity
+- `compact`: shows endpoint-to-endpoint connections with less visual clutter
+- `detailed`: inserts explicit net nodes so you can see parent-scope wiring more directly
 
-Current graph node coverage includes:
+The graph builder can include:
 
-- selected module I/O
-- child instances
+- module I/O nodes
+- instance nodes
 - instance port nodes
-- gate primitives
-- continuous assign nodes
-- collapsed always/process nodes with process port nodes
-- explicit net nodes in detailed mode
+- net nodes
+- gate nodes
+- assign nodes
+- collapsed always/process nodes
+- process port nodes
 
-Current graph behavior:
+Signal direction is inferred from module port direction, child-pin direction, and known write/read behavior where possible. If the builder cannot confidently determine direction, the edge is kept with `flow="unknown"` instead of guessing. That uncertainty is surfaced directly in the UI so the graph does not silently overclaim.
 
-- uses port direction and instance pin direction when available
-- keeps uncertain links as `flow="unknown"`
-- tags edges as `wire`, `bus`, or `mixed`
-- keeps inferred `bit_width` where available
-- can aggregate compact-mode parallel edges while preserving per-net metadata
+Compact mode also supports edge aggregation. When multiple nets connect the same endpoints, the builder can collapse them into one visual edge while preserving metadata such as the underlying net names and net count. This keeps repeated wiring patterns from overwhelming the view.
 
-### 5) Delivery Surfaces
+### 5) Schematic View
 
-- CLI: `app/main.py`
-- API: `app/api.py`
-- UI: `ui/`
+Schematic output is built in `app/schematic_layout.py`.
 
-## Data Model
+The schematic view is not a completely separate parser or data model. It starts from the compact connectivity graph, then applies block placement and route generation so the same connectivity information can be shown as a more hardware-like diagram.
 
-Defined in `app/models.py`.
+Current schematic modes:
 
-- `SourceFile(path)`
-- `Port(name, direction, width=None, bit_width=None, is_bus=False)`
-- `Signal(name, width=None, kind="wire", bit_width=None, is_bus=False)`
-- `PinConnection(child_port, parent_signal)`
-- `Instance(name, module_name, connections, pin_connections)`
-- `GatePrimitive(name, gate_type, output, inputs)`
-- `ContinuousAssign(target, expression, source_signals)`
-- `AlwaysAssignment(target, expression, condition, blocking, source_signals)`
-- `AlwaysBlock(name, sensitivity, kind, process_style, ..., assignments, control_summary, summary_lines)`
-- `ModuleDef(name, ports, signals, instances, gates, assigns, always_blocks, source_file)`
-- `Project(root_path, source_files, modules)`
+- `full`: more complete routed view
+- `simplified`: lighter-weight routed view for readability
+- `bus`: emphasizes grouped/bus-style signal presentation
 
-## CLI Usage
+Because the schematic is derived from the connectivity graph, improvements to parsing and connectivity inference automatically improve the routed view as well.
 
-From the repository root:
+### 6) UI Interactions
 
-```bash
-python -m app.main scan "C:\path\to\your\verilog-project"
-```
+The browser UI in `ui/` now supports a more complete inspection workflow:
 
-Choose parser backend:
+- load a project from the preset project selector
+- choose a parser backend
+- browse inferred top modules
+- drill through the hierarchy tree
+- open module connectivity for the selected scope
+- switch between graph modes and schematic modes
+- aggregate edges or reveal unknown-flow edges
+- inspect selected nodes/edges in the right-hand panel
+- double-click an instance to navigate into the child module
+- double-click a port to trace upstream and downstream signal paths
+- double-click an always block to open a more detailed process summary overlay
 
-```bash
-python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog
-python -m app.main scan "C:\path\to\your\verilog-project" --parser simple
-```
+The graph stats bar and JSON preview are also useful when debugging graph-builder behavior, since they show node/edge counts and a small sample of the payload the renderer received.
 
-Write parsed project JSON:
+## API
 
-```bash
-python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --out out/project.json
-```
+The FastAPI app lives in `app/api.py`.
 
-Print the legacy hierarchy graph JSON when a single top module is inferred:
-
-```bash
-python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --graph
-```
-
-## API + UI
-
-Install runtime dependencies:
-
-```bash
-python -m pip install fastapi uvicorn pyverilog
-```
-
-If you do not want to install `pyverilog`, use the `simple` parser backend instead.
-
-Run the server:
-
-```bash
-python -m uvicorn app.api:app --reload
-```
-
-Open:
-
-- UI: `http://127.0.0.1:8000/`
-- API docs: `http://127.0.0.1:8000/docs`
-
-Important current UI caveat:
-
-- the project picker in `ui/app.js` is populated from hardcoded local paths
-- for your own setup, update those paths or use the API directly to load a folder
-- the browser UI also pulls Cytoscape/ELK scripts from CDN URLs in `ui/index.html`
-
-## Main API Endpoints
+Main endpoints:
 
 - `GET /api/health`
 - `POST /api/project/load`
@@ -216,36 +158,76 @@ Useful connectivity query parameters:
 - `schematic=true|false`
 - `schematic_mode=full|simplified|bus`
 
-## UI Behavior
+When `schematic=true`, the API returns the routed schematic-style graph payload instead of the plain connectivity graph. When `port_view=true`, the graph includes explicit instance/process pin nodes so the UI can render boundary-aware connections.
 
-Left panel:
+## CLI Usage
 
-- top module candidates
-- hierarchy tree navigation
+From the repository root:
 
-Center panel:
+```bash
+python -m app.main scan "C:\path\to\your\verilog-project"
+```
 
-- graph mode selector
-- aggregate toggle
-- show-unknown toggle
-- schematic toggle
-- schematic mode selector
-- graph stats, graph canvas, and JSON preview
+Choose a parser backend:
 
-Graph interaction:
+```bash
+python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog
+python -m app.main scan "C:\path\to\your\verilog-project" --parser simple
+```
 
-- select node or edge for inspector details
-- hover tooltips
-- double-click instance node to drill into the child module
-- always-block detail overlay for process summaries and assignments
-- breadcrumb path updates during drill-down
+Write parsed project JSON:
 
-Right panel:
+```bash
+python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --out out/project.json
+```
 
-- loaded project summary
-- current graph settings
-- selected item details
-- legend for node and edge types
+Print the legacy hierarchy graph JSON when a single top module is inferred:
+
+```bash
+python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --graph
+```
+
+## Running The API And UI
+
+Install runtime dependencies:
+
+```bash
+python -m pip install fastapi uvicorn pyverilog
+```
+
+If you do not want to install `pyverilog`, you can still use the `simple` parser backend.
+
+Run the server:
+
+```bash
+python -m uvicorn app.api:app --reload
+```
+
+Open:
+
+- UI: `http://127.0.0.1:8000/`
+- API docs: `http://127.0.0.1:8000/docs`
+
+Current UI note:
+
+- the project selector in `ui/app.js` still uses hardcoded local paths rather than a general folder picker
+- `ui/index.html` loads Cytoscape and ELK from CDNs
+
+## Data Model
+
+Defined in `app/models.py`.
+
+- `SourceFile(path)`
+- `Port(name, direction, width=None, bit_width=None, is_bus=False)`
+- `Signal(name, width=None, kind="wire", bit_width=None, is_bus=False)`
+- `PinConnection(child_port, parent_signal)`
+- `Instance(name, module_name, connections, pin_connections)`
+- `GatePrimitive(name, gate_type, output, inputs)`
+- `ContinuousAssign(target, expression, source_signals)`
+- `AlwaysAssignment(target, expression, condition, blocking, source_signals)`
+- `AlwaysBlock(name, sensitivity, kind, process_style, assignments, control_summary, summary_lines, ...)`
+- `ModuleDef(name, ports, signals, instances, gates, assigns, always_blocks, source_file)`
+- `Project(root_path, source_files, modules)`
 
 ## Sample Projects
 
@@ -264,7 +246,7 @@ Run the test suite:
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-Quick syntax checks used during development:
+Quick syntax checks commonly used during development:
 
 ```bash
 python -m py_compile app/graph_builder.py app/project_service.py app/api.py app/schematic_layout.py
@@ -283,11 +265,11 @@ node --check ui/app.js
 - `app/simple_parser.py`: regex fallback parser
 - `app/hierarchy.py`: top inference and hierarchy tree
 - `app/graph_builder.py`: hierarchy and connectivity graph builders
-- `app/schematic_layout.py`: schematic layout and routed view generation
+- `app/schematic_layout.py`: schematic placement and routing
 - `app/json_exporter.py`: project JSON export
 - `ui/index.html`, `ui/styles.css`, `ui/app.js`: browser client
 - `tests/`: unit tests
-- `sample_projects/`: bundled small RTL examples
+- `sample_projects/`: bundled RTL examples
 - `out/`: generated output files
 - `artifacts/`: debug logs and summaries
 
@@ -295,10 +277,10 @@ node --check ui/app.js
 
 - this is not a full elaborating Verilog/SystemVerilog compiler
 - advanced SystemVerilog coverage is still incomplete
-- direction inference is still heuristic in some cases, so unknown-flow edges can remain
-- dense modules can still produce visually busy graphs
-- the UI project picker is not yet a general folder browser
-- the UI is still browser-served, not packaged as a desktop app
+- some direction inference is still heuristic, so unknown-flow edges can remain
+- very dense modules can still become visually busy even with aggregation/schematic routing
+- the UI project picker is still preset-path based rather than a true filesystem browser
+- the UI is browser-served, not packaged as a desktop application
 
 ## Generated Files
 
