@@ -4,7 +4,7 @@ Backend + API + browser UI for scanning and analyzing Verilog/SystemVerilog proj
 
 Still deciding on the final project name: Verilogix, Inventio, Celeris, Verilium, ArchRTL, Aegis, Nexus, Veritas
 
-Current favorites in order: Veritas, Zenith, ArchRTL, Astra, Inventio, Celeris
+Current favorites in order: Veritas, Zenith, ArchRTL, AstraNet, Inventio, Celeris
 
 ## Current State Preview
 
