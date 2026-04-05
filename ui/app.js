@@ -73,10 +73,11 @@ if (typeof cytoscape === "function" && typeof cytoscapeElk === "function") {
 
 const LAYOUT_GRID = 20;
 const INSTANCE_COLUMN_START = 420;
-const INSTANCE_COLUMN_STEP = 500;
+const INSTANCE_COLUMN_STEP = 620;
 const INSTANCE_ROW_GAP = 180;
 const INSTANCE_ROW_GAP_DENSE = 140;
-const IO_COLUMN_MARGIN = 360;
+const IO_COLUMN_MARGIN = 420;
+const INSTANCE_MIN_COLUMN_GAP = 420;
 const IO_ROW_GAP = 60;
 const PORT_ROW_GAP = 20;
 const PORT_SIDE_INSET = 12;
@@ -84,6 +85,8 @@ const ROUTE_LANE_GAP = 28;
 const ROUTE_FANOUT_GAP = 10;
 const ROUTE_PARALLEL_GAP = 6;
 const PORT_STUB_LENGTH = 34;
+const NETLABEL_WIRE_GAP = 28;
+const NETLABEL_ROW_GAP = 20;
 
 function setStatus(text, kind) {
   if (!statusBadge) {
@@ -2420,9 +2423,6 @@ function placeNetlabelNodes() {
     return;
   }
 
-  const MIN_LABEL_GAP = 20;
-  const BASE_CLEARANCE = 70;
-  const EXTRA_LANE_OFFSET = 14;
   const netlabelNodes = state.cy.nodes('[kind = "netlabel_node"]');
 
   const placements = [];
@@ -2471,8 +2471,7 @@ function placeNetlabelNodes() {
       portY: portPos.y,
       idealY: portPos.y,
       labelWidth,
-      lane: 0,
-      x: portPos.x + side * (labelWidth / 2 + BASE_CLEARANCE),
+      x: portPos.x + side * (labelWidth / 2 + NETLABEL_WIRE_GAP),
       y: portPos.y,
       groupKey: `${ownerId}:${side}`,
     });
@@ -2501,25 +2500,29 @@ function placeNetlabelNodes() {
     for (const placement of group) {
       placement.y = nextY === -Infinity
         ? placement.idealY
-        : Math.max(placement.idealY, nextY + MIN_LABEL_GAP);
+        : Math.max(placement.idealY, nextY + NETLABEL_ROW_GAP);
       nextY = placement.y;
     }
 
     for (let index = group.length - 2; index >= 0; index -= 1) {
       const current = group[index];
       const below = group[index + 1];
-      const maxAllowed = below.y - MIN_LABEL_GAP;
+      const maxAllowed = below.y - NETLABEL_ROW_GAP;
       if (current.y > maxAllowed) {
         current.y = maxAllowed;
       }
     }
 
-    const centerOffset = (group.length - 1) / 2;
-    group.forEach((placement, index) => {
-      const laneBias = Math.abs(index - centerOffset);
-      placement.lane = laneBias;
-      const roleOffset = placement.role === "source" ? EXTRA_LANE_OFFSET : 0;
-      placement.x = placement.portX + placement.side * (placement.labelWidth / 2 + BASE_CLEARANCE + roleOffset + laneBias * EXTRA_LANE_OFFSET * 0.35);
+    const alignedEdgeX = group[0]?.side > 0
+      ? Math.max(...group.map((placement) => placement.portX)) + NETLABEL_WIRE_GAP
+      : Math.min(...group.map((placement) => placement.portX)) - NETLABEL_WIRE_GAP;
+
+    group.forEach((placement) => {
+      placement.node.removeClass("netlabel-side-left netlabel-side-right");
+      placement.node.addClass(placement.side > 0 ? "netlabel-side-right" : "netlabel-side-left");
+      placement.x = placement.side > 0
+        ? alignedEdgeX + placement.labelWidth / 2
+        : alignedEdgeX - placement.labelWidth / 2;
     });
   });
 
@@ -3081,7 +3084,7 @@ function applyPortViewBlockLayout(graph) {
     });
   });
 
-  distributeColumns(levelColumns, INSTANCE_COLUMN_START - 40, 320);
+  distributeColumns(levelColumns, INSTANCE_COLUMN_START - 40, INSTANCE_MIN_COLUMN_GAP);
   levelColumns.forEach((entry) => {
     spreadNodesVertically(entry.nodes, LAYOUT_GRID + 12, centerY);
   });
@@ -3095,8 +3098,11 @@ function applyPortViewBlockLayout(graph) {
   if (otherLogicNodes.length) {
     const canvasHeight = cyGraph.clientHeight || 760;
     const centerYLogic = snapToGrid(canvasHeight / 2);
-    const lastLevel = Math.max(...[...levelByInstance.values()]);
-    const logicX = snapToGrid(INSTANCE_COLUMN_START + (lastLevel + 1) * INSTANCE_COLUMN_STEP);
+    const instanceRightBounds = instanceNodes.map((node) => node.position("x") + getNodeHalfSize(node).halfWidth);
+    const maxInstanceRight = instanceRightBounds.length ? Math.max(...instanceRightBounds) : INSTANCE_COLUMN_START;
+    const logicWidths = otherLogicNodes.map((node) => node.outerWidth());
+    const logicHalfWidth = (logicWidths.length ? Math.max(...logicWidths) : 0) / 2;
+    const logicX = snapToGrid(maxInstanceRight + INSTANCE_MIN_COLUMN_GAP + logicHalfWidth);
     const rowGap = snapToGrid(otherLogicNodes.length > 12 ? INSTANCE_ROW_GAP_DENSE : INSTANCE_ROW_GAP);
     const totalHeight = Math.max(0, (otherLogicNodes.length - 1) * rowGap);
     const startY = snapToGrid(centerYLogic - totalHeight / 2);
@@ -3750,9 +3756,6 @@ renderInspector();
     setStatus("API unavailable", "error");
   }
 })();
-
-
-
 
 
 
