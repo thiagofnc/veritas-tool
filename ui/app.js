@@ -2503,8 +2503,24 @@ function placeNetlabelNodes() {
 
   const netlabelNodes = state.cy.nodes('[kind = "netlabel_node"]');
 
-  const placements = [];
+  // Remove orphaned netlabels whose connected port doesn't exist in the graph.
+  const orphans = [];
   netlabelNodes.forEach((node) => {
+    const portId = node.data("connected_port");
+    const portNode = state.cy.getElementById(portId);
+    if (!portNode || portNode.empty()) {
+      orphans.push(node);
+    }
+  });
+  orphans.forEach((node) => {
+    node.connectedEdges().remove();
+    node.remove();
+  });
+
+  // Re-query after cleanup.
+  const remainingNetlabels = state.cy.nodes('[kind = "netlabel_node"]');
+  const placements = [];
+  remainingNetlabels.forEach((node) => {
     const portId = node.data("connected_port");
     const portNode = state.cy.getElementById(portId);
     if (!portNode || portNode.empty()) {
@@ -3006,6 +3022,19 @@ function placePortViewRoutes(graph) {
 
   // Convert colliding routes to netlabels.
   if (routesToConvert.length && state.cy) {
+    // Track which source/target+signal combos already have a netlabel in the graph
+    // to avoid creating duplicates of netlabels from buildPortViewCyElements.
+    const existingSrcLabels = new Set();
+    const existingTgtLabels = new Set();
+    state.cy.nodes('[kind = "netlabel_node"]').forEach((n) => {
+      const port = n.data("connected_port") || "";
+      const group = n.data("netlabel_group") || "";
+      const role = n.data("netlabel_role") || "";
+      const key = `${port}:${group}`;
+      if (role === "source") existingSrcLabels.add(key);
+      else existingTgtLabels.add(key);
+    });
+
     routesToConvert.forEach((route) => {
       const baseId = `route:${route.index}`;
       // Remove the route anchor nodes and segment edges.
@@ -3022,7 +3051,7 @@ function placePortViewRoutes(graph) {
         if (seg && !seg.empty()) seg.remove();
       }
 
-      // Add netlabel elements instead.
+      // Add netlabel elements instead, but only if one doesn't already exist.
       const edge = route.edge;
       const firstName = (edge.nets && edge.nets.length) ? edge.nets[0] : (edge.net || "?");
       const labelText = (edge.nets && edge.nets.length > 1)
@@ -3031,73 +3060,89 @@ function placePortViewRoutes(graph) {
       const labelWidth = Math.max(50, labelText.length * 7 + 14);
       const traceGroup = `nettrace:${edge.source}:${firstName}`;
 
-      const srcLabelId = `netlabel:conv:${route.index}:src`;
-      const tgtLabelId = `netlabel:conv:${route.index}:tgt`;
+      const srcKey = `${edge.source}:${firstName}`;
+      const tgtKey = `${edge.target}:${firstName}`;
+      const newElements = [];
 
-      state.cy.add([
-        {
-          group: "nodes",
-          data: {
-            id: srcLabelId,
-            kind: "netlabel_node",
-            net_label_text: labelText,
-            netlabel_group: firstName,
-            netlabel_trace_group: traceGroup,
-            netlabel_role: "source",
-            label_width: labelWidth,
-            connected_port: edge.source,
-            routing_mode: "netlabel",
-            routing_reason: "Converted: wire crossed unconnected module.",
-            port_view: 1,
+      if (!existingSrcLabels.has(srcKey)) {
+        existingSrcLabels.add(srcKey);
+        const srcLabelId = `netlabel:conv:${route.index}:src`;
+        newElements.push(
+          {
+            group: "nodes",
+            data: {
+              id: srcLabelId,
+              kind: "netlabel_node",
+              net_label_text: labelText,
+              netlabel_group: firstName,
+              netlabel_trace_group: traceGroup,
+              netlabel_role: "source",
+              label_width: labelWidth,
+              connected_port: edge.source,
+              routing_mode: "netlabel",
+              routing_reason: "Converted: wire crossed unconnected module.",
+              port_view: 1,
+            },
           },
-        },
-        {
-          group: "edges",
-          data: {
-            id: `${srcLabelId}:edge`,
-            source: edge.source,
-            target: srcLabelId,
-            kind: "connection",
-            netlabel_stub: 1,
-            netlabel_trace_group: traceGroup,
-            port_view: 1,
-            routing_mode: "netlabel",
-            sig_class: edge.sig_class || "wire",
-            is_bus: edge.is_bus ? 1 : 0,
+          {
+            group: "edges",
+            data: {
+              id: `${srcLabelId}:edge`,
+              source: edge.source,
+              target: srcLabelId,
+              kind: "connection",
+              netlabel_stub: 1,
+              netlabel_trace_group: traceGroup,
+              port_view: 1,
+              routing_mode: "netlabel",
+              sig_class: edge.sig_class || "wire",
+              is_bus: edge.is_bus ? 1 : 0,
+            },
           },
-        },
-        {
-          group: "nodes",
-          data: {
-            id: tgtLabelId,
-            kind: "netlabel_node",
-            net_label_text: labelText,
-            netlabel_group: firstName,
-            netlabel_trace_group: traceGroup,
-            netlabel_role: "target",
-            label_width: labelWidth,
-            connected_port: edge.target,
-            routing_mode: "netlabel",
-            routing_reason: "Converted: wire crossed unconnected module.",
-            port_view: 1,
+        );
+      }
+
+      if (!existingTgtLabels.has(tgtKey)) {
+        existingTgtLabels.add(tgtKey);
+        const tgtLabelId = `netlabel:conv:${route.index}:tgt`;
+        newElements.push(
+          {
+            group: "nodes",
+            data: {
+              id: tgtLabelId,
+              kind: "netlabel_node",
+              net_label_text: labelText,
+              netlabel_group: firstName,
+              netlabel_trace_group: traceGroup,
+              netlabel_role: "target",
+              label_width: labelWidth,
+              connected_port: edge.target,
+              routing_mode: "netlabel",
+              routing_reason: "Converted: wire crossed unconnected module.",
+              port_view: 1,
+            },
           },
-        },
-        {
-          group: "edges",
-          data: {
-            id: `${tgtLabelId}:edge`,
-            source: tgtLabelId,
-            target: edge.target,
-            kind: "connection",
-            netlabel_stub: 1,
-            netlabel_trace_group: traceGroup,
-            port_view: 1,
-            routing_mode: "netlabel",
-            sig_class: edge.sig_class || "wire",
-            is_bus: edge.is_bus ? 1 : 0,
+          {
+            group: "edges",
+            data: {
+              id: `${tgtLabelId}:edge`,
+              source: tgtLabelId,
+              target: edge.target,
+              kind: "connection",
+              netlabel_stub: 1,
+              netlabel_trace_group: traceGroup,
+              port_view: 1,
+              routing_mode: "netlabel",
+              sig_class: edge.sig_class || "wire",
+              is_bus: edge.is_bus ? 1 : 0,
+            },
           },
-        },
-      ]);
+        );
+      }
+
+      if (newElements.length) {
+        state.cy.add(newElements);
+      }
     });
   }
 }

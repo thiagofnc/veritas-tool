@@ -638,6 +638,13 @@ body {
   backdrop-filter: blur(4px);
 }
 
+.search-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 .schematic-search input {
   font-family: inherit;
   font-size: 11px;
