@@ -3,6 +3,7 @@
 Backend + API + browser UI for scanning and analyzing Verilog/SystemVerilog projects. The current build is focused on hierarchy exploration, module-level connectivity inspection, and schematic-style visualization of how signals move through a design.
 
 Still deciding on the final project name: Verilogix, Inventio, Celeris, Verilium, ArchRTL, Aegis, Nexus, Veritas
+
 Current favorites in order: Veritas, Zenith, ArchRTL, Astra, Inventio, Celeris
 
 ## Current State Preview
