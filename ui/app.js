@@ -669,6 +669,19 @@ function ensureCytoscape() {
         },
       },
       {
+        selector: 'node[kind = "always"][icon_url]',
+        style: {
+          "background-image": "data(icon_url)",
+          "background-fit": "none",
+          "background-clip": "none",
+          "background-width": 44,
+          "background-height": 44,
+          "background-position-x": "50%",
+          "background-position-y": "55%",
+          "background-image-opacity": 0.7,
+        },
+      },
+      {
         selector: 'node[kind = "always"][process_style = "comb"]',
         style: {
           "background-color": "#13201a",
@@ -1573,12 +1586,16 @@ function buildCyElements(graph) {
     return buildPortViewCyElements(graph);
   }
 
-  const nodes = (graph.nodes || []).map((node) => ({
-    data: {
-      ...node,
-      is_bus: node.is_bus ? 1 : 0,
-    },
-  }));
+  const nodes = (graph.nodes || []).map((node) => {
+    const iconUrl = getAlwaysIconUrl(node);
+    return {
+      data: {
+        ...node,
+        is_bus: node.is_bus ? 1 : 0,
+        ...(iconUrl ? { icon_url: iconUrl } : {}),
+      },
+    };
+  });
 
   const edges = (graph.edges || []).map((edge, index) => ({
     data: {
@@ -1693,6 +1710,19 @@ function computeEdgeRoutingTypes(graph) {
   };
 }
 
+function getAlwaysIconUrl(node) {
+  if (node.kind !== "always") return undefined;
+  const style = node.process_style || "generic";
+  const edge = node.edge_polarity || "";
+  if (style === "seq") {
+    if (edge === "negedge") return "/icons/negedge.png";
+    return "/icons/posedge.png"; // posedge, mixed, or default
+  }
+  if (style === "comb") return "/icons/comb.png";
+  if (style === "latch") return "/icons/latch.png";
+  return "/icons/always.png";
+}
+
 function buildPortViewCyElements(graph) {
   const elements = [];
   const sideCountsByInstance = new Map();
@@ -1746,6 +1776,7 @@ function buildPortViewCyElements(graph) {
     const importantPort = isControlSignalName(portName) || node.is_bus;
     const showPortLabel = importantPort || (connectionCounts.get(node.id) || 0) <= 1;
 
+    const iconUrl = getAlwaysIconUrl(node);
     elements.push({
       data: {
         ...node,
@@ -1757,6 +1788,7 @@ function buildPortViewCyElements(graph) {
         ...(layoutWidth ? { layout_width: layoutWidth } : {}),
         ...(layoutHeight ? { layout_height: layoutHeight } : {}),
         ...(composedLabel ? { label: composedLabel } : {}),
+        ...(iconUrl ? { icon_url: iconUrl } : {}),
       },
     });
 

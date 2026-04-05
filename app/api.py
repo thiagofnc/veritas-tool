@@ -163,8 +163,13 @@ def get_module_connectivity_graph(
 ROOT_DIR = Path(__file__).resolve().parent.parent
 UI_DIR = ROOT_DIR / "ui"
 
+ICONS_DIR = ROOT_DIR / "docs" / "icons"
+
 if UI_DIR.exists():
     app.mount("/ui", StaticFiles(directory=str(UI_DIR)), name="ui")
+
+if ICONS_DIR.exists():
+    app.mount("/icons", StaticFiles(directory=str(ICONS_DIR)), name="icons")
 
 
 @app.get("/", include_in_schema=False)

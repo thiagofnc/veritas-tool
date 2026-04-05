@@ -1,9 +1,15 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>rtl_arch_visualizer UI</title>
+    <title>RTL Arch Visualizer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/ui/styles.css" />
     <script src="https://unpkg.com/cytoscape/dist/cytoscape.min.js"></script>
     <script src="https://unpkg.com/elkjs@0.9.3/lib/elk.bundled.js"></script>
@@ -17,7 +23,7 @@
           <div class="brand-mark"></div>
           <div>
             <h1>RTL Architecture Visualizer</h1>
-            <p>EDA-style connectivity explorer (MVP viewer)</p>
+            <p>Connectivity explorer</p>
           </div>
         </div>
 
@@ -32,7 +38,7 @@
             <option value="simple">simple</option>
           </select>
 
-          <button id="loadBtn" type="button">Load Project</button>
+          <button id="loadBtn" type="button">Load</button>
           <button id="refreshBtn" type="button">Refresh</button>
 
           <span id="statusBadge" class="status idle">Idle</span>
@@ -41,7 +47,7 @@
 
       <main class="workspace">
         <aside class="panel panel-left">
-          <h2>Hierarchy Navigation</h2>
+          <h2>Hierarchy</h2>
 
           <section class="panel-section">
             <h3>Top Candidates</h3>
@@ -49,14 +55,14 @@
           </section>
 
           <section class="panel-section tree-section">
-            <h3>Hierarchy Tree</h3>
+            <h3>Module Tree</h3>
             <div id="hierarchyTree" class="hierarchy-tree"></div>
           </section>
         </aside>
 
         <section class="panel panel-center">
           <div class="canvas-header">
-            <h2>Graph Workspace</h2>
+            <h2>Schematic</h2>
             <div class="canvas-actions">
               <label class="mini-control" for="graphModeSelect">
                 mode
@@ -71,14 +77,14 @@
               </label>
               <label class="mini-check" for="showUnknownToggle">
                 <input id="showUnknownToggle" type="checkbox" />
-                show unknown
+                unknown
               </label>
               <label class="mini-check" for="portViewToggle">
                 <input id="portViewToggle" type="checkbox" checked />
                 schematic
               </label>
               <label class="mini-control" for="schematicModeSelect">
-                schematic mode
+                view
                 <select id="schematicModeSelect" aria-label="Schematic mode">
                   <option value="full">full</option>
                   <option value="simplified">simplified</option>
@@ -127,22 +133,21 @@
           <section class="legend">
             <h3>Node Types</h3>
             <ul class="legend-list">
-              <li><span class="chip module-io"></span><strong>module_io</strong>: selected module interface endpoint</li>
-              <li><span class="chip instance"></span><strong>instance</strong>: child module block inside the selected module</li>
-              <li><span class="chip instance-port"></span><strong>instance_port</strong>: explicit input/output pin of a child module (port view)</li>
-              <li><span class="chip net"></span><strong>net</strong>: parent-scope signal (shown in detailed mode)</li>
+              <li><span class="chip module-io"></span><strong>module_io</strong> interface endpoint</li>
+              <li><span class="chip instance"></span><strong>instance</strong> child module block</li>
+              <li><span class="chip instance-port"></span><strong>instance_port</strong> pin of child module</li>
+              <li><span class="chip net"></span><strong>net</strong> parent-scope signal</li>
             </ul>
 
             <h3>Edge Types</h3>
             <ul class="legend-list">
-              <li><span class="chip bus-edge"></span><strong>bus connection</strong>: wider blue edge, multi-bit signal path</li>
-              <li><span class="chip wire-edge"></span><strong>wire connection</strong>: thinner green edge, single-bit signal path</li>
-              <li><span class="chip connection"></span><strong>unknown connection</strong>: dashed edge when flow or width is uncertain</li>
+              <li><span class="chip bus-edge"></span><strong>bus</strong> multi-bit signal path</li>
+              <li><span class="chip wire-edge"></span><strong>wire</strong> single-bit signal path</li>
+              <li><span class="chip connection"></span><strong>unknown</strong> uncertain flow/width</li>
             </ul>
 
             <p class="legend-note">
-              In compact mode, edges are direct endpoint-to-endpoint links carrying net metadata.
-              Bus-vs-wire is inferred from declared widths and signal references. Double-click an instance node to drill into that module.
+              Double-click an instance to drill in. Double-click a port to trace the signal path.
             </p>
           </section>
         </aside>
