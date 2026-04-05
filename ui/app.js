@@ -76,7 +76,7 @@ const INSTANCE_COLUMN_START = 420;
 const INSTANCE_COLUMN_STEP = 620;
 const INSTANCE_ROW_GAP = 180;
 const INSTANCE_ROW_GAP_DENSE = 140;
-const IO_COLUMN_MARGIN = 420;
+const IO_COLUMN_MARGIN = 560;
 const INSTANCE_MIN_COLUMN_GAP = 420;
 const IO_ROW_GAP = 60;
 const PORT_ROW_GAP = 20;
@@ -3757,6 +3757,7 @@ renderInspector();
     setStatus("API unavailable", "error");
   }
 })();
+
 
 
 
