@@ -108,12 +108,10 @@ body {
   gap: var(--sp-3);
 }
 
-.brand-mark {
-  width: 3px;
-  height: 28px;
-  border-radius: 1px;
-  background: var(--probe);
-  box-shadow: 0 0 8px var(--probe-glow);
+.brand-logo {
+  height: 36px;
+  width: auto;
+  display: block;
 }
 
 .brand h1 {
