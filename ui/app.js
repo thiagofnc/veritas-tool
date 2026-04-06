@@ -3903,15 +3903,28 @@ function clearSearchHighlights() {
 
 function getSearchableText(node) {
   const d = node.data();
-  const parts = [];
-  if (d.label) parts.push(d.label);
-  if (d.instance_name) parts.push(d.instance_name);
-  if (d.module_name) parts.push(d.module_name);
-  if (d.port_name) parts.push(d.port_name);
-  if (d.net_label_text) parts.push(d.net_label_text);
-  if (d.display_label) parts.push(d.display_label);
-  if (d.id) parts.push(d.id);
-  return parts.join(" ").toLowerCase();
+  const kind = d.kind || "";
+  // Only search the node's own visible name — not parent IDs or metadata
+  // that would cause child ports to match their parent's name.
+  switch (kind) {
+    case "instance":
+      return [d.instance_name, d.module_name].filter(Boolean).join(" ").toLowerCase();
+    case "instance_port":
+    case "process_port":
+      return (d.port_name || d.display_label || "").toLowerCase();
+    case "module_io":
+      return (d.port_name || d.label || "").toLowerCase();
+    case "netlabel_node":
+      return (d.net_label_text || "").toLowerCase();
+    case "always":
+    case "gate":
+    case "assign":
+      return (d.label || "").toLowerCase();
+    case "port_stub_anchor":
+      return (d.port_name || "").toLowerCase();
+    default:
+      return (d.label || "").toLowerCase();
+  }
 }
 
 function executeSearch(query) {
