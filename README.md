@@ -295,3 +295,13 @@ Do not commit generated parser/cache artifacts.
 - `parsetab.py`
 - `parser.out`
 - `__pycache__/`
+
+## Ideas for fonts
+
+- https://fonts.google.com/specimen/Bytesized?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
+- https://fonts.google.com/specimen/Bruno+Ace+SC?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
+- https://fonts.google.com/specimen/Bruno+Ace?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
+- https://fonts.google.com/specimen/Bitcount+Grid+Single?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
+- https://fonts.google.com/specimen/Anta?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
+- https://fonts.google.com/specimen/Aldrich?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
+- https://fonts.google.com/specimen/Alatsi?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
