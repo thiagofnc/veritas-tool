@@ -1322,7 +1322,9 @@ body {
   cursor: not-allowed;
 }
 
-#viewModuleCodeBtn {
+#viewModuleCodeBtn,
+#jumpToDefBtn {
+  display: block;
   margin-top: 8px;
   padding: 4px 10px;
   background: #22d3ee;
@@ -1334,4 +1336,8 @@ body {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.cm-jump-highlight {
+  background: rgba(34, 211, 238, 0.25) !important;
 }

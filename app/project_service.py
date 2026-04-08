@@ -54,6 +54,47 @@ class ProjectService:
         self.project = parser.parse_files(file_paths)
         return self.project
 
+    def reparse_file(self, file_path: str) -> dict[str, Any]:
+        """Re-parse a single source file and merge its modules into the cached project.
+
+        Returns a small report describing the change. If the *set* of module
+        names defined in the file changed (modules added or removed), this
+        method returns ``{"requires_full_reparse": True}`` and does NOT mutate
+        the cached project — the caller should fall back to ``load_project``
+        to keep cross-file references consistent.
+        """
+        project = self._require_project()
+
+        from pathlib import Path as _Path
+        target = str(_Path(file_path).resolve())
+
+        old_modules_for_file = [m for m in project.modules if m.source_file == target]
+        old_names = {m.name for m in old_modules_for_file}
+
+        parser = create_parser_backend(self.parser_backend)
+        partial = parser.parse_files([target])
+        new_modules = list(partial.modules)
+        new_names = {m.name for m in new_modules}
+
+        if new_names != old_names:
+            return {
+                "requires_full_reparse": True,
+                "old_modules": sorted(old_names),
+                "new_modules": sorted(new_names),
+            }
+
+        # Same module names — safe to swap in place. Replace each old ModuleDef
+        # with its freshly parsed counterpart, preserving overall list order.
+        new_by_name = {m.name: m for m in new_modules}
+        for idx, mod in enumerate(project.modules):
+            if mod.source_file == target and mod.name in new_by_name:
+                project.modules[idx] = new_by_name[mod.name]
+
+        return {
+            "requires_full_reparse": False,
+            "updated_modules": sorted(new_names),
+        }
+
     def get_project(self) -> Project:
         """Return the loaded project, raising if load_project has not run yet."""
         return self._require_project()

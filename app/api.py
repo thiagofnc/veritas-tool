@@ -162,10 +162,19 @@ def update_module_source(module_name: str, payload: ModuleSourceUpdate) -> dict[
                 raise _bad_request(f"Source file not found: {src_path}")
             path.write_text(payload.content, encoding="utf-8")
 
-            # Re-parse the project so the new content is reflected immediately.
-            if state.loaded_folder:
-                state.service.load_project(state.loaded_folder)
-            return {"module": module_name, "path": str(path), "saved": True}
+            # Try an incremental reparse of just this file. Fall back to a full
+            # project reparse if the set of modules defined in the file changed.
+            report = state.service.reparse_file(str(path))
+            if report.get("requires_full_reparse"):
+                if state.loaded_folder:
+                    state.service.load_project(state.loaded_folder)
+                report["fell_back_to_full_reparse"] = True
+            return {
+                "module": module_name,
+                "path": str(path),
+                "saved": True,
+                "reparse": report,
+            }
     except (RuntimeError, ValueError) as exc:
         raise _bad_request(str(exc)) from exc
     except OSError as exc:

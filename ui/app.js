@@ -3801,8 +3801,18 @@ function renderInspector() {
     `;
   }
 
+  const selectedInstance =
+    state.selectedNode && state.selectedNode.kind === "instance" ? state.selectedNode : null;
+
   const viewCodeButton = state.selectedModule
     ? `<button id="viewModuleCodeBtn" data-module="${escapeHtml(state.selectedModule)}">View / Edit Code</button>`
+    : "";
+
+  const jumpToDefButton = selectedInstance
+    ? `<button id="jumpToDefBtn"
+                data-parent-module="${escapeHtml(state.selectedModule || "")}"
+                data-instance-name="${escapeHtml(selectedInstance.instance_name || selectedInstance.label || "")}"
+                data-child-module="${escapeHtml(selectedInstance.module_name || "")}">Jump to Definition</button>`
     : "";
 
   inspector.innerHTML = `
@@ -3814,6 +3824,7 @@ function renderInspector() {
     <div><span class="k">Focus module:</span> ${escapeHtml(state.selectedModule || "(none)")}</div>
     ${selectionBlock}
     ${viewCodeButton}
+    ${jumpToDefButton}
     ${traceButton}
   `;
 
@@ -3831,6 +3842,19 @@ function renderInspector() {
     codeBtn.addEventListener("click", () => {
       const mod = codeBtn.getAttribute("data-module");
       if (mod) openModuleCodeEditor(mod);
+    });
+  }
+
+  const jumpBtn = document.getElementById("jumpToDefBtn");
+  if (jumpBtn) {
+    jumpBtn.addEventListener("click", () => {
+      const parentModule = jumpBtn.getAttribute("data-parent-module");
+      const instanceName = jumpBtn.getAttribute("data-instance-name");
+      const childModule = jumpBtn.getAttribute("data-child-module");
+      if (!parentModule) return;
+      openModuleCodeEditor(parentModule, {
+        jumpToInstance: { instanceName, childModule },
+      });
     });
   }
 }
@@ -4366,7 +4390,7 @@ function setEditorStatus(text) {
   if (el) el.textContent = text || "";
 }
 
-async function openModuleCodeEditor(moduleName) {
+async function openModuleCodeEditor(moduleName, options = {}) {
   const overlay = document.getElementById("codeEditorOverlay");
   const titleEl = document.getElementById("codeEditorTitle");
   const pathEl = document.getElementById("codeEditorPath");
@@ -4389,13 +4413,96 @@ async function openModuleCodeEditor(moduleName) {
     if (cm) {
       cm.setValue(codeEditorState.original);
       cm.clearHistory();
-      setTimeout(() => cm.refresh(), 0);
+      setTimeout(() => {
+        cm.refresh();
+        if (options.jumpToInstance) {
+          jumpToInstantiation(cm, options.jumpToInstance);
+        }
+      }, 0);
     }
-    setEditorStatus("Loaded.");
+    if (!options.jumpToInstance) setEditorStatus("Loaded.");
   } catch (error) {
     setEditorStatus(`Failed to load: ${error.message}`);
     pathEl.textContent = "";
   }
+}
+
+function jumpToInstantiation(cm, target) {
+  if (!cm || !target) return false;
+  const { instanceName, childModule } = target;
+  if (!childModule) {
+    setEditorStatus("Missing child module name for instantiation lookup.");
+    return false;
+  }
+
+  // Comment-stripped buffer (preserving offsets) so commented-out code is
+  // ignored when locating the instantiation.
+  const raw = cm.getValue();
+  const sanitized = raw
+    .replace(/\/\*[\s\S]*?\*\//g, (s) => " ".repeat(s.length))
+    .replace(/\/\/[^\n]*/g, (s) => " ".repeat(s.length));
+
+  const escapedChild = childModule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // A Verilog instantiation looks like:
+  //     <child_module> [#( params )] <instance_name> ( ... );
+  // We try the most specific match first (with the instance name), then fall
+  // back to just the child-module + identifier + `(` pattern.
+
+  let identIndex = -1;
+  let identLength = 0;
+
+  if (instanceName) {
+    const escapedInst = instanceName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Allow optional `#(...)` parameter block between the type and the name.
+    // Use a tolerant `[^;]*?` so multi-line param blocks still match, but the
+    // `;` boundary keeps us from running across statements.
+    const specific = new RegExp(
+      `\\b${escapedChild}\\b[^;]*?\\b${escapedInst}\\b\\s*\\(`,
+    );
+    const m = specific.exec(sanitized);
+    if (m) {
+      identIndex = m.index + m[0].lastIndexOf(instanceName);
+      identLength = instanceName.length;
+    }
+  }
+
+  if (identIndex < 0) {
+    // Fallback: any `<child_module> <ident> (` — useful when instance_name
+    // is unknown or doesn't match (e.g. generate-block expansion).
+    const generic = new RegExp(
+      `\\b${escapedChild}\\b\\s*(?:#\\s*\\([^;]*?\\))?\\s*([A-Za-z_][A-Za-z0-9_$]*)\\s*\\(`,
+    );
+    const m = generic.exec(sanitized);
+    if (m) {
+      identIndex = m.index + m[0].indexOf(m[1]);
+      identLength = m[1].length;
+    }
+  }
+
+  if (identIndex < 0) {
+    setEditorStatus(
+      `Could not locate instantiation of "${childModule}"${instanceName ? ` (${instanceName})` : ""} in this file.`,
+    );
+    return false;
+  }
+
+  const fromPos = cm.posFromIndex(identIndex);
+  const toPos = cm.posFromIndex(identIndex + identLength);
+
+  cm.focus();
+  cm.setSelection(fromPos, toPos);
+  const margin = Math.floor(cm.getScrollerElement().offsetHeight / 3);
+  cm.scrollIntoView({ from: fromPos, to: toPos }, margin);
+
+  const lineHandle = cm.addLineClass(fromPos.line, "background", "cm-jump-highlight");
+  setTimeout(() => {
+    cm.removeLineClass(lineHandle, "background", "cm-jump-highlight");
+  }, 1500);
+
+  setEditorStatus(
+    `Jumped to line ${fromPos.line + 1}: instantiation of ${childModule}${instanceName ? ` (${instanceName})` : ""}.`,
+  );
+  return true;
 }
 
 function closeModuleCodeEditor() {
