@@ -3801,6 +3801,10 @@ function renderInspector() {
     `;
   }
 
+  const viewCodeButton = state.selectedModule
+    ? `<button id="viewModuleCodeBtn" data-module="${escapeHtml(state.selectedModule)}">View / Edit Code</button>`
+    : "";
+
   inspector.innerHTML = `
     <div><span class="k">Parser:</span> ${escapeHtml(summary.parser_backend || "-")}</div>
     <div><span class="k">Files:</span> ${summary.file_count ?? 0}</div>
@@ -3809,6 +3813,7 @@ function renderInspector() {
     <div><span class="k">Selected top:</span> ${escapeHtml(state.selectedTop || "(none)")}</div>
     <div><span class="k">Focus module:</span> ${escapeHtml(state.selectedModule || "(none)")}</div>
     ${selectionBlock}
+    ${viewCodeButton}
     ${traceButton}
   `;
 
@@ -3818,6 +3823,14 @@ function renderInspector() {
       const mod = btn.getAttribute("data-trace-module");
       const sig = btn.getAttribute("data-trace-signal");
       if (mod && sig) requestCrossModuleTrace(mod, sig);
+    });
+  }
+
+  const codeBtn = document.getElementById("viewModuleCodeBtn");
+  if (codeBtn) {
+    codeBtn.addEventListener("click", () => {
+      const mod = codeBtn.getAttribute("data-module");
+      if (mod) openModuleCodeEditor(mod);
     });
   }
 }
@@ -4321,3 +4334,136 @@ renderInspector();
     setStatus("API unavailable", "error");
   }
 })();
+
+// ═══════════════════════════════════════════════════════════════════
+// Module source code editor
+// ═══════════════════════════════════════════════════════════════════
+const codeEditorState = {
+  cm: null,
+  module: null,
+  path: null,
+  original: "",
+};
+
+function ensureCodeMirror() {
+  if (codeEditorState.cm) return codeEditorState.cm;
+  const ta = document.getElementById("codeEditorTextarea");
+  if (!ta || typeof CodeMirror === "undefined") return null;
+  codeEditorState.cm = CodeMirror.fromTextArea(ta, {
+    mode: "verilog",
+    theme: "material-darker",
+    lineNumbers: true,
+    indentUnit: 2,
+    tabSize: 2,
+    lineWrapping: false,
+    matchBrackets: true,
+  });
+  return codeEditorState.cm;
+}
+
+function setEditorStatus(text) {
+  const el = document.getElementById("codeEditorStatus");
+  if (el) el.textContent = text || "";
+}
+
+async function openModuleCodeEditor(moduleName) {
+  const overlay = document.getElementById("codeEditorOverlay");
+  const titleEl = document.getElementById("codeEditorTitle");
+  const pathEl = document.getElementById("codeEditorPath");
+  if (!overlay) return;
+
+  overlay.classList.remove("hidden");
+  titleEl.textContent = `Module Source — ${moduleName}`;
+  pathEl.textContent = "Loading...";
+  setEditorStatus("Loading...");
+
+  const cm = ensureCodeMirror();
+  if (cm) cm.setValue("");
+
+  try {
+    const data = await apiRequest(`/api/project/modules/${encodeURIComponent(moduleName)}/source`);
+    codeEditorState.module = moduleName;
+    codeEditorState.path = data.path || "";
+    codeEditorState.original = data.content || "";
+    pathEl.textContent = codeEditorState.path;
+    if (cm) {
+      cm.setValue(codeEditorState.original);
+      cm.clearHistory();
+      setTimeout(() => cm.refresh(), 0);
+    }
+    setEditorStatus("Loaded.");
+  } catch (error) {
+    setEditorStatus(`Failed to load: ${error.message}`);
+    pathEl.textContent = "";
+  }
+}
+
+function closeModuleCodeEditor() {
+  const overlay = document.getElementById("codeEditorOverlay");
+  if (overlay) overlay.classList.add("hidden");
+  codeEditorState.module = null;
+  codeEditorState.path = null;
+  codeEditorState.original = "";
+}
+
+async function saveModuleCodeEditor() {
+  const cm = codeEditorState.cm;
+  if (!cm || !codeEditorState.module) return;
+  const content = cm.getValue();
+
+  const saveBtn = document.getElementById("codeEditorSave");
+  const discardBtn = document.getElementById("codeEditorDiscard");
+  if (saveBtn) saveBtn.disabled = true;
+  if (discardBtn) discardBtn.disabled = true;
+  setEditorStatus("Saving and re-parsing project...");
+
+  try {
+    await apiRequest(`/api/project/modules/${encodeURIComponent(codeEditorState.module)}/source`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    });
+    codeEditorState.original = content;
+    setEditorStatus("Saved. Refreshing viewer...");
+
+    // Re-parse already happened on the server. Refresh the project listing
+    // and reload the currently focused module's graph so the viewer updates.
+    try {
+      await refreshProject();
+      if (state.selectedModule) {
+        await loadGraph(
+          state.selectedModule,
+          state.breadcrumb.length ? [...state.breadcrumb] : [state.selectedModule],
+        );
+      }
+      setStatus("Module updated", "ok");
+      setEditorStatus("Saved.");
+    } catch (refreshErr) {
+      setEditorStatus(`Saved, but refresh failed: ${refreshErr.message}`);
+    }
+  } catch (error) {
+    setEditorStatus(`Save failed: ${error.message}`);
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+    if (discardBtn) discardBtn.disabled = false;
+  }
+}
+
+function discardModuleCodeEditor() {
+  const cm = codeEditorState.cm;
+  if (!cm) return;
+  cm.setValue(codeEditorState.original || "");
+  setEditorStatus("Changes discarded.");
+}
+
+document.getElementById("codeEditorClose")?.addEventListener("click", closeModuleCodeEditor);
+document.getElementById("codeEditorSave")?.addEventListener("click", saveModuleCodeEditor);
+document.getElementById("codeEditorDiscard")?.addEventListener("click", discardModuleCodeEditor);
+document.getElementById("codeEditorOverlay")?.addEventListener("click", (ev) => {
+  if (ev.target && ev.target.id === "codeEditorOverlay") closeModuleCodeEditor();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") {
+    const overlay = document.getElementById("codeEditorOverlay");
+    if (overlay && !overlay.classList.contains("hidden")) closeModuleCodeEditor();
+  }
+});

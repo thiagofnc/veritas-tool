@@ -30,6 +30,10 @@ class TraceSignalRequest(BaseModel):
     max_hops: int = Field(default=500, description="Max hops per direction")
 
 
+class ModuleSourceUpdate(BaseModel):
+    content: str = Field(..., description="New full text content for the module's source file")
+
+
 class _AppState:
     def __init__(self) -> None:
         self.service = ProjectService(parser_backend="pyverilog")
@@ -124,6 +128,48 @@ def get_module(module_name: str) -> dict[str, object]:
             return asdict(module)
     except (RuntimeError, ValueError) as exc:
         raise _bad_request(str(exc)) from exc
+
+
+@app.get("/api/project/modules/{module_name}/source")
+def get_module_source(module_name: str) -> dict[str, object]:
+    try:
+        with state_lock:
+            module = state.service.get_module(module_name)
+            src_path = module.source_file
+            if not src_path:
+                raise _bad_request(f"Module '{module_name}' has no associated source file.")
+            path = Path(src_path)
+            if not path.exists():
+                raise _bad_request(f"Source file not found: {src_path}")
+            content = path.read_text(encoding="utf-8", errors="replace")
+            return {"module": module_name, "path": str(path), "content": content}
+    except (RuntimeError, ValueError) as exc:
+        raise _bad_request(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read source: {exc}") from exc
+
+
+@app.put("/api/project/modules/{module_name}/source")
+def update_module_source(module_name: str, payload: ModuleSourceUpdate) -> dict[str, object]:
+    try:
+        with state_lock:
+            module = state.service.get_module(module_name)
+            src_path = module.source_file
+            if not src_path:
+                raise _bad_request(f"Module '{module_name}' has no associated source file.")
+            path = Path(src_path)
+            if not path.exists():
+                raise _bad_request(f"Source file not found: {src_path}")
+            path.write_text(payload.content, encoding="utf-8")
+
+            # Re-parse the project so the new content is reflected immediately.
+            if state.loaded_folder:
+                state.service.load_project(state.loaded_folder)
+            return {"module": module_name, "path": str(path), "saved": True}
+    except (RuntimeError, ValueError) as exc:
+        raise _bad_request(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to write source: {exc}") from exc
 
 
 @app.get("/api/project/hierarchy/{top_module}")
