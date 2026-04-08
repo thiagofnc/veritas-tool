@@ -272,15 +272,60 @@ def _endpoint_flow_role(endpoint: dict[str, Any]) -> str:
     return role
 
 
-def _instance_pin_pairs(instance: Instance) -> list[tuple[str, str]]:
+def _parent_signal_universe(module_def: ModuleDef | None) -> set[str]:
+    """Return the set of bare signal/port names visible in a module's scope.
+
+    This is the lookup table used to decide whether a part-select expression
+    like ``foo[11:2]`` should collapse onto an existing net node ``foo`` or
+    stay as its own synthetic node (concatenations, literals, expressions).
+    """
+    if module_def is None:
+        return set()
+    names: set[str] = set()
+    for port in getattr(module_def, "ports", None) or []:
+        if port.name:
+            names.add(port.name)
+    for signal in getattr(module_def, "signals", None) or []:
+        if signal.name:
+            names.add(signal.name)
+    return names
+
+
+def _normalize_pin_signal_ref(parent_signal: str, known_signals: set[str]) -> str:
+    """Collapse a pin connection expression onto the parent net it references.
+
+    Rules:
+    - Bare identifier ``foo``                  → ``foo`` (unchanged).
+    - Part/bit select ``foo[11:2]`` / ``foo[3]`` whose base ``foo`` is a known
+      signal in the parent scope                → ``foo``.
+    - Anything else (concatenations ``{a,b}``, literals ``4'b0``, expressions
+      ``~en``, or selects on unknown bases)     → original text, untouched, so
+      it remains a distinct synthetic net node with a sensible label.
+    """
+    cleaned = " ".join(parent_signal.split())
+    if not cleaned:
+        return cleaned
+
+    ref = _parse_signal_reference(cleaned)
+    base = ref.get("base_name")
+    if base and base in known_signals:
+        return base
+    return cleaned
+
+
+def _instance_pin_pairs(
+    instance: Instance,
+    parent_known_signals: set[str] | None = None,
+) -> list[tuple[str, str]]:
     if instance.pin_connections:
         pairs = [(pin.child_port, pin.parent_signal) for pin in instance.pin_connections]
     else:
         pairs = list(instance.connections.items())
 
+    universe = parent_known_signals or set()
     cleaned: list[tuple[str, str]] = []
     for child_port, parent_signal in pairs:
-        signal = " ".join(parent_signal.split())
+        signal = _normalize_pin_signal_ref(parent_signal, universe)
         if not signal:
             signal = f"__open__:{instance.name}.{child_port}"
         cleaned.append((child_port, signal))
@@ -501,8 +546,9 @@ def build_module_connectivity_graph(
         )
 
     # Instance-level endpoints attached to parent-module signals.
+    parent_known_signals = _parent_signal_universe(module_def)
     for instance in sorted(module_def.instances, key=lambda i: i.name):
-        instance_pin_pairs = _instance_pin_pairs(instance)
+        instance_pin_pairs = _instance_pin_pairs(instance, parent_known_signals)
         instance_id = f"instance:{instance.name}"
         add_node(
             {
@@ -948,6 +994,7 @@ def build_hierarchy_graph(project: Project, top_module: str) -> dict[str, Any]:
         instance: Instance,
         instance_id: str,
         known_nets: set[str],
+        parent_known_signals: set[str],
     ) -> None:
         if instance.pin_connections:
             pin_pairs = sorted(
@@ -958,7 +1005,7 @@ def build_hierarchy_graph(project: Project, top_module: str) -> dict[str, Any]:
             pin_pairs = sorted(instance.connections.items(), key=lambda pair: pair[0])
 
         for child_port, parent_signal in pin_pairs:
-            signal_name = parent_signal.strip()
+            signal_name = _normalize_pin_signal_ref(parent_signal, parent_known_signals)
             if not signal_name:
                 # Preserve open/unconnected pins without generating empty net ids.
                 signal_name = f"__open__:{instance.name}.{child_port}"
@@ -993,12 +1040,13 @@ def build_hierarchy_graph(project: Project, top_module: str) -> dict[str, Any]:
         next_active = set(active_modules)
         next_active.add(module_name)
 
+        parent_known_signals = _parent_signal_universe(module_def)
         for instance in sorted(module_def.instances, key=lambda i: i.name):
             inst_id = instance_node_id(module_path_id, instance.name)
             add_node(inst_id, f"{instance.name}: {instance.module_name}", "instance")
             add_edge(module_id, inst_id, "hierarchy")
 
-            connect_instance_pins(module_path_id, instance, inst_id, known_nets)
+            connect_instance_pins(module_path_id, instance, inst_id, known_nets, parent_known_signals)
 
             child_path_id = f"{module_path_id}/{instance.name}:{instance.module_name}"
             child_module_id = module_node_id(child_path_id)

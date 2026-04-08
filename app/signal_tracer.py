@@ -110,11 +110,39 @@ def _parent_index(project: Project) -> dict[str, list[tuple[str, Instance]]]:
     return index
 
 
+_PIN_BITSELECT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_$]*)\s*\[[^\]]*\]\s*$")
+
+
+def _pin_signal_base(parent_signal: str) -> str:
+    """Strip a trailing part-/bit-select from a pin connection text.
+
+    Mirrors graph_builder._normalize_pin_signal_ref but does not require a
+    known-signals set: the tracer always works against a single module scope
+    where the answer to "is this name a signal here?" is checked downstream
+    via _module_signal_lookup. Stripping unconditionally is safe because the
+    only forms that match the regex are ``<bare_ident>[<anything>]``, which
+    are exactly the cases we want to collapse.
+    """
+    cleaned = " ".join(parent_signal.split())
+    m = _PIN_BITSELECT_RE.match(cleaned)
+    if m:
+        return m.group(1)
+    return cleaned
+
+
 def _iter_instance_pins(inst: Instance) -> list[tuple[str, str]]:
-    """Yield (child_port, parent_signal) pairs for one instance."""
+    """Yield (child_port, parent_signal_base) pairs for one instance.
+
+    The parent-signal text is normalised so that ``foo[11:2]`` and ``foo[3]``
+    are reported as ``foo`` — otherwise tracing the bus would skip every pin
+    that consumes a slice of it.
+    """
     if inst.pin_connections:
-        return [(pc.child_port, pc.parent_signal) for pc in inst.pin_connections]
-    return list(inst.connections.items())
+        return [
+            (pc.child_port, _pin_signal_base(pc.parent_signal))
+            for pc in inst.pin_connections
+        ]
+    return [(child_port, _pin_signal_base(sig)) for child_port, sig in inst.connections.items()]
 
 
 def _port_direction(module: ModuleDef, port_name: str) -> str:
