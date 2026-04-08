@@ -19,6 +19,10 @@
     label: "Stress test",
     folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\tests\\stress_test",
   },
+  {
+    label: "NVDLA",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tests\\hw",
+  },
 ];
 
 const state = {
@@ -4317,14 +4321,3 @@ renderInspector();
     setStatus("API unavailable", "error");
   }
 })();
-
-
-
-
-
-
-
-
-
-
-
