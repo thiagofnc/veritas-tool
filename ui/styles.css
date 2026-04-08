@@ -228,6 +228,90 @@ body {
   display: grid;
   grid-template-columns: 260px 1fr 280px;
   gap: 0;
+  position: relative;
+}
+
+.workspace > .panel-left {
+  grid-column: 1;
+  grid-row: 1;
+}
+.workspace > .panel-center {
+  grid-column: 2;
+  grid-row: 1;
+}
+.workspace > .panel-right {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.workspace.left-collapsed {
+  grid-template-columns: 0 1fr 280px;
+}
+.workspace.right-collapsed {
+  grid-template-columns: 260px 1fr 0;
+}
+.workspace.left-collapsed.right-collapsed {
+  grid-template-columns: 0 1fr 0;
+}
+.workspace.left-collapsed > .panel-left,
+.workspace.right-collapsed > .panel-right {
+  /* Keep the element in its pinned grid track but make it invisible and
+     non-interactive — its track width is 0 so it consumes no space. */
+  visibility: hidden;
+  pointer-events: none;
+  overflow: hidden;
+  border: none;
+}
+
+/* ── Collapsible side-panel toggles ──────────────────────── */
+.panel-toggle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 50;
+  width: 22px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-1);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  transition: background 120ms ease, color 120ms ease;
+}
+.panel-toggle:hover {
+  background: var(--surface-2, #1f2024);
+  color: #e5e7eb;
+}
+.panel-toggle-left {
+  left: 260px;
+  border-radius: 0 4px 4px 0;
+  border-left: none;
+}
+.panel-toggle-right {
+  right: 280px;
+  border-radius: 4px 0 0 4px;
+  border-right: none;
+}
+.workspace.left-collapsed .panel-toggle-left {
+  left: 0;
+}
+.workspace.right-collapsed .panel-toggle-right {
+  right: 0;
+}
+.panel-toggle-arrow {
+  display: inline-block;
+  transition: transform 150ms ease;
+}
+.workspace.left-collapsed .panel-toggle-left .panel-toggle-arrow {
+  transform: rotate(180deg);
+}
+.workspace.right-collapsed .panel-toggle-right .panel-toggle-arrow {
+  transform: rotate(180deg);
 }
 
 /* ── Panels ──────────────────────────────────────────────── */

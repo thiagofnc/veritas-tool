@@ -4574,3 +4574,41 @@ document.addEventListener("keydown", (ev) => {
     if (overlay && !overlay.classList.contains("hidden")) closeModuleCodeEditor();
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// Collapsible side panels (hierarchy + inspector)
+// ═══════════════════════════════════════════════════════════════════
+(function setupPanelToggles() {
+  const workspace = document.getElementById("workspace");
+  const leftBtn = document.getElementById("toggleLeftPanel");
+  const rightBtn = document.getElementById("toggleRightPanel");
+  if (!workspace) return;
+
+  function afterResize() {
+    // Cytoscape needs an explicit resize when its container size changes,
+    // otherwise the canvas keeps its old dimensions and clips the schematic.
+    if (state.cy) {
+      // Wait one frame so the grid has reflowed.
+      requestAnimationFrame(() => {
+        state.cy.resize();
+        if (state.cy.elements().length) state.cy.fit(undefined, 30);
+      });
+    }
+  }
+
+  function togglePanel(side) {
+    const cls = side === "left" ? "left-collapsed" : "right-collapsed";
+    const collapsed = workspace.classList.toggle(cls);
+    const btn = side === "left" ? leftBtn : rightBtn;
+    if (btn) {
+      const labelHide = side === "left" ? "Hide hierarchy" : "Hide inspector";
+      const labelShow = side === "left" ? "Show hierarchy" : "Show inspector";
+      btn.title = collapsed ? labelShow : labelHide;
+      btn.setAttribute("aria-label", collapsed ? labelShow : labelHide);
+    }
+    afterResize();
+  }
+
+  leftBtn?.addEventListener("click", () => togglePanel("left"));
+  rightBtn?.addEventListener("click", () => togglePanel("right"));
+})();
