@@ -4493,11 +4493,13 @@ const VERITAS_VERILOG_KEYWORDS = new Set([
 const veritasVerilogOverlay = {
   startState: () => ({
     argDepth: 0,
+    pendingPortArg: false,
     moduleTypeStart: null,
     moduleTypeEnd: null,
   }),
   copyState: (s) => ({
     argDepth: s.argDepth,
+    pendingPortArg: s.pendingPortArg,
     moduleTypeStart: s.moduleTypeStart,
     moduleTypeEnd: s.moduleTypeEnd,
   }),
@@ -4520,6 +4522,23 @@ const veritasVerilogOverlay = {
       // Skip strings, numbers, operators, whitespace — leave them to the base mode.
       stream.next();
       return null;
+    }
+
+    if (state.pendingPortArg) {
+      const ch = stream.peek();
+      if (ch === null) {
+        state.pendingPortArg = false;
+      } else if (/\s/.test(ch)) {
+        stream.next();
+        return null;
+      } else if (ch === "(") {
+        stream.next();
+        state.argDepth = 1;
+        state.pendingPortArg = false;
+        return null;
+      } else {
+        state.pendingPortArg = false;
+      }
     }
 
     // ── At start of line: try to detect a module instantiation header ──
@@ -4547,26 +4566,13 @@ const veritasVerilogOverlay = {
       return "vt-module";
     }
 
-    // ── Detect `.identifier(` to enter argument context ──
+    // ── Detect `.identifier(` and arm argument highlighting at `(` ──
     if (stream.peek() === ".") {
-      const startPos = stream.pos;
-      stream.next();
-      // Must look like `.IDENT(` (possibly with whitespace) — otherwise it's
-      // a real-number literal (`.5`) or an unrelated dot, so back off.
-      if (/[A-Za-z_]/.test(stream.peek() || "")) {
-        stream.eatWhile(/[\w$]/);
-        stream.eatSpace();
-        if (stream.peek() === "(") {
-          stream.next();
-          state.argDepth = 1;
-          // Return null so the underlying mode's cm-property/cm-variable
-          // styling for the port name still applies (mint via theme).
-          return null;
-        }
-        // Not a port connection — rewind so the base mode handles it.
-        stream.pos = startPos;
-        stream.next();
+      const rest = stream.string.slice(stream.pos);
+      if (/^\.[A-Za-z_]\w*\s*\(/.test(rest)) {
+        state.pendingPortArg = true;
       }
+      stream.next();
       return null;
     }
 
