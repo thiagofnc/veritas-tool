@@ -85,7 +85,7 @@ module comms_top (
 
     i2c_master u_i2c_master (
         .clk(clk),
-        .rst(rst),
+      .rst(rst),
         .start(i2c_start),
         .data_in(i2c_wdata),
         .sda_in(i2c_sda_in),

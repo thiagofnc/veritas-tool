@@ -4467,6 +4467,101 @@ const codeEditorState = {
   original: "",
 };
 
+// ── Veritas overlay tokenizer ──────────────────────────────────────
+// CodeMirror's stock verilog mode tags both module type names and named-port
+// connection arguments as plain `cm-variable`, so a CSS-only theme cannot
+// color them differently. This overlay walks the source line by line and
+// emits two extra token classes:
+//   vt-module    — the type name in `Foo bar (...)` instantiations
+//   vt-arg       — identifiers appearing inside `.port(<here>)` connections
+// CodeMirror prefixes overlay token names with `cm-`, so the resulting CSS
+// classes are `cm-vt-module` and `cm-vt-arg` (themed in styles.css).
+const VERITAS_VERILOG_KEYWORDS = new Set([
+  "module", "endmodule", "if", "else", "for", "while", "case", "casex", "casez",
+  "endcase", "begin", "end", "always", "always_ff", "always_comb", "always_latch",
+  "assign", "wire", "reg", "logic", "input", "output", "inout", "parameter",
+  "localparam", "function", "endfunction", "task", "endtask", "initial",
+  "generate", "endgenerate", "genvar", "integer", "real", "time", "return",
+  "default", "forever", "repeat", "do", "fork", "join", "typedef", "struct",
+  "union", "enum", "interface", "endinterface", "modport", "package",
+  "endpackage", "import", "export", "automatic", "static", "const", "var",
+  "void", "bit", "byte", "int", "longint", "shortint", "shortreal", "string",
+  "signed", "unsigned", "negedge", "posedge", "or", "and", "not", "xor",
+  "xnor", "nand", "nor", "buf", "supply0", "supply1", "tri", "wand", "wor",
+]);
+
+const veritasVerilogOverlay = {
+  startState: () => ({ argDepth: 0 }),
+  copyState: (s) => ({ argDepth: s.argDepth }),
+  token(stream, state) {
+    // ── Inside a port-connection's argument list ──
+    if (state.argDepth > 0) {
+      const ch = stream.peek();
+      if (ch === "(") { stream.next(); state.argDepth++; return null; }
+      if (ch === ")") { stream.next(); state.argDepth--; return null; }
+      // Identifier → mark as a connection argument.
+      if (/[A-Za-z_]/.test(ch)) {
+        stream.eatWhile(/[\w$]/);
+        return "vt-arg";
+      }
+      // Skip strings, numbers, operators, whitespace — leave them to the base mode.
+      stream.next();
+      return null;
+    }
+
+    // ── At start of line: try to detect a module instantiation header ──
+    // Pattern (allowing optional `#(...)` parameter block):
+    //     <indent><TYPE> [#(...)] <INSTANCE> (
+    if (stream.sol()) {
+      const rest = stream.string.slice(stream.pos);
+      const m = rest.match(
+        /^(\s*)([A-Za-z_]\w*)\s*(?:#\s*\([^)]*\))?\s+([A-Za-z_]\w*)\s*\(/,
+      );
+      if (m && !VERITAS_VERILOG_KEYWORDS.has(m[2])) {
+        state._moduleTypeStart = stream.pos + m[1].length;
+        state._moduleTypeEnd = state._moduleTypeStart + m[2].length;
+      }
+    }
+
+    // ── Emit the module type token when we reach its column ──
+    if (
+      state._moduleTypeStart !== undefined &&
+      stream.pos === state._moduleTypeStart
+    ) {
+      while (stream.pos < state._moduleTypeEnd) stream.next();
+      delete state._moduleTypeStart;
+      delete state._moduleTypeEnd;
+      return "vt-module";
+    }
+
+    // ── Detect `.identifier(` to enter argument context ──
+    if (stream.peek() === ".") {
+      const startPos = stream.pos;
+      stream.next();
+      // Must look like `.IDENT(` (possibly with whitespace) — otherwise it's
+      // a real-number literal (`.5`) or an unrelated dot, so back off.
+      if (/[A-Za-z_]/.test(stream.peek() || "")) {
+        stream.eatWhile(/[\w$]/);
+        stream.eatSpace();
+        if (stream.peek() === "(") {
+          stream.next();
+          state.argDepth = 1;
+          // Return null so the underlying mode's cm-property/cm-variable
+          // styling for the port name still applies (mint via theme).
+          return null;
+        }
+        // Not a port connection — rewind so the base mode handles it.
+        stream.pos = startPos;
+        stream.next();
+      }
+      return null;
+    }
+
+    stream.next();
+    return null;
+  },
+};
+
 function ensureCodeMirror() {
   if (codeEditorState.cm) return codeEditorState.cm;
   const ta = document.getElementById("codeEditorTextarea");
@@ -4480,6 +4575,9 @@ function ensureCodeMirror() {
     lineWrapping: false,
     matchBrackets: true,
   });
+  // Layer the Veritas overlay on top of the base verilog mode so module
+  // types and port-connection arguments get their own token classes.
+  codeEditorState.cm.addOverlay(veritasVerilogOverlay);
   return codeEditorState.cm;
 }
 

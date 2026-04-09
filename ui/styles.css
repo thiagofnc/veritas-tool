@@ -1496,3 +1496,176 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ── CodeMirror Verilog syntax overrides ─────────────────────
+   The stock material-darker theme renders Verilog with only two
+   or three hues because the verilog mode emits a coarse set of
+   token classes. These overrides give each class its own color
+   so keywords, types, numbers, strings, comments, and operators
+   are visually distinct. Selectors are scoped to .CodeMirror so
+   they only affect editor instances, not the rest of the UI. */
+
+.CodeMirror.cm-s-material-darker {
+  background: #15171c;
+  color: #e5e7eb;
+}
+/* Hard reset: every token inside an editor line defaults to light gray.
+   The classed-token rules below paint colorful tokens on top of this. The
+   reason for the reset is that material-darker's bundled CSS sets some
+   token classes (notably cm-variable) to red-pink with !important, and
+   the verilog mode tags most identifiers as cm-variable. */
+.CodeMirror.cm-s-material-darker .CodeMirror-line span,
+.CodeMirror.cm-s-material-darker pre.CodeMirror-line > span > span {
+  color: #e5e7eb;
+}
+.CodeMirror.cm-s-material-darker .CodeMirror-gutters {
+  background: #1a1d23;
+  border-right: 1px solid #2b3f4d;
+}
+.CodeMirror.cm-s-material-darker .CodeMirror-linenumber {
+  color: #4b5563;
+}
+.CodeMirror.cm-s-material-darker .CodeMirror-cursor {
+  border-left: 1px solid #22d3ee;
+}
+.CodeMirror.cm-s-material-darker .CodeMirror-selected,
+.CodeMirror.cm-s-material-darker .CodeMirror-selectedtext {
+  background: rgba(34, 211, 238, 0.18) !important;
+}
+.CodeMirror.cm-s-material-darker .CodeMirror-activeline-background {
+  background: rgba(255, 255, 255, 0.03);
+}
+.CodeMirror.cm-s-material-darker .CodeMirror-matchingbracket {
+  color: #facc15 !important;
+  text-decoration: underline;
+}
+
+/* Comments — desaturated gray-green so they recede */
+.CodeMirror.cm-s-material-darker .cm-comment {
+  color: #6b7a85 !important;
+  font-style: italic;
+}
+
+/* Keywords — control flow / module / always / begin / end ... */
+.CodeMirror.cm-s-material-darker .cm-keyword {
+  color: #c084fc !important;       /* purple */
+  font-weight: 600;
+}
+
+/* Types — wire, reg, logic, integer, input, output, inout ... */
+.CodeMirror.cm-s-material-darker .cm-variable-2,
+.CodeMirror.cm-s-material-darker .cm-builtin {
+  color: #38bdf8 !important;       /* sky blue */
+}
+.CodeMirror.cm-s-material-darker .cm-def {
+  color: #fbbf24 !important;       /* amber — module/function names at definition */
+  font-weight: 600;
+}
+
+/* Identifiers — plain signal / variable / instance names. The bundled
+   material-darker theme colors cm-variable salmon-red, which dominates
+   Verilog files (every wire, every signal, every instance name). Recolor
+   to a soft light cyan so identifiers are warm and readable, leaving the
+   bright accent colors for keywords, types, numbers, and strings. */
+.cm-s-material-darker span.cm-variable,
+.CodeMirror.cm-s-material-darker .cm-variable {
+  color: #c5e1ff !important;       /* soft ice blue */
+}
+
+/* Variant identifier classes some verilog mode forks use for typed names
+   and module type heads (`HazardDetection` in `HazardDetection u(...)`). */
+.cm-s-material-darker span.cm-variable-3,
+.CodeMirror.cm-s-material-darker .cm-variable-3,
+.cm-s-material-darker span.cm-type,
+.CodeMirror.cm-s-material-darker .cm-type {
+  color: #fcd34d !important;       /* gold — module / type names */
+  font-weight: 600;
+}
+
+/* Named port connections — `.opcode`, `.rs1`, `.clock` etc. The bundled
+   theme styles cm-property purple, which clashes with the keyword color.
+   Recolor to mint so port labels read distinctly from both keywords and
+   the (now ice-blue) identifiers passed into them. */
+.cm-s-material-darker span.cm-property,
+.CodeMirror.cm-s-material-darker .cm-property {
+  color: #5eead4 !important;       /* mint / teal */
+  font-weight: 600;
+}
+
+/* Tag-class tokens — used by some verilog mode forks for module names
+   at instantiation. Bundled theme colors these bright red; recolor to
+   match the cm-type rule above for visual consistency. */
+.cm-s-material-darker span.cm-tag,
+.CodeMirror.cm-s-material-darker .cm-tag {
+  color: #fcd34d !important;       /* gold */
+  font-weight: 600;
+}
+
+/* Some verilog mode forks emit cm-qualifier for connection arguments.
+   Harmless if unused; give it a warm sand color when present. */
+.cm-s-material-darker span.cm-qualifier,
+.CodeMirror.cm-s-material-darker .cm-qualifier {
+  color: #fde68a !important;       /* warm sand */
+}
+
+/* Numbers — decimal, hex, sized literals like 4'b0000 */
+.CodeMirror.cm-s-material-darker .cm-number {
+  color: #fb923c !important;       /* orange */
+}
+
+/* Strings */
+.CodeMirror.cm-s-material-darker .cm-string,
+.CodeMirror.cm-s-material-darker .cm-string-2 {
+  color: #86efac !important;       /* mint */
+}
+
+/* Operators — &, |, =, <=, ?:, etc. */
+.CodeMirror.cm-s-material-darker .cm-operator {
+  color: #f472b6 !important;       /* pink */
+}
+
+/* Brackets and punctuation */
+.CodeMirror.cm-s-material-darker .cm-bracket,
+.CodeMirror.cm-s-material-darker .cm-punctuation {
+  color: #cbd5e1 !important;
+}
+
+/* Preprocessor / macros — `define, `include, `ifdef ... */
+.CodeMirror.cm-s-material-darker .cm-meta {
+  color: #facc15 !important;       /* yellow */
+  font-weight: 600;
+}
+
+/* Attributes / labels (rare in Verilog but emitted occasionally) */
+.CodeMirror.cm-s-material-darker .cm-attribute {
+  color: #67e8f9 !important;       /* cyan */
+}
+
+/* Atoms — true/false-like tokens */
+.CodeMirror.cm-s-material-darker .cm-atom {
+  color: #fb7185 !important;       /* coral */
+}
+
+/* (cm-tag is styled in the identifier section above — gold for module
+   instantiation heads.) */
+
+/* Errors — keep red but distinguishable from operators */
+.CodeMirror.cm-s-material-darker .cm-error {
+  color: #fff;
+  background: rgba(239, 68, 68, 0.35);
+}
+
+/* ── Veritas overlay tokens (see veritasVerilogOverlay in app.js) ─── */
+
+/* Module type names at instantiation — `Register` in `Register PC (...)` */
+.cm-s-material-darker span.cm-vt-module,
+.CodeMirror.cm-s-material-darker .cm-vt-module {
+  color: #fb923c !important;       /* warm orange — distinct from gold cm-tag */
+  font-weight: 700;
+}
+
+/* Connection arguments — the identifiers inside `.port(<here>)` */
+.cm-s-material-darker span.cm-vt-arg,
+.CodeMirror.cm-s-material-darker .cm-vt-arg {
+  color: #facc15 !important;       /* warm yellow */
+}
