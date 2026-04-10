@@ -3565,7 +3565,7 @@ async function requestCrossModuleTrace(moduleName, signal, keepHistory) {
 const TRACE_ROLE_STYLE = {
   driver:    { color: "#22d3ee", label: "DRIVER" },
   compute:   { color: "#facc15", label: "COMPUTE" },
-  pipeline:  { color: "#f472b6", label: "PIPELINE" },
+  pipeline:  { color: "#f472b6", label: "SEQUENTIAL" },
   transport: { color: "#a1a1aa", label: "TRANSPORT" },
   load:      { color: "#60a5fa", label: "LOAD" },
   unknown:   { color: "#71717a", label: "STEP" },
@@ -5340,8 +5340,15 @@ async function openModuleCodeEditor(moduleName, options = {}) {
   pathEl.textContent = "Loading...";
   setEditorStatus("Loading...", "info");
 
+  // CodeMirror can mis-measure when created immediately after a display:none
+  // overlay becomes visible; wait for the visible layout to paint first.
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
   const cm = ensureCodeMirror();
-  if (cm) cm.setValue("");
+  if (cm) {
+    cm.refresh();
+    cm.setValue("");
+  }
 
   try {
     const data = await apiRequest(`/api/project/modules/${encodeURIComponent(moduleName)}/source`);
@@ -5352,13 +5359,13 @@ async function openModuleCodeEditor(moduleName, options = {}) {
     if (cm) {
       cm.setValue(codeEditorState.original);
       cm.clearHistory();
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         cm.refresh();
         if (options.jumpToInstance) {
           jumpToInstantiation(cm, options.jumpToInstance);
         }
         applyLint(cm);
-      }, 0);
+      });
     }
   } catch (error) {
     setEditorStatus(`Failed to load: ${error.message}`, "error", { sticky: true });
