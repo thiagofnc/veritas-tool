@@ -16,6 +16,10 @@
     folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\sample_projects\\04_three_module_chain",
   },
   {
+    label: "tracing test",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\sample_projects\\05_tracer_path_lab",
+  },
+  {
     label: "Stress test",
     folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\tests\\stress_test",
   },

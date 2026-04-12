@@ -241,6 +241,7 @@ Bundled examples live under `sample_projects/`:
 - `02_serial_subsystem`
 - `03_sensor_hub`
 - `04_three_module_chain`
+- `05_tracer_path_lab`
 
 ## Testing
 
