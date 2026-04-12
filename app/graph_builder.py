@@ -575,6 +575,7 @@ def build_module_connectivity_graph(
             if child_module_def is not None:
                 port_meta = _port_metadata(child_module_def, resolved_child_port)
 
+            is_open = parent_signal.startswith("__open__:")
             endpoint_node_id = instance_id
             if port_view:
                 port_node_id = f"instance_port:{instance.name}.{resolved_child_port}"
@@ -593,6 +594,7 @@ def build_module_connectivity_graph(
                         "bit_width": port_meta["bit_width"],
                         "is_bus": port_meta["is_bus"],
                         "sig_class": "bus" if port_meta["is_bus"] else "wire",
+                        "connected": not is_open,
                     }
                 )
 
@@ -608,6 +610,32 @@ def build_module_connectivity_graph(
                     "is_bus": port_meta["is_bus"],
                 }
             )
+
+        # Detect child module ports that are missing entirely from instance connections.
+        if port_view and child_module_def is not None:
+            wired_ports = {_resolve_child_port_name(cp, child_module_def) for cp, _ in instance_pin_pairs}
+            for child_port in child_module_def.ports:
+                if child_port.name in wired_ports:
+                    continue
+                port_node_id = f"instance_port:{instance.name}.{child_port.name}"
+                child_port_meta = _port_metadata(child_module_def, child_port.name)
+                add_node(
+                    {
+                        "id": port_node_id,
+                        "label": child_port.name,
+                        "kind": "instance_port",
+                        "instance_name": instance.name,
+                        "instance_node_id": instance_id,
+                        "module_name": instance.module_name,
+                        "port_name": child_port.name,
+                        "direction": child_port_meta["direction"],
+                        "declared_width": child_port_meta["declared_width"],
+                        "bit_width": child_port_meta["bit_width"],
+                        "is_bus": child_port_meta["is_bus"],
+                        "sig_class": "bus" if child_port_meta["is_bus"] else "wire",
+                        "connected": False,
+                    }
+                )
 
     # Gate primitive nodes.
     for gate in sorted(getattr(module_def, "gates", None) or [], key=lambda g: g.name):

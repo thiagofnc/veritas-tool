@@ -72,6 +72,10 @@
             <ul id="topList" class="item-list"></ul>
           </section>
 
+          <section class="panel-section">
+            <button id="createModuleBtn" type="button" class="action-btn" disabled>+ New Module</button>
+          </section>
+
           <section class="panel-section tree-section">
             <h3>Module Tree</h3>
             <div id="hierarchyTree" class="hierarchy-tree"></div>
@@ -166,6 +170,44 @@
       </main>
     </div>
     <div class="app-version-tag" aria-hidden="true">0.34</div>
+
+    <div id="createModuleOverlay" class="modal-overlay hidden">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h3>Create New Module</h3>
+          <button id="createModuleClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label for="newModuleName">Module name</label>
+          <input id="newModuleName" type="text" placeholder="my_module" autocomplete="off" spellcheck="false" />
+          <span id="createModuleError" class="modal-error"></span>
+        </div>
+        <div class="modal-footer">
+          <button id="createModuleCancel" type="button">Cancel</button>
+          <button id="createModuleConfirm" type="button" class="primary">Create</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="instantiateOverlay" class="modal-overlay hidden">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h3 id="instantiateTitle">Instantiate Module</h3>
+          <button id="instantiateClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label for="instantiateParent">Parent module</label>
+          <select id="instantiateParent"></select>
+          <label for="instantiateName">Instance name (optional)</label>
+          <input id="instantiateName" type="text" placeholder="auto" autocomplete="off" spellcheck="false" />
+          <span id="instantiateError" class="modal-error"></span>
+        </div>
+        <div class="modal-footer">
+          <button id="instantiateCancel" type="button">Cancel</button>
+          <button id="instantiateConfirm" type="button" class="primary">Instantiate</button>
+        </div>
+      </div>
+    </div>
 
     <div id="codeEditorOverlay" class="code-editor-overlay hidden">
       <div class="code-editor-panel">

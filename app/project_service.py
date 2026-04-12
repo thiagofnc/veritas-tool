@@ -1,5 +1,6 @@
 ﻿"""Service layer for loading and querying parsed Verilog projects."""
 
+from pathlib import Path
 from typing import Any
 
 try:
@@ -155,6 +156,77 @@ class ProjectService:
             aggregate_edges=aggregate_edges,
             port_view=port_view,
         )
+
+    def create_module(self, module_name: str) -> dict[str, Any]:
+        """Create a new Verilog module file with a minimal skeleton.
+
+        The file is placed in the same directory as the inferred top module.
+        After writing to disk, the new file is parsed and merged into the
+        cached project so it's immediately visible.
+        """
+        project = self._require_project()
+
+        # Validate the module name.
+        import re
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", module_name):
+            raise ValueError(f"Invalid Verilog module name: {module_name!r}")
+
+        # Reject if a module with this name already exists.
+        existing_names = {m.name for m in project.modules}
+        if module_name in existing_names:
+            raise ValueError(f"Module '{module_name}' already exists in the project.")
+
+        # Determine target directory: same as the top module's source file.
+        tops = self.get_top_candidates()
+        target_dir: Path | None = None
+        if tops:
+            for mod in project.modules:
+                if mod.name == tops[0] and mod.source_file:
+                    target_dir = Path(mod.source_file).parent
+                    break
+
+        if target_dir is None:
+            target_dir = Path(project.root_path)
+
+        file_path = target_dir / f"{module_name}.v"
+        if file_path.exists():
+            raise ValueError(f"File already exists: {file_path}")
+
+        skeleton = (
+            f"module {module_name} (\n"
+            f"\n"
+            f");\n"
+            f"\n"
+            f"\n"
+            f"endmodule\n"
+        )
+        file_path.write_text(skeleton, encoding="utf-8")
+
+        # Parse the new file and merge into the project.
+        parser = create_parser_backend(self.parser_backend)
+        partial = parser.parse_files([str(file_path)])
+        new_modules = list(partial.modules)
+
+        project.modules.extend(new_modules)
+        from app.models import SourceFile
+        project.source_files.append(SourceFile(path=str(file_path)))
+
+        return {
+            "module": module_name,
+            "path": str(file_path),
+            "created": True,
+        }
+
+    def get_unused_modules(self) -> list[str]:
+        """Return module names that are defined but never instantiated by any other module."""
+        project = self._require_project()
+        all_names = {m.name for m in project.modules}
+        instantiated: set[str] = set()
+        for mod in project.modules:
+            for inst in mod.instances:
+                if inst.module_name in all_names:
+                    instantiated.add(inst.module_name)
+        return sorted(all_names - instantiated)
 
     def _require_project(self) -> Project:
         if self.project is None:

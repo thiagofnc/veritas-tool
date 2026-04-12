@@ -34,6 +34,7 @@ const state = {
   parser: "pyverilog",
   tops: [],
   modules: [],
+  unusedModules: [],
   selectedTop: null,
   selectedModule: null,
   hierarchy: null,
@@ -312,6 +313,11 @@ function renderHierarchyTree() {
 
     button.textContent = flags.length ? `${moduleName} [${flags.join(",")}]` : moduleName;
 
+    // Mark modules that are never instantiated by any other module.
+    if (!node.unresolved && state.unusedModules.includes(moduleName)) {
+      button.classList.add("unused");
+    }
+
     if (!node.unresolved) {
       button.addEventListener("click", async () => {
         try {
@@ -329,6 +335,19 @@ function renderHierarchyTree() {
     }
 
     item.appendChild(button);
+
+    // "Instantiate" action link — lets the user add this module as an instance in another module.
+    if (!node.unresolved && !node.cycle) {
+      const instLink = document.createElement("button");
+      instLink.type = "button";
+      instLink.className = "tree-action-link";
+      instLink.textContent = "instantiate";
+      instLink.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        openInstantiateDialog(moduleName);
+      });
+      item.appendChild(instLink);
+    }
 
     const instances = node.instances || [];
     if (instances.length) {
@@ -530,6 +549,16 @@ function ensureCytoscape() {
           "text-halign": "right",
           "text-margin-x": 17,
           color: "#a1a1aa",
+        },
+      },
+      // ── Unconnected ports (highlighted red) ─────────────────
+      {
+        selector: 'node[kind = "instance_port"][connected = 0]',
+        style: {
+          "background-color": "#ef4444",
+          "border-color": "#7f1d1d",
+          "border-width": 2,
+          color: "#fca5a5",
         },
       },
       // ── Module I/O ──────────────────────────────────────────
@@ -1661,6 +1690,7 @@ function buildCyElements(graph) {
       data: {
         ...node,
         is_bus: node.is_bus ? 1 : 0,
+        connected: node.connected === false ? 0 : 1,
         ...(iconUrl ? { icon_url: iconUrl } : {}),
       },
     };
@@ -1850,6 +1880,7 @@ function buildPortViewCyElements(graph) {
       data: {
         ...node,
         is_bus: node.is_bus ? 1 : 0,
+        connected: node.connected === false ? 0 : 1,
         port_view: 1,
         ...((node.kind === "instance_port" || node.kind === "process_port") ? { display_label: showPortLabel ? portName : "" } : {}),
         max_side_port_count: maxSidePortCount,
@@ -4757,13 +4788,18 @@ async function selectTop(topModule) {
 }
 
 async function refreshProject() {
-  const [topsPayload, modulesPayload] = await Promise.all([
+  const [topsPayload, modulesPayload, unusedPayload] = await Promise.all([
     apiRequest("/api/project/tops"),
     apiRequest("/api/project/modules"),
+    apiRequest("/api/project/unused_modules").catch(() => ({ unused_modules: [] })),
   ]);
 
   state.tops = topsPayload.top_candidates || [];
   state.modules = modulesPayload.modules || [];
+  state.unusedModules = unusedPayload.unused_modules || [];
+
+  const createBtn = document.getElementById("createModuleBtn");
+  if (createBtn) createBtn.disabled = false;
 
   if (!state.tops.length) {
     state.selectedTop = null;
@@ -5888,6 +5924,144 @@ document.addEventListener("keydown", (ev) => {
     if (overlay && !overlay.classList.contains("hidden")) closeModuleCodeEditor();
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// Create Module dialog
+// ═══════════════════════════════════════════════════════════════════
+(function setupCreateModuleDialog() {
+  const overlay = document.getElementById("createModuleOverlay");
+  const nameInput = document.getElementById("newModuleName");
+  const errorEl = document.getElementById("createModuleError");
+  const confirmBtn = document.getElementById("createModuleConfirm");
+  const cancelBtn = document.getElementById("createModuleCancel");
+  const closeBtn = document.getElementById("createModuleClose");
+  const openBtn = document.getElementById("createModuleBtn");
+  if (!overlay) return;
+
+  function show() {
+    overlay.classList.remove("hidden");
+    if (nameInput) { nameInput.value = ""; nameInput.focus(); }
+    if (errorEl) errorEl.textContent = "";
+  }
+
+  function hide() { overlay.classList.add("hidden"); }
+
+  async function create() {
+    const name = (nameInput?.value || "").trim();
+    if (!name) { errorEl.textContent = "Module name is required."; return; }
+    if (!/^[A-Za-z_][A-Za-z0-9_$]*$/.test(name)) {
+      errorEl.textContent = "Invalid Verilog identifier.";
+      return;
+    }
+    errorEl.textContent = "";
+    confirmBtn.disabled = true;
+    try {
+      const result = await apiRequest("/api/project/modules", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      hide();
+      setStatus(`Module '${name}' created`, "ok");
+      await refreshProject();
+      // Open the new module in the code editor so the user can start writing.
+      if (typeof openModuleCodeEditor === "function") {
+        openModuleCodeEditor(name);
+      }
+    } catch (err) {
+      errorEl.textContent = err.message || "Creation failed.";
+    } finally {
+      confirmBtn.disabled = false;
+    }
+  }
+
+  openBtn?.addEventListener("click", show);
+  confirmBtn?.addEventListener("click", create);
+  cancelBtn?.addEventListener("click", hide);
+  closeBtn?.addEventListener("click", hide);
+  overlay.addEventListener("click", (ev) => { if (ev.target === overlay) hide(); });
+  nameInput?.addEventListener("keydown", (ev) => { if (ev.key === "Enter") create(); });
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+// Instantiate Module dialog
+// ═══════════════════════════════════════════════════════════════════
+function openInstantiateDialog(childModule) {
+  const overlay = document.getElementById("instantiateOverlay");
+  const titleEl = document.getElementById("instantiateTitle");
+  const parentSelect = document.getElementById("instantiateParent");
+  const nameInput = document.getElementById("instantiateName");
+  const errorEl = document.getElementById("instantiateError");
+  if (!overlay) return;
+
+  titleEl.textContent = `Instantiate ${childModule}`;
+  errorEl.textContent = "";
+  if (nameInput) nameInput.value = "";
+
+  // Populate parent module list — all modules except the child itself.
+  parentSelect.innerHTML = "";
+  for (const mod of state.modules) {
+    if (mod === childModule) continue;
+    const option = document.createElement("option");
+    option.value = mod;
+    option.textContent = mod;
+    if (mod === state.selectedModule) option.selected = true;
+    parentSelect.appendChild(option);
+  }
+
+  overlay.classList.remove("hidden");
+  overlay.dataset.childModule = childModule;
+}
+
+(function setupInstantiateDialog() {
+  const overlay = document.getElementById("instantiateOverlay");
+  const parentSelect = document.getElementById("instantiateParent");
+  const nameInput = document.getElementById("instantiateName");
+  const errorEl = document.getElementById("instantiateError");
+  const confirmBtn = document.getElementById("instantiateConfirm");
+  const cancelBtn = document.getElementById("instantiateCancel");
+  const closeBtn = document.getElementById("instantiateClose");
+  if (!overlay) return;
+
+  function hide() { overlay.classList.add("hidden"); }
+
+  async function instantiate() {
+    const childModule = overlay.dataset.childModule;
+    const parentModule = parentSelect?.value;
+    const instanceName = (nameInput?.value || "").trim();
+    if (!parentModule) { errorEl.textContent = "Select a parent module."; return; }
+    errorEl.textContent = "";
+    confirmBtn.disabled = true;
+    try {
+      const result = await apiRequest("/api/project/instantiate", {
+        method: "POST",
+        body: JSON.stringify({
+          child_module: childModule,
+          parent_module: parentModule,
+          instance_name: instanceName,
+        }),
+      });
+      hide();
+      setStatus(`Instantiated ${childModule} in ${parentModule}`, "ok");
+      await refreshProject();
+      // Reload the parent module graph so the new instance is visible.
+      if (state.selectedTop) {
+        await loadHierarchy(state.selectedTop);
+      }
+      if (state.modules.includes(parentModule)) {
+        await loadGraph(parentModule, state.breadcrumb.length ? state.breadcrumb : [parentModule]);
+      }
+    } catch (err) {
+      errorEl.textContent = err.message || "Instantiation failed.";
+    } finally {
+      confirmBtn.disabled = false;
+    }
+  }
+
+  confirmBtn?.addEventListener("click", instantiate);
+  cancelBtn?.addEventListener("click", hide);
+  closeBtn?.addEventListener("click", hide);
+  overlay.addEventListener("click", (ev) => { if (ev.target === overlay) hide(); });
+})();
 
 // ═══════════════════════════════════════════════════════════════════
 // Collapsible side panels (hierarchy + inspector)

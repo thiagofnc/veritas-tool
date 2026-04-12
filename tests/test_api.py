@@ -1,10 +1,13 @@
 ﻿import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event, Thread
+from unittest.mock import patch
 
 try:
     from fastapi.testclient import TestClient
 
+    from app import api as api_module
     from app.api import app, state, state_lock
     from app.project_service import ProjectService
 except Exception:  # pragma: no cover - dependency/setup guard
@@ -183,6 +186,69 @@ module top(input clk, output y);
             connectivity_response = self.client.get("/api/project/connectivity/top?mode=compact")
             self.assertEqual(connectivity_response.status_code, 200)
             self.assertEqual(connectivity_response.json()["focus_module"], "top")
+
+    def test_source_endpoint_is_not_blocked_by_slow_connectivity_build(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            source_text = """
+module top(input clk, output y);
+  assign y = clk;
+endmodule
+""".strip() + "\n"
+            (root / "top.v").write_text(source_text, encoding="utf-8")
+
+            with state_lock:
+                state.service = ProjectService(parser_backend="simple")
+                state.service.load_project(str(root))
+                state.loaded_folder = str(root)
+
+            build_started = Event()
+            allow_build_finish = Event()
+            original_build = api_module.build_module_connectivity_graph
+            connectivity_status: dict[str, int] = {}
+            source_status: dict[str, object] = {}
+
+            def slow_build(project, module_name, **kwargs):
+                build_started.set()
+                self.assertTrue(
+                    allow_build_finish.wait(timeout=5),
+                    "Timed out waiting to release mocked connectivity build",
+                )
+                return original_build(project, module_name, **kwargs)
+
+            def request_connectivity() -> None:
+                with TestClient(app) as client:
+                    resp = client.get("/api/project/connectivity/top?mode=compact")
+                    connectivity_status["code"] = resp.status_code
+
+            def request_source() -> None:
+                with TestClient(app) as client:
+                    resp = client.get("/api/project/modules/top/source")
+                    source_status["code"] = resp.status_code
+                    source_status["json"] = resp.json()
+
+            with patch.object(api_module, "build_module_connectivity_graph", side_effect=slow_build):
+                connectivity_thread = Thread(target=request_connectivity)
+                connectivity_thread.start()
+
+                self.assertTrue(build_started.wait(timeout=2), "Connectivity build did not start")
+
+                source_thread = Thread(target=request_source)
+                source_thread.start()
+                source_thread.join(timeout=1)
+
+                self.assertFalse(
+                    source_thread.is_alive(),
+                    "Module source request was blocked by connectivity graph generation",
+                )
+                self.assertEqual(source_status["code"], 200)
+                self.assertEqual(source_status["json"]["content"], source_text)
+
+                allow_build_finish.set()
+                connectivity_thread.join(timeout=2)
+
+            self.assertEqual(connectivity_status["code"], 200)
 
 
 if __name__ == "__main__":

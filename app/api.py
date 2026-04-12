@@ -10,12 +10,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 try:
+    from app.graph_builder import build_hierarchy_graph, build_module_connectivity_graph
+    from app.hierarchy import build_hierarchy_tree
     from app.json_exporter import project_to_dict
     from app.project_service import PARSER_CHOICES, ProjectService
+    from app.schematic_layout import build_schematic_connectivity_graph
     from app.signal_tracer import trace_signal
 except ImportError:  # Supports running as: python app/main.py
+    from graph_builder import build_hierarchy_graph, build_module_connectivity_graph
+    from hierarchy import build_hierarchy_tree
     from json_exporter import project_to_dict
     from project_service import PARSER_CHOICES, ProjectService
+    from schematic_layout import build_schematic_connectivity_graph
     from signal_tracer import trace_signal
 
 
@@ -32,6 +38,16 @@ class TraceSignalRequest(BaseModel):
 
 class ModuleSourceUpdate(BaseModel):
     content: str = Field(..., description="New full text content for the module's source file")
+
+
+class CreateModuleRequest(BaseModel):
+    name: str = Field(..., description="Name for the new Verilog module")
+
+
+class InstantiateModuleRequest(BaseModel):
+    child_module: str = Field(..., description="Module to instantiate")
+    parent_module: str = Field(..., description="Module to add the instance into")
+    instance_name: str = Field(default="", description="Optional instance name (auto-generated if empty)")
 
 
 class LintRequest(BaseModel):
@@ -223,6 +239,93 @@ def get_module(module_name: str) -> dict[str, object]:
         raise _bad_request(str(exc)) from exc
 
 
+@app.post("/api/project/modules")
+def create_module(payload: CreateModuleRequest) -> dict[str, object]:
+    try:
+        with state_lock:
+            result = state.service.create_module(payload.name)
+            return result
+    except (RuntimeError, ValueError) as exc:
+        raise _bad_request(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create module: {exc}") from exc
+
+
+@app.get("/api/project/unused_modules")
+def get_unused_modules() -> dict[str, object]:
+    try:
+        with state_lock:
+            unused = state.service.get_unused_modules()
+            return {"unused_modules": unused}
+    except RuntimeError as exc:
+        raise _bad_request(str(exc)) from exc
+
+
+@app.post("/api/project/instantiate")
+def instantiate_module(payload: InstantiateModuleRequest) -> dict[str, object]:
+    """Add an instance of child_module inside parent_module's source file."""
+    try:
+        with state_lock:
+            parent_mod = state.service.get_module(payload.parent_module)
+            child_mod = state.service.get_module(payload.child_module)
+
+            src_path = parent_mod.source_file
+            if not src_path:
+                raise _bad_request(f"Module '{payload.parent_module}' has no associated source file.")
+            path = Path(src_path)
+            if not path.exists():
+                raise _bad_request(f"Source file not found: {src_path}")
+
+            # Determine instance name.
+            instance_name = payload.instance_name.strip()
+            if not instance_name:
+                existing = {inst.name for inst in parent_mod.instances}
+                base = payload.child_module.lower()
+                idx = 0
+                instance_name = f"{base}_inst"
+                while instance_name in existing:
+                    idx += 1
+                    instance_name = f"{base}_inst{idx}"
+
+            # Build the instantiation snippet.
+            port_lines = []
+            for port in child_mod.ports:
+                port_lines.append(f"    .{port.name}()")
+            ports_str = ",\n".join(port_lines) if port_lines else ""
+
+            snippet = f"\n  {payload.child_module} {instance_name} (\n{ports_str}\n  );\n"
+
+            # Insert before the final `endmodule`.
+            content = path.read_text(encoding="utf-8")
+            endmodule_idx = content.rfind("endmodule")
+            if endmodule_idx < 0:
+                raise _bad_request(f"Could not find 'endmodule' in {src_path}")
+
+            new_content = content[:endmodule_idx] + snippet + "\n" + content[endmodule_idx:]
+            path.write_text(new_content, encoding="utf-8")
+
+            # Re-parse.
+            try:
+                report = state.service.reparse_file(str(path))
+            except Exception:
+                report = {"warning": "Saved but re-parse failed."}
+
+            if report.get("requires_full_reparse") and state.loaded_folder:
+                state.service.load_project(state.loaded_folder)
+
+            return {
+                "parent_module": payload.parent_module,
+                "child_module": payload.child_module,
+                "instance_name": instance_name,
+                "path": str(path),
+                "instantiated": True,
+            }
+    except (RuntimeError, ValueError) as exc:
+        raise _bad_request(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to write source: {exc}") from exc
+
+
 @app.get("/api/project/modules/{module_name}/source")
 def get_module_source(module_name: str) -> dict[str, object]:
     try:
@@ -234,8 +337,8 @@ def get_module_source(module_name: str) -> dict[str, object]:
             path = Path(src_path)
             if not path.exists():
                 raise _bad_request(f"Source file not found: {src_path}")
-            content = path.read_text(encoding="utf-8", errors="replace")
-            return {"module": module_name, "path": str(path), "content": content}
+        content = path.read_text(encoding="utf-8", errors="replace")
+        return {"module": module_name, "path": str(path), "content": content}
     except (RuntimeError, ValueError) as exc:
         raise _bad_request(str(exc)) from exc
     except OSError as exc:
@@ -349,7 +452,9 @@ def lint_verilog(payload: LintRequest) -> dict[str, object]:
 def get_hierarchy_tree(top_module: str) -> dict[str, object]:
     try:
         with state_lock:
-            return state.service.get_hierarchy_tree(top_module)
+            project = state.service.get_project()
+            state.service.get_module(top_module)
+        return build_hierarchy_tree(project.modules, top_module)
     except (RuntimeError, ValueError) as exc:
         raise _bad_request(str(exc)) from exc
 
@@ -359,7 +464,9 @@ def get_module_graph(module_name: str) -> dict[str, object]:
     # Backward-compatible hierarchy graph route.
     try:
         with state_lock:
-            return state.service.get_module_graph(module_name)
+            project = state.service.get_project()
+            state.service.get_module(module_name)
+        return build_hierarchy_graph(project, module_name)
     except (RuntimeError, ValueError) as exc:
         raise _bad_request(str(exc)) from exc
 
@@ -375,14 +482,17 @@ def get_module_connectivity_graph(
 ) -> dict[str, object]:
     try:
         with state_lock:
-            return state.service.get_module_connectivity_graph(
-                module_name,
-                mode=mode,
-                aggregate_edges=aggregate_edges,
-                port_view=port_view,
-                schematic=schematic,
-                schematic_mode=schematic_mode,
-            )
+            project = state.service.get_project()
+            state.service.get_module(module_name)
+        if schematic:
+            return build_schematic_connectivity_graph(project, module_name, schematic_mode=schematic_mode)
+        return build_module_connectivity_graph(
+            project,
+            module_name,
+            mode=mode,
+            aggregate_edges=aggregate_edges,
+            port_view=port_view,
+        )
     except (RuntimeError, ValueError) as exc:
         raise _bad_request(str(exc)) from exc
 
