@@ -34,6 +34,7 @@ const state = {
   parser: "pyverilog",
   tops: [],
   modules: [],
+  sourceFiles: [],
   unusedModules: [],
   selectedTop: null,
   selectedModule: null,
@@ -64,6 +65,7 @@ const portViewToggle = document.getElementById("portViewToggle");
 const statusBadge = document.getElementById("statusBadge");
 const topList = document.getElementById("topList");
 const hierarchyTree = document.getElementById("hierarchyTree");
+const sourceFileList = document.getElementById("sourceFileList");
 const breadcrumbBar = document.getElementById("breadcrumbBar");
 const graphTag = document.getElementById("graphTag");
 const graphStats = document.getElementById("graphStats");
@@ -382,6 +384,40 @@ function renderHierarchyTree() {
 
   rootList.appendChild(buildModuleNode(state.hierarchy, [state.hierarchy.module]));
   hierarchyTree.appendChild(rootList);
+}
+
+function renderSourceFileList() {
+  if (!sourceFileList) return;
+  sourceFileList.innerHTML = "";
+
+  if (!state.sourceFiles.length) {
+    sourceFileList.innerHTML = '<p class="source-file-empty">Load a project to browse source files.</p>';
+    return;
+  }
+
+  for (const file of state.sourceFiles) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "source-file-btn";
+
+    const name = document.createElement("span");
+    name.className = "source-file-name";
+    name.textContent = file.name || "untitled";
+    button.appendChild(name);
+
+    const meta = document.createElement("span");
+    meta.className = "source-file-meta";
+    meta.textContent = (file.modules && file.modules.length)
+      ? `modules: ${file.modules.join(", ")}`
+      : "no modules defined";
+    button.appendChild(meta);
+
+    button.title = file.path || file.name || "";
+    button.addEventListener("click", () => {
+      if (file.path) openSourceFileEditor(file.path);
+    });
+    sourceFileList.appendChild(button);
+  }
 }
 
 function renderGraphStats(nodeCounts, edgeCounts, edgeSignalCounts) {
@@ -4788,14 +4824,16 @@ async function selectTop(topModule) {
 }
 
 async function refreshProject() {
-  const [topsPayload, modulesPayload, unusedPayload] = await Promise.all([
+  const [topsPayload, modulesPayload, filesPayload, unusedPayload] = await Promise.all([
     apiRequest("/api/project/tops"),
     apiRequest("/api/project/modules"),
+    apiRequest("/api/project/files"),
     apiRequest("/api/project/unused_modules").catch(() => ({ unused_modules: [] })),
   ]);
 
   state.tops = topsPayload.top_candidates || [];
   state.modules = modulesPayload.modules || [];
+  state.sourceFiles = filesPayload.files || [];
   state.unusedModules = unusedPayload.unused_modules || [];
 
   const createBtn = document.getElementById("createModuleBtn");
@@ -4808,6 +4846,7 @@ async function refreshProject() {
     state.breadcrumb = [];
     renderTopList();
     renderHierarchyTree();
+    renderSourceFileList();
     renderBreadcrumb();
     renderGraph(null);
     renderInspector();
@@ -4824,6 +4863,7 @@ async function refreshProject() {
 
   state.selectedTop = retainedTop;
   renderTopList();
+  renderSourceFileList();
 
   await loadHierarchy(retainedTop);
   await loadGraph(
@@ -5226,6 +5266,7 @@ portViewToggle.checked = state.portView;
 clearGraphStats();
 renderBreadcrumb();
 renderHierarchyTree();
+renderSourceFileList();
 renderInspector();
 
 (async function init() {
@@ -5245,12 +5286,18 @@ renderInspector();
 const codeEditorState = {
   cm: null,
   module: null,
+  sourceKind: "module",
   path: null,
   original: "",
   lintMarks: [],
   lintTimer: null,
   statusSticky: false,
   statusKind: "info",
+  lintBound: false,
+  suspendLint: false,
+  initPromise: null,
+  openRequestId: 0,
+  overlayReady: false,
 };
 
 // ── Verilog syntax linter ──────────────────────────────────────────
@@ -5652,7 +5699,7 @@ const veritasVerilogOverlay = {
   },
 };
 
-function ensureCodeMirror() {
+async function ensureCodeMirrorReady() {
   if (codeEditorState.cm) {
     // Make sure the lint gutter and change listener exist on instances
     // that may have been constructed before the linter shipped.
@@ -5665,33 +5712,48 @@ function ensureCodeMirror() {
       cm.on("change", () => handleEditorChange(cm));
       codeEditorState.lintBound = true;
     }
+    return Promise.resolve(cm);
+  }
+  if (codeEditorState.initPromise) return codeEditorState.initPromise;
+  codeEditorState.initPromise = Promise.resolve().then(() => {
+    const ta = document.getElementById("codeEditorTextarea");
+    if (!ta || typeof CodeMirror === "undefined") return null;
+    const cm = CodeMirror.fromTextArea(ta, {
+      mode: "verilog",
+      theme: "material-darker",
+      lineNumbers: true,
+      indentUnit: 2,
+      tabSize: 2,
+      inputStyle: "textarea",
+      lineWrapping: false,
+      matchBrackets: true,
+      gutters: ["CodeMirror-linenumbers", "cm-lint-gutter"],
+    });
+    const inputField = cm.getInputField?.();
+    if (inputField) {
+      inputField.setAttribute("spellcheck", "false");
+      inputField.setAttribute("autocorrect", "off");
+      inputField.setAttribute("autocapitalize", "off");
+    }
+    // Layer the Veritas overlay on top of the base verilog mode so module
+    // types and port-connection arguments get their own token classes.
+    // Some CodeMirror builds reject stateful overlays; that should not block
+    // the editor from opening.
+    try {
+      cm.addOverlay(veritasVerilogOverlay);
+      codeEditorState.overlayReady = true;
+    } catch (error) {
+      codeEditorState.overlayReady = false;
+      console.warn("Veritas overlay disabled:", error);
+    }
+    cm.on("change", () => handleEditorChange(cm));
+    codeEditorState.cm = cm;
+    codeEditorState.lintBound = true;
     return cm;
-  }
-  const ta = document.getElementById("codeEditorTextarea");
-  if (!ta || typeof CodeMirror === "undefined") return null;
-  codeEditorState.cm = CodeMirror.fromTextArea(ta, {
-    mode: "verilog",
-    theme: "material-darker",
-    lineNumbers: true,
-    indentUnit: 2,
-    tabSize: 2,
-    inputStyle: "textarea",
-    lineWrapping: false,
-    matchBrackets: true,
-    gutters: ["CodeMirror-linenumbers", "cm-lint-gutter"],
+  }).finally(() => {
+    codeEditorState.initPromise = null;
   });
-  const inputField = codeEditorState.cm.getInputField?.();
-  if (inputField) {
-    inputField.setAttribute("spellcheck", "false");
-    inputField.setAttribute("autocorrect", "off");
-    inputField.setAttribute("autocapitalize", "off");
-  }
-  // Layer the Veritas overlay on top of the base verilog mode so module
-  // types and port-connection arguments get their own token classes.
-  codeEditorState.cm.addOverlay(veritasVerilogOverlay);
-  codeEditorState.cm.on("change", () => handleEditorChange(codeEditorState.cm));
-  codeEditorState.lintBound = true;
-  return codeEditorState.cm;
+  return codeEditorState.initPromise;
 }
 
 function setEditorStatus(text, kind = "info", options = {}) {
@@ -5711,17 +5773,30 @@ function clearEditorStickyStatus() {
   codeEditorState.statusSticky = false;
 }
 
+function setCodeEditorValue(cm, value, { clearHistory = false } = {}) {
+  if (!cm) return;
+  codeEditorState.suspendLint = true;
+  try {
+    cm.setValue(value);
+    if (clearHistory) cm.clearHistory();
+  } finally {
+    codeEditorState.suspendLint = false;
+  }
+}
+
 function updateEditorLintStatus(text, hasErrors) {
   if (codeEditorState.statusSticky) return;
   setEditorStatus(text, hasErrors ? "error" : "info");
 }
 
 function handleEditorChange(cm) {
+  if (codeEditorState.suspendLint) return;
   clearEditorStickyStatus();
   scheduleLint(cm);
 }
 
 async function openModuleCodeEditor(moduleName, options = {}) {
+  const requestId = ++codeEditorState.openRequestId;
   const overlay = document.getElementById("codeEditorOverlay");
   const titleEl = document.getElementById("codeEditorTitle");
   const pathEl = document.getElementById("codeEditorPath");
@@ -5736,22 +5811,30 @@ async function openModuleCodeEditor(moduleName, options = {}) {
   // overlay becomes visible; wait for the visible layout to paint first.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-  const cm = ensureCodeMirror();
+  let cm = null;
+  try {
+    cm = await ensureCodeMirrorReady();
+  } catch (error) {
+    setEditorStatus(`Editor failed to initialize: ${error.message || error}`, "error", { sticky: true });
+    return;
+  }
   if (cm) {
     cm.refresh();
-    cm.setValue("");
+    setCodeEditorValue(cm, "");
   }
 
   try {
     const data = await apiRequest(`/api/project/modules/${encodeURIComponent(moduleName)}/source`);
+    if (requestId !== codeEditorState.openRequestId) return;
+    codeEditorState.sourceKind = "module";
     codeEditorState.module = moduleName;
     codeEditorState.path = data.path || "";
     codeEditorState.original = data.content || "";
     pathEl.textContent = codeEditorState.path;
     if (cm) {
-      cm.setValue(codeEditorState.original);
-      cm.clearHistory();
+      setCodeEditorValue(cm, codeEditorState.original, { clearHistory: true });
       requestAnimationFrame(() => {
+        if (requestId !== codeEditorState.openRequestId) return;
         cm.refresh();
         if (options.jumpToInstance) {
           jumpToInstantiation(cm, options.jumpToInstance);
@@ -5849,6 +5932,8 @@ function jumpToInstantiation(cm, target) {
 function closeModuleCodeEditor() {
   const overlay = document.getElementById("codeEditorOverlay");
   if (overlay) overlay.classList.add("hidden");
+  codeEditorState.openRequestId += 1;
+  codeEditorState.sourceKind = "module";
   codeEditorState.module = null;
   codeEditorState.path = null;
   codeEditorState.original = "";
@@ -5856,7 +5941,7 @@ function closeModuleCodeEditor() {
 
 async function saveModuleCodeEditor() {
   const cm = codeEditorState.cm;
-  if (!cm || !codeEditorState.module) return;
+  if (!cm || !codeEditorState.path) return;
   const content = cm.getValue();
   const moduleToReload = state.selectedModule;
   const breadcrumbToReload = state.breadcrumb.length ? [...state.breadcrumb] : [];
@@ -5868,7 +5953,10 @@ async function saveModuleCodeEditor() {
   setEditorStatus("Saving and re-parsing project...", "info");
 
   try {
-    const saveResp = await apiRequest(`/api/project/modules/${encodeURIComponent(codeEditorState.module)}/source`, {
+    const savePath = codeEditorState.sourceKind === "file"
+      ? `/api/project/files/source?path=${encodeURIComponent(codeEditorState.path)}`
+      : `/api/project/modules/${encodeURIComponent(codeEditorState.module)}/source`;
+    const saveResp = await apiRequest(savePath, {
       method: "PUT",
       body: JSON.stringify({ content }),
     });
@@ -5908,7 +5996,7 @@ async function saveModuleCodeEditor() {
 function discardModuleCodeEditor() {
   const cm = codeEditorState.cm;
   if (!cm) return;
-  cm.setValue(codeEditorState.original || "");
+  setCodeEditorValue(cm, codeEditorState.original || "");
   setEditorStatus("Changes discarded.", "info");
 }
 
@@ -5924,6 +6012,72 @@ document.addEventListener("keydown", (ev) => {
     if (overlay && !overlay.classList.contains("hidden")) closeModuleCodeEditor();
   }
 });
+
+function warmCodeEditor() {
+  const start = () => {
+    ensureCodeMirrorReady()
+      .then((cm) => {
+        if (cm) setCodeEditorValue(cm, "");
+      })
+      .catch(() => {});
+  };
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(start, { timeout: 500 });
+  } else {
+    setTimeout(start, 0);
+  }
+}
+
+async function openSourceFileEditor(filePath) {
+  const requestId = ++codeEditorState.openRequestId;
+  const overlay = document.getElementById("codeEditorOverlay");
+  const titleEl = document.getElementById("codeEditorTitle");
+  const pathEl = document.getElementById("codeEditorPath");
+  if (!overlay) return;
+
+  const label = String(filePath || "").replace(/\\/g, "/").split("/").pop() || "Source File";
+  overlay.classList.remove("hidden");
+  titleEl.textContent = `File Source — ${label}`;
+  pathEl.textContent = "Loading...";
+  setEditorStatus("Loading...", "info");
+
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+  let cm = null;
+  try {
+    cm = await ensureCodeMirrorReady();
+  } catch (error) {
+    setEditorStatus(`Editor failed to initialize: ${error.message || error}`, "error", { sticky: true });
+    return;
+  }
+  if (cm) {
+    cm.refresh();
+    setCodeEditorValue(cm, "");
+  }
+
+  try {
+    const data = await apiRequest(`/api/project/files/source?path=${encodeURIComponent(filePath)}`);
+    if (requestId !== codeEditorState.openRequestId) return;
+    codeEditorState.sourceKind = "file";
+    codeEditorState.module = null;
+    codeEditorState.path = data.path || filePath || "";
+    codeEditorState.original = data.content || "";
+    pathEl.textContent = codeEditorState.path;
+    if (cm) {
+      setCodeEditorValue(cm, codeEditorState.original, { clearHistory: true });
+      requestAnimationFrame(() => {
+        if (requestId !== codeEditorState.openRequestId) return;
+        cm.refresh();
+        applyLint(cm);
+      });
+    }
+  } catch (error) {
+    setEditorStatus(`Failed to load: ${error.message}`, "error", { sticky: true });
+    pathEl.textContent = "";
+  }
+}
+
+warmCodeEditor();
 
 // ═══════════════════════════════════════════════════════════════════
 // Create Module dialog

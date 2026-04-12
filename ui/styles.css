@@ -419,6 +419,15 @@ body {
   flex-direction: column;
 }
 
+.source-files-section {
+  border-top: 1px solid var(--border-subtle);
+  min-height: 120px;
+  max-height: 28vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .hierarchy-tree {
   border-top: 1px solid var(--border-subtle);
   background: var(--surface-0);
@@ -473,6 +482,55 @@ body {
   height: 5px;
   border-radius: 1px;
   background: var(--instance);
+}
+
+.source-file-list {
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-0);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-2);
+}
+
+.source-file-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.source-file-btn {
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  font-size: 11px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 5px 7px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 100ms ease;
+  margin-bottom: 3px;
+}
+
+.source-file-btn:hover {
+  border-color: var(--border-emphasis);
+  background: var(--probe-dim);
+  color: var(--text-primary);
+}
+
+.source-file-name {
+  display: block;
+  color: inherit;
+}
+
+.source-file-meta {
+  display: block;
+  color: var(--text-muted);
+  font-size: 9px;
+  margin-top: 2px;
+  letter-spacing: 0.04em;
 }
 
 /* Ã¢â€â‚¬Ã¢â€â‚¬ Center panel Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */

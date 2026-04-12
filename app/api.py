@@ -229,6 +229,30 @@ def get_modules() -> dict[str, object]:
         raise _bad_request(str(exc)) from exc
 
 
+@app.get("/api/project/files")
+def get_source_files() -> dict[str, object]:
+    try:
+        with state_lock:
+            project = state.service.get_project()
+            files = []
+            modules_by_path: dict[str, list[str]] = {}
+            for module in project.modules:
+                if module.source_file:
+                    modules_by_path.setdefault(module.source_file, []).append(module.name)
+
+            for source in project.source_files:
+                path = str(Path(source.path).resolve())
+                files.append({
+                    "path": path,
+                    "name": Path(path).name,
+                    "modules": sorted(modules_by_path.get(path, [])),
+                })
+        files.sort(key=lambda item: (str(item["name"]).lower(), str(item["path"]).lower()))
+        return {"files": files}
+    except RuntimeError as exc:
+        raise _bad_request(str(exc)) from exc
+
+
 @app.get("/api/project/modules/{module_name}")
 def get_module(module_name: str) -> dict[str, object]:
     try:
@@ -345,6 +369,23 @@ def get_module_source(module_name: str) -> dict[str, object]:
         raise HTTPException(status_code=500, detail=f"Failed to read source: {exc}") from exc
 
 
+@app.get("/api/project/files/source")
+def get_source_file(path: str = Query(..., description="Absolute path to a tracked Verilog source file")) -> dict[str, object]:
+    try:
+        requested = str(Path(path).resolve())
+        with state_lock:
+            project = state.service.get_project()
+            known_paths = {str(Path(source.path).resolve()) for source in project.source_files}
+            if requested not in known_paths:
+                raise _bad_request(f"Source file not tracked in current project: {requested}")
+        content = Path(requested).read_text(encoding="utf-8", errors="replace")
+        return {"path": requested, "name": Path(requested).name, "content": content}
+    except RuntimeError as exc:
+        raise _bad_request(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read source: {exc}") from exc
+
+
 @app.put("/api/project/modules/{module_name}/source")
 def update_module_source(module_name: str, payload: ModuleSourceUpdate) -> dict[str, object]:
     try:
@@ -403,6 +444,58 @@ def update_module_source(module_name: str, payload: ModuleSourceUpdate) -> dict[
                 "saved": True,
                 "reparse": report,
             }
+    except (RuntimeError, ValueError) as exc:
+        raise _bad_request(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to write source: {exc}") from exc
+
+
+@app.put("/api/project/files/source")
+def update_source_file(
+    payload: ModuleSourceUpdate,
+    path: str = Query(..., description="Absolute path to a tracked Verilog source file"),
+) -> dict[str, object]:
+    requested = str(Path(path).resolve())
+    try:
+        with state_lock:
+            project = state.service.get_project()
+            known_paths = {str(Path(source.path).resolve()) for source in project.source_files}
+            if requested not in known_paths:
+                raise _bad_request(f"Source file not tracked in current project: {requested}")
+
+            file_modules = [module.name for module in project.modules if module.source_file == requested]
+            Path(requested).write_text(payload.content, encoding="utf-8")
+
+            report: dict[str, object]
+            if file_modules:
+                try:
+                    report = state.service.reparse_file(requested)
+                    if report.get("requires_full_reparse") and state.loaded_folder:
+                        state.service.load_project(state.loaded_folder)
+                        report["fell_back_to_full_reparse"] = True
+                except Exception as exc:
+                    if state.loaded_folder:
+                        state.service.load_project(state.loaded_folder)
+                        report = {
+                            "warning": "Saved and refreshed project after parse failure.",
+                            "error": str(exc),
+                            "fell_back_to_full_reparse": True,
+                        }
+                    else:
+                        report = {"warning": "Saved but re-parse failed.", "error": str(exc)}
+            else:
+                if state.loaded_folder:
+                    state.service.load_project(state.loaded_folder)
+                    report = {"reloaded_project": True}
+                else:
+                    report = {"reloaded_project": False}
+
+        return {
+            "path": requested,
+            "name": Path(requested).name,
+            "saved": True,
+            "reparse": report,
+        }
     except (RuntimeError, ValueError) as exc:
         raise _bad_request(str(exc)) from exc
     except OSError as exc:

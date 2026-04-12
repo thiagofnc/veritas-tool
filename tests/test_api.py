@@ -119,6 +119,40 @@ endmodule
             self.assertEqual(schematic_graph["view"], "schematic")
             self.assertEqual(schematic_graph["layout"]["engine"], "schematic-v2")
 
+    def test_lists_and_opens_empty_verilog_files(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            empty_file = root / "empty.v"
+            top_file = root / "top.v"
+            empty_file.write_text("", encoding="utf-8")
+            top_file.write_text(
+                """
+module top(input a, output y);
+  assign y = a;
+endmodule
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with state_lock:
+                state.service = ProjectService(parser_backend="simple")
+                state.service.load_project(str(root))
+                state.loaded_folder = str(root)
+
+            files_response = self.client.get("/api/project/files")
+            self.assertEqual(files_response.status_code, 200)
+            payload = files_response.json()
+            files_by_name = {item["name"]: item for item in payload["files"]}
+            self.assertIn("empty.v", files_by_name)
+            self.assertIn("top.v", files_by_name)
+            self.assertEqual(files_by_name["empty.v"]["modules"], [])
+            self.assertEqual(files_by_name["top.v"]["modules"], ["top"])
+
+            source_response = self.client.get("/api/project/files/source", params={"path": str(empty_file.resolve())})
+            self.assertEqual(source_response.status_code, 200)
+            self.assertEqual(source_response.json()["content"], "")
+
     def test_root_serves_ui_shell(self) -> None:
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)

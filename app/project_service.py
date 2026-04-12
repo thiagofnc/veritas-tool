@@ -123,6 +123,11 @@ class ProjectService:
                 return module
         raise ValueError(f"Module not found in loaded project: {module_name}")
 
+    def get_source_files(self) -> list[str]:
+        """Return sorted source file paths from the loaded project."""
+        project = self._require_project()
+        return sorted({source.path for source in project.source_files})
+
     def get_hierarchy_tree(self, top_module: str) -> dict[str, Any]:
         """Build a hierarchy tree starting from a selected top module."""
         project = self._require_project()
