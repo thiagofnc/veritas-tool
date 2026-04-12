@@ -1,4 +1,4 @@
-const PROJECT_OPTIONS = [
+﻿const PROJECT_OPTIONS = [
   {
     label: "Processor",
     folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05",
@@ -3535,9 +3535,13 @@ function applyCrossTraceHighlights(trace) {
 
 // Cross-module trace navigation history for forward stepping.
 const crossTraceHistory = [];
+const crossTraceFuture = [];
 
 async function requestCrossModuleTrace(moduleName, signal, keepHistory) {
-  if (!keepHistory) crossTraceHistory.length = 0;
+  if (!keepHistory) {
+    crossTraceHistory.length = 0;
+    crossTraceFuture.length = 0;
+  }
   try {
     setStatus(`Tracing ${moduleName}.${signal}...`, "loading");
     const response = await fetch(`${API_BASE}/api/signal/trace`, {
@@ -3724,20 +3728,16 @@ function renderCrossModuleTracePanel(trace) {
     const badges = renderTraceBadges(group);
     const crossIcon = group.crosses === "down" ? " \u2193" : group.crosses === "up" ? " \u2191" : "";
 
-    // "step into" button — re-traces from this hop's signal, pushing history
-    const stepBtn = `<a href="#" class="xtrace-step" data-trace-module="${escapeHtml(group.module)}" data-trace-signal="${escapeHtml(group.signal)}" style="color:#f59e0b;text-decoration:none;font-size:9px;margin-left:auto;flex-shrink:0;border:1px solid #f59e0b44;padding:0 5px;border-radius:2px;white-space:nowrap;">step \u2192</a>`;
-
     return `
-      <div class="xtrace-hop" data-hop-dir="${direction}" data-hop-idx="${index}" style="margin:3px 0;padding:5px 8px;border-left:2.5px solid ${accentColor};background:rgba(255,255,255,0.025);border-radius:0 4px 4px 0;transition:background 0.1s;">
+      <div class="xtrace-hop" data-hop-dir="${direction}" data-hop-idx="${index}" data-trace-module="${escapeHtml(group.next_module || group.module)}" data-trace-signal="${escapeHtml(group.next_signal || group.signal)}" style="margin:3px 0;padding:5px 8px;border-left:2.5px solid ${accentColor};background:rgba(255,255,255,0.025);border-radius:0 4px 4px 0;transition:background 0.1s;cursor:pointer;">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
           <span style="display:inline-block;background:${roleStyle.color}22;color:${roleStyle.color};padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:0.06em;flex-shrink:0;">${roleStyle.label}</span>
           <span style="color:#e4e4e7;font-size:12px;">${escapeHtml(headline)}</span>
           ${badges}
-          ${stepBtn}
         </div>
         <div style="display:flex;align-items:center;gap:4px;margin-top:3px;font-size:10px;">
           <a href="#" class="xtrace-nav" data-trace-module="${escapeHtml(group.module)}" style="color:#22d3ee;text-decoration:none;font-weight:500;">${escapeHtml(group.module)}</a><span style="color:#3f3f46;">.</span><a href="#" class="xtrace-retrace" data-trace-module="${escapeHtml(group.module)}" data-trace-signal="${escapeHtml(group.signal)}" style="color:#a1a1aa;text-decoration:none;">${escapeHtml(group.signal)}</a>${crossIcon ? `<span style="color:#a78bfa;font-weight:600;">${crossIcon}</span>` : ""}${group.next_module && group.next_signal
-            ? ` <a href="#" class="xtrace-step" data-trace-module="${escapeHtml(group.next_module)}" data-trace-signal="${escapeHtml(group.next_signal)}" style="color:#a78bfa;text-decoration:none;font-size:9px;border:1px solid #a78bfa33;padding:0 4px;border-radius:2px;">follow \u2192</a>`
+            ? ` <span style="color:#a78bfa;font-size:10px;">${escapeHtml(group.next_module)}.${escapeHtml(group.next_signal)}</span>`
             : ""}
         </div>
       </div>`;
@@ -3777,13 +3777,17 @@ function renderCrossModuleTracePanel(trace) {
   }
 
   const backButton = crossTraceHistory.length > 0
-    ? `<button id="xtraceBackBtn" style="background:none;border:1px solid #3f3f46;color:#a1a1aa;cursor:pointer;font-size:10px;padding:2px 8px;border-radius:3px;display:flex;align-items:center;gap:3px;"><span>\u2190</span> Back</button>`
+    ? `<button id="xtraceBackBtn" style="background:none;border:1px solid #3f3f46;color:#a1a1aa;cursor:pointer;font-size:10px;padding:2px 8px;border-radius:3px;display:flex;align-items:center;gap:3px;"><span>←</span> Back</button>`
+    : "";
+  const forwardButton = crossTraceFuture.length > 0
+    ? `<button id="xtraceForwardBtn" style="background:none;border:1px solid #3f3f46;color:#a1a1aa;cursor:pointer;font-size:10px;padding:2px 8px;border-radius:3px;display:flex;align-items:center;gap:3px;">Forward <span>→</span></button>`
     : "";
 
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
       <div style="display:flex;align-items:center;gap:8px;">
         ${backButton}
+        ${forwardButton}
         <span style="font-weight:700;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:#a1a1aa;">Cross-Module Trace</span>
       </div>
       <button id="closeCrossTracePanel" style="background:none;border:none;color:#71717a;cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;">&times;</button>
@@ -3818,7 +3822,7 @@ function renderCrossModuleTracePanel(trace) {
 
     ${trace.truncated ? `<div style="color:#f59e0b;margin-top:8px;font-size:10px;">Trace truncated at max depth.</div>` : ""}
     <div style="color:#52525b;margin-top:10px;font-size:10px;border-top:1px solid #27272a;padding-top:8px;">
-      Click <span style="color:#f59e0b;">step \u2192</span> to follow a signal forward.${crossTraceHistory.length > 0 ? " Use Back to retrace your steps." : ""}
+      Click any trace row to follow the flow there.${crossTraceHistory.length > 0 || crossTraceFuture.length > 0 ? " Use Back/Forward to move through your trace path." : ""}
       Click <span style="color:#22d3ee;">module</span> to open its schematic.
     </div>
   `;
@@ -3828,17 +3832,31 @@ function renderCrossModuleTracePanel(trace) {
   panel.querySelector("#closeCrossTracePanel")?.addEventListener("click", () => {
     clearCrossTraceHighlights();
     crossTraceHistory.length = 0;
+    crossTraceFuture.length = 0;
     panel.remove();
   });
 
-  // Back button
+  // Back/forward buttons
   panel.querySelector("#xtraceBackBtn")?.addEventListener("click", () => {
     const prev = crossTraceHistory.pop();
     if (prev) {
+      crossTraceFuture.push({ module: origin.module, signal: origin.signal });
       if (prev.module !== state.selectedModule) {
         loadGraph(prev.module).then(() => requestCrossModuleTrace(prev.module, prev.signal, true));
       } else {
         requestCrossModuleTrace(prev.module, prev.signal, true);
+      }
+    }
+  });
+
+  panel.querySelector("#xtraceForwardBtn")?.addEventListener("click", () => {
+    const next = crossTraceFuture.pop();
+    if (next) {
+      crossTraceHistory.push({ module: origin.module, signal: origin.signal });
+      if (next.module !== state.selectedModule) {
+        loadGraph(next.module).then(() => requestCrossModuleTrace(next.module, next.signal, true));
+      } else {
+        requestCrossModuleTrace(next.module, next.signal, true);
       }
     }
   });
@@ -3850,6 +3868,8 @@ function renderCrossModuleTracePanel(trace) {
       const idx = parseInt(el.getAttribute("data-history-index"), 10);
       if (isNaN(idx) || idx < 0) return;
       const target = crossTraceHistory[idx];
+      crossTraceFuture.length = 0;
+      crossTraceFuture.push({ module: origin.module, signal: origin.signal }, ...crossTraceHistory.slice(idx + 1));
       crossTraceHistory.length = idx;
       if (target) {
         if (target.module !== state.selectedModule) {
@@ -3873,24 +3893,7 @@ function renderCrossModuleTracePanel(trace) {
     renderCrossModuleTracePanel(trace);
   });
 
-  // "step →" buttons — push current origin to history and re-trace from clicked signal
-  panel.querySelectorAll(".xtrace-step").forEach((el) => {
-    el.addEventListener("click", async (ev) => {
-      ev.preventDefault();
-      const mod = ev.currentTarget.getAttribute("data-trace-module");
-      const sig = ev.currentTarget.getAttribute("data-trace-signal");
-      if (mod && sig) {
-        // Push current origin onto history
-        crossTraceHistory.push({ module: origin.module, signal: origin.signal });
-        if (mod !== state.selectedModule) {
-          await loadGraph(mod);
-        }
-        requestCrossModuleTrace(mod, sig, true);
-      }
-    });
-  });
-
-  // Navigate to module schematic
+    // Navigate to module schematic
   panel.querySelectorAll(".xtrace-nav").forEach((el) => {
     el.addEventListener("click", async (ev) => {
       ev.preventDefault();
@@ -3907,11 +3910,12 @@ function renderCrossModuleTracePanel(trace) {
   panel.querySelectorAll(".xtrace-retrace").forEach((el) => {
     el.addEventListener("click", async (ev) => {
       ev.preventDefault();
+      ev.stopPropagation();
       const mod = ev.currentTarget.getAttribute("data-trace-module");
       const sig = ev.currentTarget.getAttribute("data-trace-signal");
       if (mod && sig) {
-        // Push current origin onto history
         crossTraceHistory.push({ module: origin.module, signal: origin.signal });
+        crossTraceFuture.length = 0;
         if (mod !== state.selectedModule) {
           await loadGraph(mod);
         }
@@ -3920,15 +3924,27 @@ function renderCrossModuleTracePanel(trace) {
     });
   });
 
-  // Hover effect on hop rows
+  // Hover + click-to-follow on hop rows
   panel.querySelectorAll(".xtrace-hop").forEach((row) => {
     row.addEventListener("mouseenter", () => { row.style.background = "rgba(255,255,255,0.05)"; });
     row.addEventListener("mouseleave", () => { row.style.background = "rgba(255,255,255,0.025)"; });
+    row.addEventListener("click", async () => {
+      const mod = row.getAttribute("data-trace-module");
+      const sig = row.getAttribute("data-trace-signal");
+      if (!mod || !sig) return;
+      crossTraceHistory.push({ module: origin.module, signal: origin.signal });
+      crossTraceFuture.length = 0;
+      if (mod !== state.selectedModule) {
+        await loadGraph(mod);
+      }
+      requestCrossModuleTrace(mod, sig, true);
+    });
   });
 }
 
 // ── Signal trace history (step-by-step navigation) ──────────────────────
 const signalTraceHistory = [];
+const signalTraceFuture = [];
 
 function renderSignalTracePanel(trace) {
   if (!trace) {
@@ -4021,13 +4037,17 @@ function renderSignalTracePanel(trace) {
   }
 
   const backButton = signalTraceHistory.length > 0
-    ? `<button id="traceBackBtn" style="background:none;border:1px solid #3f3f46;color:#a1a1aa;cursor:pointer;font-size:10px;padding:2px 8px;border-radius:3px;display:flex;align-items:center;gap:3px;"><span>\u2190</span> Back</button>`
+    ? `<button id="traceBackBtn" style="background:none;border:1px solid #3f3f46;color:#a1a1aa;cursor:pointer;font-size:10px;padding:2px 8px;border-radius:3px;display:flex;align-items:center;gap:3px;"><span>←</span> Back</button>`
+    : "";
+  const forwardButton = signalTraceFuture.length > 0
+    ? `<button id="traceForwardBtn" style="background:none;border:1px solid #3f3f46;color:#a1a1aa;cursor:pointer;font-size:10px;padding:2px 8px;border-radius:3px;display:flex;align-items:center;gap:3px;">Forward <span>→</span></button>`
     : "";
 
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <div style="display:flex;align-items:center;gap:8px;">
         ${backButton}
+        ${forwardButton}
         <span style="font-weight:700;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:#a1a1aa;">Signal Trace</span>
       </div>
       <button id="closeTracePanel" style="background:none;border:none;color:#71717a;cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;">&times;</button>
@@ -4044,7 +4064,7 @@ function renderSignalTracePanel(trace) {
     ${renderSection(trace.downstream, "#60a5fa", "\u25bc Drives", "No downstream loads found")}
 
     <div style="color:#52525b;margin-top:10px;font-size:10px;border-top:1px solid #27272a;padding-top:8px;">
-      Click any port to follow the signal there. ${signalTraceHistory.length > 0 ? "Use Back to retrace your steps." : ""}
+      Click any port to follow the signal there. ${signalTraceHistory.length > 0 || signalTraceFuture.length > 0 ? "Use Back/Forward to move through your trace path." : ""}
     </div>
   `;
 
@@ -4059,18 +4079,40 @@ function renderSignalTracePanel(trace) {
     }
     state.signalTrace = null;
     signalTraceHistory.length = 0;
+    signalTraceFuture.length = 0;
     panel.remove();
   });
 
-  // Back button
+  // Back/forward buttons
   document.getElementById("traceBackBtn")?.addEventListener("click", () => {
     const prev = signalTraceHistory.pop();
     if (prev) {
+      signalTraceFuture.push({
+        portId: origin.portId || trace.origin.portId,
+        parentLabel: origin.parentLabel,
+        portName: origin.portName,
+      });
       const node = state.cy.getElementById(prev.portId);
       if (node && !node.empty()) {
         state.cy.animate({ center: { eles: node }, duration: 300 });
       }
-      applySignalTrace(prev.portId, true); // skipHistory = true
+      applySignalTrace(prev.portId, true);
+    }
+  });
+
+  document.getElementById("traceForwardBtn")?.addEventListener("click", () => {
+    const next = signalTraceFuture.pop();
+    if (next) {
+      signalTraceHistory.push({
+        portId: origin.portId || trace.origin.portId,
+        parentLabel: origin.parentLabel,
+        portName: origin.portName,
+      });
+      const node = state.cy.getElementById(next.portId);
+      if (node && !node.empty()) {
+        state.cy.animate({ center: { eles: node }, duration: 300 });
+      }
+      applySignalTrace(next.portId, true);
     }
   });
 
@@ -4082,6 +4124,12 @@ function renderSignalTracePanel(trace) {
       if (isNaN(idx) || idx < 0) return;
       // Pop history back to that index
       const target = signalTraceHistory[idx];
+      signalTraceFuture.length = 0;
+      signalTraceFuture.push({
+        portId: origin.portId || trace.origin.portId,
+        parentLabel: origin.parentLabel,
+        portName: origin.portName,
+      }, ...signalTraceHistory.slice(idx + 1));
       signalTraceHistory.length = idx; // remove this entry and everything after
       if (target) {
         const node = state.cy.getElementById(target.portId);
@@ -4106,6 +4154,7 @@ function renderSignalTracePanel(trace) {
           parentLabel: origin.parentLabel,
           portName: origin.portName,
         });
+        signalTraceFuture.length = 0;
 
         const node = state.cy.getElementById(portId);
         if (node && !node.empty()) {

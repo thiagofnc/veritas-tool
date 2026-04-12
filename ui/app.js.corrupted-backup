@@ -1,0 +1,1964 @@
+const PROJECT_OPTIONS = [
+  {
+    label: "Processor",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\pipelined-processor-l2-2526a-05",
+  },
+  {
+    label: "Linear Chain",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\sample_projects\\01_linear_chain",
+  },
+  {
+    label: "Serial Subsystem",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\sample_projects\\02_serial_subsystem",
+  },
+  {
+    label: "Module chain",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\sample_projects\\04_three_module_chain",
+  },
+  {
+    label: "Stress test",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tool Project\\verilog-tool\\tests\\stress_test",
+  },
+  {
+    label: "NVDLA",
+    folder: "C:\\Users\\costatf\\OneDrive - Rose-Hulman Institute of Technology\\Desktop\\Verilog Tests\\hw",
+  },
+];
+
+const state = {
+  folder: PROJECT_OPTIONS[0].folder,
+  parser: "pyverilog",
+  tops: [],
+  modules: [],
+  selectedTop: null,
+  selectedModule: null,
+  hierarchy: null,
+  breadcrumb: [],
+  graph: null,
+  summary: null,
+  selectedNode: null,
+  selectedEdge: null,
+  cy: null,
+  graphMode: "compact",
+  aggregateEdges: true,
+  showUnknownEdges: false,
+  portView: true,
+  schematicMode: "simplified",
+  lastTapNodeId: null,
+  lastTapTs: 0,
+  signalTrace: null,
+};
+
+const folderInput = document.getElementById("folderInput");
+const parserSelect = document.getElementById("parserSelect");
+const loadBtn = document.getElementById("loadBtn");
+const refreshBtn = document.getElementById("refreshBtn");
+const fitBtn = document.getElementById("fitBtn");
+const showUnknownToggle = document.getElementById("showUnknownToggle");
+const portViewToggle = document.getElementById("portViewToggle");
+const statusBadge = document.getElementById("statusBadge");
+const topList = document.getElementById("topList");
+const hierarchyTree = document.getElementById("hierarchyTree");
+const breadcrumbBar = document.getElementById("breadcrumbBar");
+const graphTag = document.getElementById("graphTag");
+const graphStats = document.getElementById("graphStats");
+const statsToggle = document.getElementById("statsToggle");
+const graphCanvas = document.getElementById("graphCanvas");
+const graphEmpty = document.getElementById("graphEmpty");
+const cyGraph = document.getElementById("cyGraph");
+const schematicLayer = document.getElementById("schematicLayer");
+const hoverTooltip = document.getElementById("hoverTooltip");
+const inspector = document.getElementById("inspector");
+
+const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+
+if (typeof cytoscape === "function" && typeof cytoscapeElk === "function") {
+  cytoscape.use(cytoscapeElk);
+}
+
+const LAYOUT_GRID = 20;
+const INSTANCE_COLUMN_START = 420;
+const INSTANCE_COLUMN_STEP = 620;
+const INSTANCE_ROW_GAP = 180;
+const INSTANCE_ROW_GAP_DENSE = 140;
+const IO_COLUMN_MARGIN = 560;
+const INSTANCE_MIN_COLUMN_GAP = 420;
+const IO_ROW_GAP = 60;
+const PORT_ROW_GAP = 20;
+const PORT_SIDE_INSET = 12;
+const ROUTE_LANE_GAP = 28;
+const ROUTE_FANOUT_GAP = 10;
+const ROUTE_PARALLEL_GAP = 6;
+const PORT_STUB_LENGTH = 34;
+const NETLABEL_WIRE_GAP = 28;
+const NETLABEL_ROW_GAP = 20;
+
+function setStatus(text, kind) {
+  if (!statusBadge) {
+    return;
+  }
+  statusBadge.textContent = text;
+  statusBadge.className = `status ${kind}`;
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function populateProjectOptions() {
+  if (!folderInput) {
+    return;
+  }
+
+  folderInput.innerHTML = "";
+  for (const project of PROJECT_OPTIONS) {
+    const option = document.createElement("option");
+    option.value = project.folder;
+    option.textContent = project.label;
+    folderInput.appendChild(option);
+  }
+
+  folderInput.value = state.folder;
+}
+
+function snapToGrid(value, grid = LAYOUT_GRID) {
+  return Math.round(value / grid) * grid;
+}
+
+function naturalCompare(left, right) {
+  return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function isControlSignalName(name) {
+  const normalized = ` ${String(name || "").toLowerCase()} `;
+  return ["clk", "clock", "rst", "reset", "enable", "en", "start", "valid", "ready", "busy", "done"]
+    .some((token) => normalized.includes(` ${token} `) || normalized.includes(token));
+}
+
+function summarizeEdgeNetName(edge) {
+  if (edge.nets && edge.nets.length) {
+    return edge.nets[0];
+  }
+  return edge.net || edge.signal_name || "";
+}
+
+async function apiRequest(path, options = {}) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Request to ${API_BASE || window.location.origin || "current origin"}${path} failed: ${detail}. Start the FastAPI server and open the app from http://127.0.0.1:8000/.`
+    );
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload.detail || `Request failed: ${response.status}`;
+    throw new Error(message);
+  }
+
+  return payload;
+}
+
+function countByKind(items) {
+  const counts = {};
+  for (const item of items) {
+    const key = item.kind || "unknown";
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
+
+function countEdgeSignalClasses(edges) {
+  const counts = { bus: 0, wire: 0, mixed: 0, unknown: 0 };
+  for (const edge of edges) {
+    const key = edge.sig_class || "unknown";
+    if (counts[key] === undefined) {
+      counts.unknown += 1;
+      continue;
+    }
+    counts[key] += 1;
+  }
+  return counts;
+}
+
+function enforcePortViewMode() {
+    return `
+      <div class="xtrace-hop" data-hop-dir="${direction}" data-hop-idx="${index}" data-trace-module="${escapeHtml(group.next_module || group.module)}" data-trace-signal="${escapeHtml(group.next_signal || group.signal)}" style="margin:3px 0;padding:5px 8px;border-left:2.5px solid ${accentColor};background:rgba(255,255,255,0.025);border-radius:0 4px 4px 0;transition:background 0.1s;cursor:pointer;">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <span style="display:inline-block;background:${roleStyle.color}22;color:${roleStyle.color};padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:0.06em;flex-shrink:0;">${roleStyle.label}</span>
+          <span style="color:#e4e4e7;font-size:12px;">${escapeHtml(headline)}</span>
+          ${badges}
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;margin-top:3px;font-size:10px;">
+          <a href="#" class="xtrace-nav" data-trace-module="${escapeHtml(group.module)}" style="color:#22d3ee;text-decoration:none;font-weight:500;">${escapeHtml(group.module)}</a><span style="color:#3f3f46;">.</span><a href="#" class="xtrace-retrace" data-trace-module="${escapeHtml(group.module)}" data-trace-signal="${escapeHtml(group.signal)}" style="color:#a1a1aa;text-decoration:none;">${escapeHtml(group.signal)}</a>${crossIcon ? `<span style="color:#a78bfa;font-weight:600;">${crossIcon}</span>` : ""}${group.next_module && group.next_signal
+            ? ` <span style="color:#a78bfa;font-size:10px;">${escapeHtml(group.next_module)}.${escapeHtml(group.next_signal)}</span>`
+            : ""}
+        </div>
+      </div>`;
+  };
+
+  const renderSection = (groups, accent, heading, emptyMsg, hiddenCount, expandId, direction) => {
+    const totalCount = groups.length + hiddenCount;
+    let html = `<div style="color:${accent};font-weight:700;margin:10px 0 6px;font-size:11px;letter-spacing:0.04em;">${heading} <span style="font-weight:400;color:#71717a;font-size:10px;">(${totalCount})</span></div>`;
+    if (!groups.length) {
+      html += `<div style="color:#52525b;margin:2px 0 4px 2px;font-size:11px;">${emptyMsg}</div>`;
+      return html;
+    }
+    html += groups.map((g, i) => renderHop(g, accent, i, direction)).join("");
+    if (hiddenCount > 0) {
+      html += `<div style="margin:6px 0 0 4px;"><a href="#" id="${expandId}" style="color:${accent};text-decoration:none;font-size:10px;font-weight:500;">Show ${hiddenCount} more \u25bc</a></div>`;
+    }
+    return html;
+  };
+
+  const origin = trace.origin || {};
+  const totalDrivers = groupedFanin.length;
+  const totalLoads = groupedFanout.length;
+  panel.querySelector("#xtraceForwardBtn")?.addEventListener("click", () => {
+    const next = crossTraceFuture.pop();
+    if (next) {
+      crossTraceHistory.push({ module: origin.module, signal: origin.signal });
+      if (next.module !== state.selectedModule) {
+        loadGraph(next.module).then(() => requestCrossModuleTrace(next.module, next.signal, true));
+      } else {
+        requestCrossModuleTrace(next.module, next.signal, true);
+      }
+    }
+  });
+
+  // Navigate to module schematic
+  panel.querySelectorAll(".xtrace-nav").forEach((el) => {
+    el.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      const mod = ev.currentTarget.getAttribute("data-trace-module");
+      if (mod && mod !== state.selectedModule) {
+        await loadGraph(mod);
+        // Re-apply highlights on the new schematic
+        applyCrossTraceHighlights(trace);
+      }
+    });
+  });
+
+  // Re-trace from a signal (replaces current trace, no history push)
+  panel.querySelectorAll(".xtrace-retrace").forEach((el) => {
+    el.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const mod = ev.currentTarget.getAttribute("data-trace-module");
+      const sig = ev.currentTarget.getAttribute("data-trace-signal");
+      if (mod && sig) {
+        crossTraceHistory.push({ module: origin.module, signal: origin.signal });
+        crossTraceFuture.length = 0;
+        if (mod !== state.selectedModule) {
+          await loadGraph(mod);
+        }
+        requestCrossModuleTrace(mod, sig, true);
+      }
+    });
+  });
+
+    // Hover + click-to-follow on hop rows
+  panel.querySelectorAll(".xtrace-hop").forEach((row) => {
+    row.addEventListener("mouseenter", () => { row.style.background = "rgba(255,255,255,0.05)"; });
+    row.addEventListener("mouseleave", () => { row.style.background = "rgba(255,255,255,0.025)"; });
+    row.addEventListener("click", async () => {
+      const mod = row.getAttribute("data-trace-module");
+      const sig = row.getAttribute("data-trace-signal");
+      if (!mod || !sig) return;
+      crossTraceHistory.push({ module: origin.module, signal: origin.signal });
+      crossTraceFuture.length = 0;
+      if (mod !== state.selectedModule) {
+        await loadGraph(mod);
+      }
+      requestCrossModuleTrace(mod, sig, true);
+    });
+  });
+}
+
+// ── Signal trace history (step-by-step navigation) ──────────────────────
+const signalTraceHistory = [];
+const signalTraceFuture = [];
+
+function renderSignalTracePanel(trace) {
+  if (!trace) {
+    const existing = document.getElementById("signalTracePanel");
+    if (existing) existing.remove();
+    return;
+  }
+
+  let panel = document.getElementById("signalTracePanel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "signalTracePanel";
+    panel.style.cssText = `
+      position: absolute; top: 8px; left: 8px; z-index: 200;
+      background: #18181b; border: 1px solid rgba(255,255,255,0.10); border-radius: 6px;
+      padding: 14px 16px; min-width: 280px; max-width: 400px;
+      max-height: 70vh; overflow-y: auto; color: #e4e4e7;
+      font-family: 'IBM Plex Mono', Consolas, Monaco, monospace; font-size: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    `;
+    const canvas = document.getElementById("graphCanvas");
+    if (canvas) canvas.appendChild(panel);
+  }
+
+  const kindIcon = (kind) => {
+    if (kind === "module_io") return "\u25c6";
+    if (kind === "instance") return "\u25a0";
+    if (kind === "always") return "\u25b6";
+    if (kind === "assign") return "\u2190";
+    if (kind === "gate") return "\u25b3";
+    return "\u25cb";
+  };
+
+  // Build a flat, deduplicated list grouped by parent block.
+  // Each row: "block.port  via net_name"  — clickable to re-trace from that port.
+  const renderSection = (steps, color, heading, emptyText) => {
+    if (!steps.length) return `<div style="color:#52525b;margin:6px 0 2px;font-size:11px;">${emptyText}</div>`;
+
+    // Group by parent instance for readability.
+    const groups = [];
+    for (const step of steps) {
+      const last = groups[groups.length - 1];
+      if (last && last.parentInstance === step.parentInstance) {
+        last.ports.push(step);
+      } else {
+        groups.push({
+          parentInstance: step.parentInstance,
+          parentLabel: step.parentLabel,
+          parentKind: step.parentKind,
+          ports: [step],
+        });
+      }
+    }
+
+    let html = `<div style="color:${color};font-weight:700;margin:10px 0 6px;font-size:11px;letter-spacing:0.04em;">${heading}</div>`;
+    for (const group of groups) {
+      const icon = kindIcon(group.parentKind);
+      html += `<div style="margin:0 0 4px 0;padding:6px 8px;border-left:2.5px solid ${color};background:rgba(255,255,255,0.025);border-radius:0 4px 4px 0;">`;
+      html += `<div style="font-weight:600;font-size:12px;margin-bottom:3px;">${icon} ${escapeHtml(group.parentLabel)}</div>`;
+      for (const p of group.ports) {
+        const net = p.netName ? `<span style="color:#22d3ee;font-size:10px;"> via <strong>${escapeHtml(p.netName)}</strong></span>` : "";
+        const crossed = p.crossedInstance ? `<span style="color:#71717a;font-size:10px;"> (through)</span>` : "";
+        html += `<div class="strace-port-row" data-port-id="${escapeHtml(p.portId)}" style="margin:2px 0 2px 12px;padding:3px 6px;border-radius:3px;cursor:pointer;display:flex;align-items:baseline;gap:6px;transition:background 0.1s;">`;
+        html += `<span style="color:${color};font-size:10px;flex-shrink:0;">${p.direction === "input" ? "\u2192" : p.direction === "output" ? "\u2190" : "\u2194"}</span>`;
+        html += `<span style="color:#e4e4e7;">${escapeHtml(p.portName)}</span>${net}${crossed}`;
+        html += `<span style="color:#52525b;font-size:9px;margin-left:auto;flex-shrink:0;">trace \u2192</span>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+    return html;
+  };
+
+  const origin = trace.origin;
+  const originIcon = kindIcon(origin.parentKind);
+
+  // Build breadcrumb trail from history
+  let breadcrumbHtml = "";
+  if (signalTraceHistory.length > 0) {
+    const crumbs = signalTraceHistory.map((h, i) =>
+      `<a href="#" class="strace-history-jump" data-history-index="${i}" style="color:#22d3ee;text-decoration:none;white-space:nowrap;">${escapeHtml(h.parentLabel)}.${escapeHtml(h.portName)}</a>`
+    );
+    breadcrumbHtml = `
+      <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;padding:5px 8px;background:rgba(255,255,255,0.025);border-radius:4px;overflow-x:auto;font-size:10px;flex-wrap:wrap;">
+        <span style="color:#71717a;flex-shrink:0;">Path:</span>
+        ${crumbs.join('<span style="color:#3f3f46;flex-shrink:0;"> \u2192 </span>')}
+        <span style="color:#3f3f46;flex-shrink:0;"> \u2192 </span>
+        <span style="color:#e4e4e7;font-weight:600;white-space:nowrap;">${escapeHtml(origin.parentLabel)}.${escapeHtml(origin.portName)}</span>
+      </div>`;
+  }
+
+  const backButton = signalTraceHistory.length > 0
+    ? ``
+    : "";
+  const forwardButton = signalTraceFuture.length > 0
+    ? `<button id="traceForwardBtn" style="background:none;border:1px solid #3f3f46;color:#a1a1aa;cursor:pointer;font-size:10px;padding:2px 8px;border-radius:3px;display:flex;align-items:center;gap:3px;">Forward <span>\u2192</span></button>`
+    : "";
+
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        ${backButton}
+        ${forwardButton}
+        <span style="font-weight:700;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:#a1a1aa;">Signal Trace</span>
+      </div>
+      <button id="closeTracePanel" style="background:none;border:none;color:#71717a;cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;">&times;</button>
+    </div>
+
+    ${breadcrumbHtml}
+
+    <div style="padding:8px 10px;border:1.5px solid rgba(34,211,238,0.35);border-radius:5px;margin-bottom:8px;background:rgba(34,211,238,0.07);">
+      <div style="color:#22d3ee;font-size:9px;font-weight:700;letter-spacing:0.1em;margin-bottom:3px;">TRACING</div>
+      <div style="font-size:13px;font-weight:600;">${originIcon} ${escapeHtml(origin.parentLabel)}<span style="color:#71717a;">.</span>${escapeHtml(origin.portName)}</div>
+    </div>
+
+    ${renderSection(trace.upstream, "#4ade80", "\u25b2 Comes from", "No upstream sources found")}
+    ${renderSection(trace.downstream, "#60a5fa", "\u25bc Drives", "No downstream loads found")}
+
+    <div style="color:#52525b;margin-top:10px;font-size:10px;border-top:1px solid #27272a;padding-top:8px;">
+      Click any port to follow the signal there. ${signalTraceHistory.length > 0 || signalTraceFuture.length > 0 ? "Use Back/Forward to move through your trace path." : ""}
+    </div>
+  `;
+
+  // Close button
+  document.getElementById("closeTracePanel").addEventListener("click", () => {
+    if (state.cy) {
+      state.cy.elements(
+        ".signal-trace-upstream, .signal-trace-downstream, .signal-trace-origin, .signal-trace-dimmed"
+      ).removeClass(
+        "signal-trace-upstream signal-trace-downstream signal-trace-origin signal-trace-dimmed"
+      );
+    }
+    state.signalTrace = null;
+    signalTraceHistory.length = 0;
+    signalTraceFuture.length = 0;
+    panel.remove();
+  });
+
+  // Back button
+  document.getElementById("traceBackBtn")?.addEventListener("click", () => {
+    const prev = signalTraceHistory.pop();
+    if (prev) {
+      signalTraceFuture.push({
+        portId: origin.portId || trace.origin.portId,
+        parentLabel: origin.parentLabel,
+        portName: origin.portName,
+      });
+      const node = state.cy.getElementById(prev.portId);
+      if (node && !node.empty()) {
+        state.cy.animate({ center: { eles: node }, duration: 300 });
+      }
+      applySignalTrace(prev.portId, true); // skipHistory = true
+    }
+  });
+
+  // Breadcrumb history jumps — click to go back to that point in the path
+  panel.querySelectorAll(".strace-history-jump").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      const idx = parseInt(el.getAttribute("data-history-index"), 10);
+      if (isNaN(idx) || idx < 0) return;
+      // Pop history back to that index
+      const target = signalTraceHistory[idx];
+      signalTraceFuture.length = 0;
+      signalTraceFuture.push({
+        portId: origin.portId || trace.origin.portId,
+        parentLabel: origin.parentLabel,
+        portName: origin.portName,
+      }, ...signalTraceHistory.slice(idx + 1));
+      signalTraceHistory.length = idx; // remove this entry and everything after
+      if (target) {
+        const node = state.cy.getElementById(target.portId);
+        if (node && !node.empty()) {
+          state.cy.animate({ center: { eles: node }, duration: 300 });
+        }
+        applySignalTrace(target.portId, true);
+      }
+    });
+  });
+  document.getElementById("traceForwardBtn")?.addEventListener("click", () => {
+    const next = signalTraceFuture.pop();
+    if (next) {
+      signalTraceHistory.push({
+        portId: origin.portId || trace.origin.portId,
+        parentLabel: origin.parentLabel,
+        portName: origin.portName,
+      });
+      const node = state.cy.getElementById(next.portId);
+      if (node && !node.empty()) {
+        state.cy.animate({ center: { eles: node }, duration: 300 });
+      }
+      applySignalTrace(next.portId, true);
+    }
+  });
+
+  // Click a port row to follow the signal to that port
+  panel.querySelectorAll(".strace-port-row").forEach((row) => {
+    row.addEventListener("mouseenter", () => { row.style.background = "rgba(255,255,255,0.06)"; });
+    row.addEventListener("mouseleave", () => { row.style.background = ""; });
+    row.addEventListener("click", () => {
+      const portId = row.getAttribute("data-port-id");
+      if (portId) {
+        // Push current origin onto history before navigating
+        signalTraceHistory.push({
+          portId: origin.portId || trace.origin.portId,
+          parentLabel: origin.parentLabel,
+          portName: origin.portName,
+        });
+        signalTraceFuture.length = 0;
+
+        const node = state.cy.getElementById(portId);
+        if (node && !node.empty()) {
+          state.cy.animate({ center: { eles: node }, duration: 300 });
+        }
+        applySignalTrace(portId, true);
+      }
+    });
+  });
+}
+
+function renderInspector() {
+  const summary = state.summary || {};
+  const traceable = getTraceableSelection();
+  const traceButton = traceable
+    ? `<button id="traceSignalBtn" data-trace-module="${escapeHtml(traceable.module)}" data-trace-signal="${escapeHtml(traceable.signal)}" style="margin-top:10px;padding:6px 12px;background:#22d3ee;color:#18181b;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;letter-spacing:0.04em;width:100%;">Trace ${escapeHtml(traceable.label)}</button>`
+    : "";
+
+  let selectionBlock = "";
+  if (state.selectedNode) {
+    let connected = 0;
+    if (state.cy) {
+      const nodeRef = state.cy.getElementById(state.selectedNode.id);
+      if (nodeRef) {
+        connected = nodeRef.connectedEdges().length;
+      }
+    }
+
+    const widthText = state.selectedNode.bit_width && state.selectedNode.bit_width > 1
+      ? `[${state.selectedNode.bit_width}]`
+      : "1";
+
+    selectionBlock = `
+      <hr style="border-color:#2b3f4d;border-style:solid;border-width:1px 0 0; margin:10px 0;" />
+      <div><span class="k">Selected node:</span> ${escapeHtml(state.selectedNode.label || state.selectedNode.id)}</div>
+      <div><span class="k">Kind:</span> ${escapeHtml(state.selectedNode.kind || "unknown")}</div>
+      <div><span class="k">Signal class:</span> ${state.selectedNode.is_bus ? "bus" : "wire"}</div>
+      <div><span class="k">Bit width:</span> ${escapeHtml(widthText)}</div>
+      <div><span class="k">ID:</span><br>${escapeHtml(state.selectedNode.id)}</div>
+      <div><span class="k">Connected edges:</span> ${connected}</div>
+      ${state.selectedNode.kind === "instance" ? `<div><span class="k">Double-click behavior:</span> Open instance module graph</div>` : ""}
+      ${state.selectedNode.kind === "gate" ? `<div><span class="k">Gate type:</span> ${escapeHtml(state.selectedNode.gate_type || "")}</div>` : ""}
+      ${state.selectedNode.kind === "assign" ? `<div><span class="k">Target:</span> ${escapeHtml(state.selectedNode.target_signal || "")}</div><div><span class="k">Expression:</span> ${escapeHtml(state.selectedNode.expression || "")}</div>` : ""}
+      ${state.selectedNode.kind === "always" ? `<div><span class="k">Process type:</span> ${escapeHtml(state.selectedNode.process_style || state.selectedNode.always_kind || "always")}</div><div><span class="k">Sensitivity:</span> ${escapeHtml(state.selectedNode.sensitivity_title || state.selectedNode.title || (state.selectedNode.sensitivity ? `ALWAYS @(${state.selectedNode.sensitivity})` : "ALWAYS"))}</div><div><span class="k">Reads:</span> ${escapeHtml((state.selectedNode.read_signals || []).join(", ") || "-")}</div><div><span class="k">Writes:</span> ${escapeHtml((state.selectedNode.written_signals || []).join(", ") || "-")}</div><div><span class="k">Feedback:</span> ${escapeHtml((state.selectedNode.feedback_signals || []).join(", ") || "-")}</div>${(state.selectedNode.control_summary || []).length ? `<div><span class="k">Top-level control:</span><br>${escapeHtml(state.selectedNode.control_summary.join(" | "))}</div>` : ""}${(state.selectedNode.summary_lines || []).length ? `<div><span class="k">Assignments:</span><br>${escapeHtml(state.selectedNode.summary_lines.join(" | "))}</div>` : ""}<div><span class="k">Double-click:</span> View detailed internals</div>` : ""}
+      ${state.selectedNode.kind === "process_port" ? `<div><span class="k">Process pin:</span> ${escapeHtml(state.selectedNode.port_name || "")}</div><div><span class="k">Direction:</span> ${escapeHtml(state.selectedNode.direction || "unknown")}</div>` : ""}
+    `;
+  } else if (state.selectedEdge) {
+    const netInfo = state.selectedEdge.nets?.length
+      ? `${state.selectedEdge.nets.slice(0, 8).join(", ")}${state.selectedEdge.nets.length > 8 ? " ..." : ""}`
+      : state.selectedEdge.net || "(unnamed net)";
+
+    const widthText = state.selectedEdge.bit_width && state.selectedEdge.bit_width > 1
+      ? `[${state.selectedEdge.bit_width}]`
+      : "1";
+
+    selectionBlock = `
+      <hr style="border-color:#2b3f4d;border-style:solid;border-width:1px 0 0; margin:10px 0;" />
+      <div><span class="k">Selected connection:</span> ${escapeHtml(netInfo)}</div>
+      <div><span class="k">From:</span> ${escapeHtml(state.selectedEdge.source)}</div>
+      <div><span class="k">To:</span> ${escapeHtml(state.selectedEdge.target)}</div>
+      <div><span class="k">Flow:</span> ${escapeHtml(state.selectedEdge.flow || "directed")}</div>
+      <div><span class="k">Signal class:</span> ${escapeHtml(state.selectedEdge.sig_class || "wire")}</div>
+      <div><span class="k">Bit width:</span> ${escapeHtml(widthText)}</div>
+      <div><span class="k">Net count:</span> ${state.selectedEdge.net_count || 1}</div>
+
+      <div><span class="k">Display mode:</span> ${escapeHtml(state.selectedEdge.routing_mode || "direct")}</div>
+
+      <div><span class="k">Why:</span> ${escapeHtml(state.selectedEdge.routing_reason || "Direct connection rendering.")}</div>
+    `;
+  }
+
+  const selectedInstance =
+    state.selectedNode && state.selectedNode.kind === "instance" ? state.selectedNode : null;
+
+  const viewCodeButton = state.selectedModule
+    ? `<button id="viewModuleCodeBtn" data-module="${escapeHtml(state.selectedModule)}">View / Edit Code</button>`
+    : "";
+
+  const jumpToDefButton = selectedInstance
+    ? `<button id="jumpToDefBtn"
+                data-parent-module="${escapeHtml(state.selectedModule || "")}"
+                data-instance-name="${escapeHtml(selectedInstance.instance_name || selectedInstance.label || "")}"
+                data-child-module="${escapeHtml(selectedInstance.module_name || "")}">Jump to Definition</button>`
+    : "";
+
+  inspector.innerHTML = `
+    <div><span class="k">Parser:</span> ${escapeHtml(summary.parser_backend || "-")}</div>
+    <div><span class="k">Files:</span> ${summary.file_count ?? 0}</div>
+    <div><span class="k">Modules:</span> ${summary.module_count ?? 0}</div>
+    <div><span class="k">Top candidates:</span> ${escapeHtml((summary.top_candidates || []).join(", ") || "(none)")}</div>
+    <div><span class="k">Selected top:</span> ${escapeHtml(state.selectedTop || "(none)")}</div>
+    <div><span class="k">Focus module:</span> ${escapeHtml(state.selectedModule || "(none)")}</div>
+    ${selectionBlock}
+    ${viewCodeButton}
+    ${jumpToDefButton}
+    ${traceButton}
+  `;
+
+  const btn = document.getElementById("traceSignalBtn");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      const mod = btn.getAttribute("data-trace-module");
+      const sig = btn.getAttribute("data-trace-signal");
+      if (mod && sig) requestCrossModuleTrace(mod, sig);
+    });
+  }
+
+  const codeBtn = document.getElementById("viewModuleCodeBtn");
+  if (codeBtn) {
+    codeBtn.addEventListener("click", () => {
+      const mod = codeBtn.getAttribute("data-module");
+      if (mod) openModuleCodeEditor(mod);
+    });
+  }
+
+  const jumpBtn = document.getElementById("jumpToDefBtn");
+  if (jumpBtn) {
+    jumpBtn.addEventListener("click", () => {
+      const parentModule = jumpBtn.getAttribute("data-parent-module");
+      const instanceName = jumpBtn.getAttribute("data-instance-name");
+      const childModule = jumpBtn.getAttribute("data-child-module");
+      if (!parentModule) return;
+      openModuleCodeEditor(parentModule, {
+        jumpToInstance: { instanceName, childModule },
+      });
+    });
+  }
+}
+
+function showAlwaysDetail(data) {
+  const overlay = document.getElementById("alwaysDetailOverlay");
+  const titleEl = document.getElementById("alwaysDetailTitle");
+  const bodyEl = document.getElementById("alwaysDetailBody");
+  const closeBtn = document.getElementById("alwaysDetailClose");
+
+  const title = data.sensitivity_title || data.title || `ALWAYS @(${data.sensitivity || "*"})`;
+  const processStyle = data.process_style || "generic";
+  const styleLabels = { comb: "Combinational", seq: "Sequential", latch: "Latch", generic: "Generic" };
+
+  titleEl.textContent = `${styleLabels[processStyle] || processStyle} - ${data.block_name || data.label}`;
+
+  const readSignals = data.read_signals || [];
+  const writtenSignals = data.written_signals || [];
+  const feedbackSignals = data.feedback_signals || [];
+  const assignments = data.assignments || [];
+  const controlSummary = data.control_summary || [];
+
+  // Group assignments by condition
+  const conditionGroups = new Map();
+  for (const a of assignments) {
+    const cond = a.condition || "(unconditional)";
+    if (!conditionGroups.has(cond)) {
+      conditionGroups.set(cond, []);
+    }
+    conditionGroups.get(cond).push(a);
+  }
+
+  let html = "";
+
+  // Header info
+  html += `<div class="detail-section">
+    <div class="detail-section-title">Sensitivity</div>
+    <div>${escapeHtml(title)}</div>
+  </div>`;
+
+  // Signal summary
+  html += `<div class="detail-section">
+    <div class="detail-section-title">Input Signals (read only)</div>
+    <div>${readSignals.length ? readSignals.map((s) => `<span class="signal-chip">${escapeHtml(s)}</span>`).join("") : "<em>none</em>"}</div>
+  </div>`;
+
+  html += `<div class="detail-section">
+    <div class="detail-section-title">Output Signals (written only)</div>
+    <div>${writtenSignals.length ? writtenSignals.map((s) => `<span class="signal-chip output">${escapeHtml(s)}</span>`).join("") : "<em>none</em>"}</div>
+  </div>`;
+
+  if (feedbackSignals.length) {
+    html += `<div class="detail-section">
+      <div class="detail-section-title">Feedback Signals (read &amp; written)</div>
+      <div>${feedbackSignals.map((s) => `<span class="signal-chip feedback">${escapeHtml(s)}</span>`).join("")}</div>
+    </div>`;
+  }
+
+  // Control flow
+  if (controlSummary.length) {
+    html += `<div class="detail-section">
+      <div class="detail-section-title">Control Flow</div>
+      <div>${controlSummary.map((c) => escapeHtml(c)).join("<br>")}</div>
+    </div>`;
+  }
+
+  // Assignments grouped by condition
+  if (assignments.length) {
+    html += `<div class="detail-section">
+      <div class="detail-section-title">Assignments</div>`;
+
+    for (const [condition, assigns] of conditionGroups) {
+      if (condition !== "(unconditional)") {
+        html += `<div class="assign-condition">when ${escapeHtml(condition)}:</div>`;
+      } else if (conditionGroups.size > 1) {
+        html += `<div class="assign-condition">unconditional:</div>`;
+      }
+      for (const a of assigns) {
+        const op = a.blocking ? "=" : "&lt;=";
+        html += `<div class="assignment-row">
+          <span><span class="assign-target">${escapeHtml(a.target)}</span> <span class="assign-op">${op}</span></span>
+          <span class="assign-expr">${escapeHtml(a.expression)}</span>
+        </div>`;
+      }
+    }
+    html += `</div>`;
+  } else {
+    // Fallback to summary_lines if no structured assignments
+    const summaryLines = data.summary_lines || [];
+    if (summaryLines.length) {
+      html += `<div class="detail-section">
+        <div class="detail-section-title">Assignment Summary</div>
+        <div>${summaryLines.map((l) => escapeHtml(l)).join("<br>")}</div>
+      </div>`;
+    }
+  }
+
+  bodyEl.innerHTML = html;
+  overlay.classList.remove("hidden");
+
+  const closeHandler = () => {
+    overlay.classList.add("hidden");
+    closeBtn.removeEventListener("click", closeHandler);
+    overlay.removeEventListener("click", bgClickHandler);
+  };
+  const bgClickHandler = (e) => {
+    if (e.target === overlay) closeHandler();
+  };
+  closeBtn.addEventListener("click", closeHandler);
+  overlay.addEventListener("click", bgClickHandler);
+}
+
+function renderGraph(rawGraph) {
+  if (!rawGraph) {
+    graphTag.textContent = "No graph loaded";
+    clearGraphStats();
+    graphEmpty.classList.remove("hidden");
+    hideTooltip();
+
+    if (state.cy) {
+      state.cy.elements().remove();
+    }
+
+    return;
+  }
+
+  const graph = getRenderableGraph(rawGraph);
+  const nodeCounts = countByKind(graph.nodes || []);
+  const edgeCounts = countByKind(graph.edges || []);
+  const edgeSignalCounts = countEdgeSignalClasses(graph.edges || []);
+
+  const focus = graph.focus_module || graph.top_module || state.selectedModule || "(unknown)";
+  graphTag.textContent = `${focus} — ${graph.nodes.length} nodes / ${graph.edges.length} edges`;
+  renderGraphStats(nodeCounts, edgeCounts, edgeSignalCounts);
+
+  renderCyGraph(graph);
+}
+
+async function loadHierarchy(topModule) {
+  state.hierarchy = await apiRequest(`/api/project/hierarchy/${encodeURIComponent(topModule)}`);
+  renderHierarchyTree();
+}
+
+async function loadGraph(moduleName, breadcrumb = null) {
+  state.selectedModule = moduleName;
+  if (breadcrumb) {
+    state.breadcrumb = breadcrumb;
+  } else if (!state.breadcrumb.length) {
+    state.breadcrumb = [moduleName];
+  }
+
+  renderTopList();
+  renderBreadcrumb();
+  renderHierarchyTree();
+  enforcePortViewMode();
+
+  const params = new URLSearchParams({
+    mode: getEffectiveGraphMode(),
+    aggregate_edges: String(getEffectiveAggregateEdges()),
+    port_view: String(state.portView),
+    schematic: String(state.portView),
+    schematic_mode: state.schematicMode,
+  });
+
+  const graph = await apiRequest(`/api/project/connectivity/${encodeURIComponent(moduleName)}?${params.toString()}`);
+  state.graph = graph;
+  state.selectedNode = null;
+  state.selectedEdge = null;
+  renderGraph(graph);
+  renderInspector();
+}
+
+async function selectTop(topModule) {
+  state.selectedTop = topModule;
+  state.breadcrumb = [topModule];
+  renderTopList();
+  renderBreadcrumb();
+
+  await loadHierarchy(topModule);
+  await loadGraph(topModule, [topModule]);
+}
+
+async function refreshProject() {
+  const [topsPayload, modulesPayload] = await Promise.all([
+    apiRequest("/api/project/tops"),
+    apiRequest("/api/project/modules"),
+  ]);
+
+  state.tops = topsPayload.top_candidates || [];
+  state.modules = modulesPayload.modules || [];
+
+  if (!state.tops.length) {
+    state.selectedTop = null;
+    state.selectedModule = null;
+    state.hierarchy = null;
+    state.breadcrumb = [];
+    renderTopList();
+    renderHierarchyTree();
+    renderBreadcrumb();
+    renderGraph(null);
+    renderInspector();
+    return;
+  }
+
+  const retainedTop = state.selectedTop && state.tops.includes(state.selectedTop) ? state.selectedTop : state.tops[0];
+  const retainedModule = state.selectedModule && state.modules.includes(state.selectedModule)
+    ? state.selectedModule
+    : retainedTop;
+  const retainedBreadcrumb = state.breadcrumb.length
+    ? state.breadcrumb.filter((name) => state.modules.includes(name))
+    : [];
+
+  state.selectedTop = retainedTop;
+  renderTopList();
+
+  await loadHierarchy(retainedTop);
+  await loadGraph(
+    retainedModule,
+    retainedBreadcrumb.length ? retainedBreadcrumb : [retainedModule],
+  );
+}
+
+// ── Project load progress bar ──────────────────────────────────────
+const loadProgressEl = document.getElementById("loadProgress");
+const loadProgressFill = document.getElementById("loadProgressFill");
+const loadProgressLabel = document.getElementById("loadProgressLabel");
+const loadProgressCount = document.getElementById("loadProgressCount");
+const loadProgressFile = document.getElementById("loadProgressFile");
+
+function showLoadProgress() {
+  if (!loadProgressEl) return;
+  loadProgressEl.classList.remove("hidden");
+  loadProgressEl.classList.add("indeterminate");
+  if (loadProgressFill) loadProgressFill.style.width = "0%";
+  if (loadProgressLabel) loadProgressLabel.textContent = "Scanning project...";
+  if (loadProgressCount) loadProgressCount.textContent = "";
+  if (loadProgressFile) loadProgressFile.textContent = "";
+}
+
+function updateLoadProgress(p) {
+  if (!loadProgressEl) return;
+  const total = p.total || 0;
+  const current = p.current || 0;
+
+  if (p.stage === "parsing" && total > 0) {
+    loadProgressEl.classList.remove("indeterminate");
+    const pct = Math.max(0, Math.min(100, Math.round((current / total) * 100)));
+    if (loadProgressFill) loadProgressFill.style.width = `${pct}%`;
+    if (loadProgressLabel) loadProgressLabel.textContent = `Parsing files (${pct}%)`;
+    if (loadProgressCount) loadProgressCount.textContent = `${current} / ${total}`;
+  } else if (p.stage === "scanning") {
+    loadProgressEl.classList.add("indeterminate");
+    if (loadProgressLabel) loadProgressLabel.textContent = "Scanning project...";
+    if (loadProgressCount) loadProgressCount.textContent = "";
+  } else if (p.stage === "finalizing") {
+    loadProgressEl.classList.remove("indeterminate");
+    if (loadProgressFill) loadProgressFill.style.width = "100%";
+    if (loadProgressLabel) loadProgressLabel.textContent = "Building hierarchy...";
+    if (loadProgressCount) loadProgressCount.textContent = `${total} / ${total}`;
+  }
+
+  if (loadProgressFile) {
+    // Show only the basename so the line stays readable on long paths.
+    const f = p.current_file || "";
+    const base = f ? f.replace(/\\/g, "/").split("/").pop() : "";
+    loadProgressFile.textContent = base;
+  }
+}
+
+function hideLoadProgress() {
+  if (!loadProgressEl) return;
+  loadProgressEl.classList.add("hidden");
+  loadProgressEl.classList.remove("indeterminate");
+  if (loadProgressFill) loadProgressFill.style.width = "0%";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollLoadProgress() {
+  // Poll until the backend reports done or error.
+  // Returns the final progress payload.
+  while (true) {
+    let snap;
+    try {
+      snap = await apiRequest("/api/project/load/progress");
+    } catch (err) {
+      // If polling itself fails, surface the error and stop.
+      throw err;
+    }
+    updateLoadProgress(snap);
+    if (snap.done) return snap;
+    await sleep(180);
+  }
+}
+
+async function handleLoad() {
+  const folder = folderInput ? folderInput.value.trim() : state.folder;
+  if (!folder) {
+    setStatus("Need folder path", "error");
+    return;
+  }
+
+  state.folder = folder;
+  state.parser = parserSelect ? parserSelect.value : state.parser;
+
+  showLoadProgress();
+  setStatus("Loading...", "busy");
+
+  try {
+    await apiRequest("/api/project/load", {
+      method: "POST",
+      body: JSON.stringify({ folder: state.folder, parser_backend: state.parser }),
+    });
+  } catch (error) {
+    hideLoadProgress();
+    setStatus("Project load failed", "error");
+    inspector.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+    renderGraph(null);
+    return;
+  }
+
+  let finalSnap;
+  try {
+    finalSnap = await pollLoadProgress();
+  } catch (error) {
+    hideLoadProgress();
+    setStatus("Progress polling failed", "error");
+    inspector.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+    return;
+  }
+
+  if (finalSnap.error) {
+    hideLoadProgress();
+    setStatus("Project load failed", "error");
+    inspector.innerHTML = `<p>${escapeHtml(finalSnap.error)}</p>`;
+    renderGraph(null);
+    return;
+  }
+
+  state.summary = finalSnap.summary || null;
+  renderInspector();
+
+  try {
+    await refreshProject();
+    renderInspector();
+    setStatus(`Project loaded (${state.summary?.parser_backend || state.parser})`, "ok");
+  } catch (error) {
+    setStatus("Project loaded, refresh failed", "error");
+    inspector.innerHTML = `
+      <p>${escapeHtml(error.message)}</p>
+      <p>Project parsing succeeded with parser: <strong>${escapeHtml(state.summary?.parser_backend || state.parser)}</strong></p>
+    `;
+    renderGraph(null);
+  } finally {
+    hideLoadProgress();
+  }
+}
+
+loadBtn?.addEventListener("click", handleLoad);
+refreshBtn?.addEventListener("click", async () => {
+  try {
+    setStatus("Refreshing...", "busy");
+    await refreshProject();
+    setStatus("Refreshed", "ok");
+  } catch (error) {
+    setStatus("Refresh failed", "error");
+    inspector.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+  }
+});
+
+statsToggle?.addEventListener("click", () => {
+  const wrapper = statsToggle.closest(".stats-wrapper");
+  const collapsed = wrapper.classList.toggle("collapsed");
+  statsToggle.setAttribute("aria-expanded", String(!collapsed));
+});
+
+fitBtn?.addEventListener("click", () => {
+  if (!state.cy || !state.cy.elements().length) {
+    return;
+  }
+  state.cy.fit(undefined, 30);
+});
+
+showUnknownToggle?.addEventListener("change", () => {
+  state.showUnknownEdges = showUnknownToggle.checked;
+  if (!state.graph) {
+    return;
+  }
+
+  renderGraph(state.graph);
+  renderInspector();
+});
+
+portViewToggle?.addEventListener("change", async () => {
+  state.portView = portViewToggle.checked;
+  enforcePortViewMode();
+
+  if (!state.selectedModule) {
+    return;
+  }
+
+  try {
+    setStatus("Updating ports...", "busy");
+    await loadGraph(state.selectedModule, state.breadcrumb.length ? [...state.breadcrumb] : [state.selectedModule]);
+    setStatus("Graph updated", "ok");
+  } catch (error) {
+    setStatus("Graph update failed", "error");
+    inspector.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+  }
+});
+
+
+folderInput?.addEventListener("change", () => {
+  state.folder = folderInput.value;
+});
+
+
+// ═══════════════════════════════════════════════════════════════════
+// Schematic Search
+// ═══════════════════════════════════════════════════════════════════
+
+const searchBar = document.getElementById("schematicSearch");
+const searchInput = document.getElementById("searchInput");
+const searchCount = document.getElementById("searchCount");
+const searchPrevBtn = document.getElementById("searchPrev");
+const searchNextBtn = document.getElementById("searchNext");
+const searchCloseBtn = document.getElementById("searchClose");
+
+const searchState = {
+  matches: [],      // array of Cytoscape node references
+  activeIndex: -1,  // which match is currently focused
+  query: "",
+};
+
+function openSearch() {
+  searchInput.focus();
+  searchInput.select();
+}
+
+function closeSearch() {
+  searchInput.value = "";
+  clearSearchHighlights();
+  searchCount.textContent = "";
+  searchState.matches = [];
+  searchState.activeIndex = -1;
+  searchState.query = "";
+  searchInput.blur();
+}
+
+function clearSearchHighlights() {
+  if (!state.cy) return;
+  state.cy.elements(".search-match, .search-active, .search-dimmed").removeClass("search-match search-active search-dimmed");
+}
+
+function getSearchableText(node) {
+  const d = node.data();
+  const kind = d.kind || "";
+  // Only search the node's own visible name — not parent IDs or metadata
+  // that would cause child ports to match their parent's name.
+  switch (kind) {
+    case "instance":
+      return [d.instance_name, d.module_name].filter(Boolean).join(" ").toLowerCase();
+    case "instance_port":
+    case "process_port":
+      return (d.port_name || d.display_label || "").toLowerCase();
+    case "module_io":
+      return (d.port_name || d.label || "").toLowerCase();
+    case "netlabel_node":
+      return (d.net_label_text || "").toLowerCase();
+    case "always":
+    case "gate":
+    case "assign":
+      return (d.label || "").toLowerCase();
+    case "port_stub_anchor":
+      return (d.port_name || "").toLowerCase();
+    default:
+      return (d.label || "").toLowerCase();
+  }
+}
+
+function executeSearch(query) {
+  clearSearchHighlights();
+  searchState.query = query;
+  searchState.matches = [];
+  searchState.activeIndex = -1;
+
+  if (!state.cy || !query.trim()) {
+    searchCount.textContent = "";
+    return;
+  }
+
+  const q = query.trim().toLowerCase();
+
+  // Filter to visible, meaningful nodes (skip route_anchor, etc.)
+  const skipKinds = new Set(["route_anchor"]);
+  state.cy.nodes().forEach((node) => {
+    const kind = node.data("kind");
+    if (skipKinds.has(kind)) return;
+    if (getSearchableText(node).includes(q)) {
+      searchState.matches.push(node);
+    }
+  });
+
+  if (searchState.matches.length === 0) {
+    searchCount.textContent = "0 / 0";
+    return;
+  }
+
+  // Highlight all matches and dim non-matches
+  const matchCollection = state.cy.collection();
+  searchState.matches.forEach((n) => matchCollection.merge(n));
+  matchCollection.addClass("search-match");
+
+  // Dim everything not matched
+  state.cy.elements().not(matchCollection).not(matchCollection.connectedEdges()).addClass("search-dimmed");
+
+  // Focus on the first match
+  searchState.activeIndex = 0;
+  goToActiveMatch();
+}
+
+function goToActiveMatch() {
+  if (!state.cy || searchState.matches.length === 0) return;
+
+  // Remove previous active highlight
+  state.cy.nodes(".search-active").removeClass("search-active");
+
+  const idx = searchState.activeIndex;
+  const node = searchState.matches[idx];
+  node.addClass("search-active");
+
+  searchCount.textContent = `${idx + 1} / ${searchState.matches.length}`;
+
+  // Center on the active match, zooming in if currently too far out
+  const targetZoom = Math.max(state.cy.zoom(), 1);
+  state.cy.animate({
+    center: { eles: node },
+    zoom: targetZoom,
+    duration: 250,
+  });
+}
+
+function searchNext() {
+  if (searchState.matches.length === 0) return;
+  searchState.activeIndex = (searchState.activeIndex + 1) % searchState.matches.length;
+  goToActiveMatch();
+}
+
+function searchPrev() {
+  if (searchState.matches.length === 0) return;
+  searchState.activeIndex = (searchState.activeIndex - 1 + searchState.matches.length) % searchState.matches.length;
+  goToActiveMatch();
+}
+
+// Debounce helper for live search
+let searchTimeout = null;
+searchInput?.addEventListener("input", () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => {
+    executeSearch(searchInput.value);
+  }, 200);
+});
+
+searchInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    if (e.shiftKey) {
+      searchPrev();
+    } else {
+      searchNext();
+    }
+  }
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeSearch();
+  }
+});
+
+searchNextBtn?.addEventListener("click", searchNext);
+searchPrevBtn?.addEventListener("click", searchPrev);
+searchCloseBtn?.addEventListener("click", closeSearch);
+
+// Ctrl+F / Cmd+F to open search when graph canvas is present
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+    // Only intercept if a graph is loaded
+    if (state.cy && state.cy.elements().length) {
+      e.preventDefault();
+      openSearch();
+    }
+  }
+});
+
+populateProjectOptions();
+enforcePortViewMode();
+showUnknownToggle.checked = state.showUnknownEdges;
+portViewToggle.checked = state.portView;
+
+clearGraphStats();
+renderBreadcrumb();
+renderHierarchyTree();
+renderInspector();
+
+(async function init() {
+  try {
+    const health = await apiRequest("/api/health");
+    if (health.status === "ok") {
+      setStatus("API ready", "ok");
+    }
+  } catch {
+    setStatus("API unavailable", "error");
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+// Module source code editor
+// ═══════════════════════════════════════════════════════════════════
+const codeEditorState = {
+  cm: null,
+  module: null,
+  path: null,
+  original: "",
+  lintMarks: [],
+  lintTimer: null,
+  statusSticky: false,
+  statusKind: "info",
+};
+
+// ── Verilog syntax linter ──────────────────────────────────────────
+// Lightweight client-side checker that flags unbalanced delimiters and
+// block keywords (begin/end, module/endmodule, case/endcase, …). It is
+// not a full parser — just enough to surface obvious typos as the user
+// types. Errors are highlighted via CodeMirror markText + a gutter.
+const VERILOG_BLOCK_PAIRS = {
+  begin: ["end"],
+  module: ["endmodule"],
+  case: ["endcase"],
+  casex: ["endcase"],
+  casez: ["endcase"],
+  function: ["endfunction"],
+  task: ["endtask"],
+  generate: ["endgenerate"],
+  specify: ["endspecify"],
+  fork: ["join", "join_any", "join_none"],
+  package: ["endpackage"],
+  interface: ["endinterface"],
+  class: ["endclass"],
+  config: ["endconfig"],
+  primitive: ["endprimitive"],
+  table: ["endtable"],
+};
+const VERILOG_BLOCK_OPENERS = new Set(Object.keys(VERILOG_BLOCK_PAIRS));
+const VERILOG_BLOCK_CLOSERS = new Set();
+for (const arr of Object.values(VERILOG_BLOCK_PAIRS)) {
+  for (const c of arr) VERILOG_BLOCK_CLOSERS.add(c);
+}
+
+function verilogLint(source) {
+  const errors = [];
+  const lines = source.split("\n");
+
+  // Step 1: build a "clean" copy of the source where comments and string
+  // contents are replaced with spaces, so column positions are preserved
+  // but we don't tokenize their contents.
+  const clean = lines.map((l) => l.split(""));
+  let inBlockComment = false;
+  for (let i = 0; i < lines.length; i++) {
+    const row = clean[i];
+    let inString = false;
+    for (let j = 0; j < row.length; j++) {
+      const c = row[j];
+      const next = row[j + 1];
+      if (inBlockComment) {
+        if (c === "*" && next === "/") {
+          row[j] = " "; row[j + 1] = " "; j++;
+          inBlockComment = false;
+        } else {
+          row[j] = " ";
+        }
+        continue;
+      }
+      if (inString) {
+        if (c === "\\" && next !== undefined) { row[j] = " "; row[j + 1] = " "; j++; continue; }
+        if (c === '"') { inString = false; continue; }
+        row[j] = " ";
+        continue;
+      }
+      if (c === "/" && next === "/") {
+        for (let k = j; k < row.length; k++) row[k] = " ";
+        break;
+      }
+      if (c === "/" && next === "*") {
+        row[j] = " "; row[j + 1] = " "; j++;
+        inBlockComment = true;
+        continue;
+      }
+      if (c === '"') { inString = true; continue; }
+    }
+  }
+
+  // Step 2: tokenize the cleaned source into delimiters and identifiers,
+  // tracking (line, ch) positions.
+  const stack = []; // { type, open, line, ch, length }
+  const closers = { ")": "(", "]": "[", "}": "{" };
+  const openerNames = { "(": "parenthesis", "[": "bracket", "{": "brace" };
+
+  for (let i = 0; i < clean.length; i++) {
+    const row = clean[i].join("");
+    let j = 0;
+    while (j < row.length) {
+      const c = row[j];
+      if (/\s/.test(c)) { j++; continue; }
+      if (c === "(" || c === "[" || c === "{") {
+        stack.push({ type: c, open: c, line: i, ch: j, length: 1, kind: "paren" });
+        j++;
+        continue;
+      }
+      if (c === ")" || c === "]" || c === "}") {
+        const expected = closers[c];
+        const top = stack[stack.length - 1];
+        if (!top || top.kind !== "paren" || top.open !== expected) {
+          errors.push({
+            from: { line: i, ch: j },
+            to: { line: i, ch: j + 1 },
+            msg: `Unmatched closing ${openerNames[expected] || c} '${c}'`,
+          });
+        } else {
+          stack.pop();
+        }
+        j++;
+        continue;
+      }
+      // Identifier / keyword
+      if (/[A-Za-z_]/.test(c)) {
+        let k = j + 1;
+        while (k < row.length && /[\w$]/.test(row[k])) k++;
+        const word = row.slice(j, k);
+        if (VERILOG_BLOCK_OPENERS.has(word)) {
+          stack.push({
+            type: word, open: word, line: i, ch: j, length: word.length, kind: "block",
+          });
+        } else if (VERILOG_BLOCK_CLOSERS.has(word)) {
+          // Find nearest matching block opener on the stack.
+          let matched = false;
+          for (let s = stack.length - 1; s >= 0; s--) {
+            const f = stack[s];
+            if (f.kind !== "block") continue;
+            const allowed = VERILOG_BLOCK_PAIRS[f.open] || [];
+            if (allowed.includes(word)) {
+              // Anything above this frame is unclosed.
+              for (let t = stack.length - 1; t > s; t--) {
+                const u = stack[t];
+                errors.push({
+                  from: { line: u.line, ch: u.ch },
+                  to: { line: u.line, ch: u.ch + u.length },
+                  msg: `Unclosed '${u.open}' (missing matching closer)`,
+                });
+              }
+              stack.length = s;
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) {
+            errors.push({
+              from: { line: i, ch: j },
+              to: { line: i, ch: j + word.length },
+              msg: `Unmatched '${word}' with no opening block`,
+            });
+          }
+        }
+        j = k;
+        continue;
+      }
+      j++;
+    }
+  }
+
+  if (inBlockComment) {
+    errors.push({
+      from: { line: lines.length - 1, ch: 0 },
+      to: { line: lines.length - 1, ch: (lines[lines.length - 1] || "").length },
+      msg: "Unterminated block comment '/* … */'",
+    });
+  }
+
+  // Anything left on the stack is an unclosed opener.
+  for (const f of stack) {
+    errors.push({
+      from: { line: f.line, ch: f.ch },
+      to: { line: f.line, ch: f.ch + f.length },
+      msg: f.kind === "paren"
+        ? `Unclosed ${openerNames[f.open]} '${f.open}'`
+        : `Unclosed '${f.open}' (missing matching closer)`,
+    });
+  }
+
+  return errors;
+}
+
+function clearLintMarks(cm) {
+  for (const m of codeEditorState.lintMarks) {
+    try { m.clear(); } catch (_) {}
+  }
+  codeEditorState.lintMarks = [];
+  try { cm.clearGutter("cm-lint-gutter"); } catch (_) {}
+}
+
+function normalizeLintError(cm, err) {
+  if (!cm || !err) return null;
+  const totalLines = Math.max(1, cm.lineCount());
+  const lineIdx = Math.max(0, Math.min(totalLines - 1, (err.line || 1) - 1));
+  const lineText = cm.getLine(lineIdx) || "";
+  let from = err.from || err._from || { line: lineIdx, ch: 0 };
+  let to = err.to || err._to || { line: lineIdx, ch: lineText.length };
+
+  if (!err.from && !err._from && err.token) {
+    const idx = lineText.indexOf(err.token);
+    if (idx >= 0) {
+      from = { line: lineIdx, ch: idx };
+      to = { line: lineIdx, ch: idx + err.token.length };
+    }
+  }
+
+  if (from.line !== to.line && to.ch === 0 && to.line > from.line) {
+    to = { line: from.line, ch: (cm.getLine(from.line) || "").length };
+  }
+  if (from.line === to.line && from.ch === to.ch) {
+    to = { line: from.line, ch: Math.min(from.ch + 1, (cm.getLine(from.line) || "").length || from.ch + 1) };
+  }
+
+  return {
+    line: lineIdx + 1,
+    from,
+    to,
+    message: err.message || err.msg || "Syntax error",
+  };
+}
+
+function renderLintErrors(cm, errors) {
+  clearLintMarks(cm);
+  const byLine = new Map();
+  const seen = new Set();
+  const normalizedErrors = [];
+  for (const err of errors) {
+    const normalized = normalizeLintError(cm, err);
+    if (!normalized) continue;
+    const key = `${normalized.from.line}:${normalized.from.ch}:${normalized.to.line}:${normalized.to.ch}:${normalized.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalizedErrors.push(normalized);
+  }
+  for (const err of normalizedErrors) {
+    const lineIdx = err.from.line;
+    const mark = cm.markText(err.from, err.to, {
+      className: "cm-lint-error",
+      title: err.message,
+    });
+    codeEditorState.lintMarks.push(mark);
+    const lineHandle = cm.addLineClass(lineIdx, "background", "cm-lint-error-line");
+    codeEditorState.lintMarks.push({
+      clear: () => cm.removeLineClass(lineHandle, "background", "cm-lint-error-line"),
+    });
+    if (!byLine.has(lineIdx)) byLine.set(lineIdx, []);
+    byLine.get(lineIdx).push(err.message);
+  }
+  for (const [line, msgs] of byLine.entries()) {
+    const marker = document.createElement("div");
+    marker.className = "cm-lint-gutter-marker";
+    marker.title = msgs.join("\n");
+    marker.textContent = "!";
+    try { cm.setGutterMarker(line, "cm-lint-gutter", marker); } catch (_) {}
+  }
+  const statusEl = document.getElementById("codeEditorStatus");
+  if (statusEl) {
+    updateEditorLintStatus(
+      normalizedErrors.length
+        ? normalizedErrors.length === 1
+          ? `Line ${normalizedErrors[0].line}: ${normalizedErrors[0].message}`
+          : `${normalizedErrors.length} syntax issues. First: line ${normalizedErrors[0].line}: ${normalizedErrors[0].message}`
+        : "No syntax issues",
+      normalizedErrors.length > 0,
+    );
+  }
+}
+
+async function applyLint(cm) {
+  if (!cm) return;
+  const localErrors = verilogLint(cm.getValue()).map((e) => ({
+    line: e.from.line + 1,
+    token: null,
+    message: e.msg,
+    _local: true,
+    _from: e.from,
+    _to: e.to,
+  }));
+  let serverErrors = [];
+  try {
+    const resp = await apiRequest("/api/lint/verilog", {
+      method: "POST",
+      body: JSON.stringify({ content: cm.getValue() }),
+    });
+    if (resp && Array.isArray(resp.errors)) serverErrors = resp.errors;
+  } catch (_) {
+  }
+  renderLintErrors(cm, [...serverErrors, ...localErrors]);
+}
+
+function scheduleLint(cm) {
+  if (codeEditorState.lintTimer) clearTimeout(codeEditorState.lintTimer);
+  codeEditorState.lintTimer = setTimeout(() => applyLint(cm), 350);
+}
+
+// ── Veritas overlay tokenizer ──────────────────────────────────────
+// CodeMirror's stock verilog mode tags both module type names and named-port
+// connection arguments as plain `cm-variable`, so a CSS-only theme cannot
+// color them differently. This overlay walks the source line by line and
+// emits two extra token classes:
+//   vt-module    — the type name in `Foo bar (...)` instantiations
+//   vt-arg       — identifiers appearing inside `.port(<here>)` connections
+// CodeMirror prefixes overlay token names with `cm-`, so the resulting CSS
+// classes are `cm-vt-module` and `cm-vt-arg` (themed in styles.css).
+const VERITAS_VERILOG_KEYWORDS = new Set([
+  "module", "endmodule", "if", "else", "for", "while", "case", "casex", "casez",
+  "endcase", "begin", "end", "always", "always_ff", "always_comb", "always_latch",
+  "assign", "wire", "reg", "logic", "input", "output", "inout", "parameter",
+  "localparam", "function", "endfunction", "task", "endtask", "initial",
+  "generate", "endgenerate", "genvar", "integer", "real", "time", "return",
+  "default", "forever", "repeat", "do", "fork", "join", "typedef", "struct",
+  "union", "enum", "interface", "endinterface", "modport", "package",
+  "endpackage", "import", "export", "automatic", "static", "const", "var",
+  "void", "bit", "byte", "int", "longint", "shortint", "shortreal", "string",
+  "signed", "unsigned", "negedge", "posedge", "or", "and", "not", "xor",
+  "xnor", "nand", "nor", "buf", "supply0", "supply1", "tri", "wand", "wor",
+]);
+
+const veritasVerilogOverlay = {
+  startState: () => ({
+    argDepth: 0,
+    pendingPortArg: false,
+    moduleTypeStart: null,
+    moduleTypeEnd: null,
+  }),
+  copyState: (s) => ({
+    argDepth: s.argDepth,
+    pendingPortArg: s.pendingPortArg,
+    moduleTypeStart: s.moduleTypeStart,
+    moduleTypeEnd: s.moduleTypeEnd,
+  }),
+  token(stream, state) {
+    // ── Inside a port-connection's argument list ──
+    if (state.argDepth > 0) {
+      const ch = stream.peek();
+      if (ch === "(") { stream.next(); state.argDepth++; return null; }
+      if (ch === ")") { stream.next(); state.argDepth--; return null; }
+      if (ch === "\\") {
+        stream.next();
+        stream.eatWhile(/[^\s,;(){}\[\]]/);
+        return "vt-arg";
+      }
+      // Identifier → mark as a connection argument.
+      if (/[A-Za-z_]/.test(ch)) {
+        stream.eatWhile(/[\w$]/);
+        return "vt-arg";
+      }
+      // Skip strings, numbers, operators, whitespace — leave them to the base mode.
+      stream.next();
+      return null;
+    }
+
+    if (state.pendingPortArg) {
+      const ch = stream.peek();
+      if (ch === null) {
+        state.pendingPortArg = false;
+      } else if (/\s/.test(ch)) {
+        stream.next();
+        return null;
+      } else if (ch === "(") {
+        stream.next();
+        state.argDepth = 1;
+        state.pendingPortArg = false;
+        return null;
+      } else {
+        state.pendingPortArg = false;
+      }
+    }
+
+    // ── At start of line: try to detect a module instantiation header ──
+    // Pattern (allowing optional `#(...)` parameter block):
+    //     <indent><TYPE> [#(...)] <INSTANCE> (
+    if (stream.sol()) {
+      const rest = stream.string.slice(stream.pos);
+      const m = rest.match(
+        /^(\s*)([A-Za-z_]\w*)\s*(?:#\s*\([^)]*\))?\s+([A-Za-z_]\w*)\s*\(/,
+      );
+      if (m && !VERITAS_VERILOG_KEYWORDS.has(m[2])) {
+        state.moduleTypeStart = stream.pos + m[1].length;
+        state.moduleTypeEnd = state.moduleTypeStart + m[2].length;
+      }
+    }
+
+    // ── Emit the module type token when we reach its column ──
+    if (
+      state.moduleTypeStart !== null &&
+      stream.pos === state.moduleTypeStart
+    ) {
+      while (stream.pos < state.moduleTypeEnd) stream.next();
+      state.moduleTypeStart = null;
+      state.moduleTypeEnd = null;
+      return "vt-module";
+    }
+
+    // ── Detect `.identifier(` and arm argument highlighting at `(` ──
+    if (stream.peek() === ".") {
+      const rest = stream.string.slice(stream.pos);
+      if (/^\.[A-Za-z_]\w*\s*\(/.test(rest)) {
+        state.pendingPortArg = true;
+      }
+      stream.next();
+      return null;
+    }
+
+    stream.next();
+    return null;
+  },
+};
+
+function ensureCodeMirror() {
+  if (codeEditorState.cm) {
+    // Make sure the lint gutter and change listener exist on instances
+    // that may have been constructed before the linter shipped.
+    const cm = codeEditorState.cm;
+    const gutters = cm.getOption("gutters") || [];
+    if (!gutters.includes("cm-lint-gutter")) {
+      cm.setOption("gutters", [...gutters, "cm-lint-gutter"]);
+    }
+    if (!codeEditorState.lintBound) {
+      cm.on("change", () => handleEditorChange(cm));
+      codeEditorState.lintBound = true;
+    }
+    return cm;
+  }
+  const ta = document.getElementById("codeEditorTextarea");
+  if (!ta || typeof CodeMirror === "undefined") return null;
+  codeEditorState.cm = CodeMirror.fromTextArea(ta, {
+    mode: "verilog",
+    theme: "material-darker",
+    lineNumbers: true,
+    indentUnit: 2,
+    tabSize: 2,
+    inputStyle: "textarea",
+    lineWrapping: false,
+    matchBrackets: true,
+    gutters: ["CodeMirror-linenumbers", "cm-lint-gutter"],
+  });
+  const inputField = codeEditorState.cm.getInputField?.();
+  if (inputField) {
+    inputField.setAttribute("spellcheck", "false");
+    inputField.setAttribute("autocorrect", "off");
+    inputField.setAttribute("autocapitalize", "off");
+  }
+  // Layer the Veritas overlay on top of the base verilog mode so module
+  // types and port-connection arguments get their own token classes.
+  codeEditorState.cm.addOverlay(veritasVerilogOverlay);
+  codeEditorState.cm.on("change", () => handleEditorChange(codeEditorState.cm));
+  codeEditorState.lintBound = true;
+  return codeEditorState.cm;
+}
+
+function setEditorStatus(text, kind = "info", options = {}) {
+  const { sticky = false } = options;
+  codeEditorState.statusSticky = sticky;
+  codeEditorState.statusKind = kind;
+
+  const el = document.getElementById("codeEditorStatus");
+  if (!el) return;
+  el.textContent = text || "";
+  el.classList.toggle("has-errors", kind === "error");
+  el.classList.toggle("has-warning", kind === "warning");
+}
+
+function clearEditorStickyStatus() {
+  if (!codeEditorState.statusSticky) return;
+  codeEditorState.statusSticky = false;
+}
+
+function updateEditorLintStatus(text, hasErrors) {
+  if (codeEditorState.statusSticky) return;
+  setEditorStatus(text, hasErrors ? "error" : "info");
+}
+
+function handleEditorChange(cm) {
+  clearEditorStickyStatus();
+  scheduleLint(cm);
+}
+
+async function openModuleCodeEditor(moduleName, options = {}) {
+  const overlay = document.getElementById("codeEditorOverlay");
+  const titleEl = document.getElementById("codeEditorTitle");
+  const pathEl = document.getElementById("codeEditorPath");
+  if (!overlay) return;
+
+  overlay.classList.remove("hidden");
+  titleEl.textContent = `Module Source — ${moduleName}`;
+  pathEl.textContent = "Loading...";
+  setEditorStatus("Loading...", "info");
+
+  // CodeMirror can mis-measure when created immediately after a display:none
+  // overlay becomes visible; wait for the visible layout to paint first.
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+  const cm = ensureCodeMirror();
+  if (cm) {
+    cm.refresh();
+    cm.setValue("");
+  }
+
+  try {
+    const data = await apiRequest(`/api/project/modules/${encodeURIComponent(moduleName)}/source`);
+    codeEditorState.module = moduleName;
+    codeEditorState.path = data.path || "";
+    codeEditorState.original = data.content || "";
+    pathEl.textContent = codeEditorState.path;
+    if (cm) {
+      cm.setValue(codeEditorState.original);
+      cm.clearHistory();
+      requestAnimationFrame(() => {
+        cm.refresh();
+        if (options.jumpToInstance) {
+          jumpToInstantiation(cm, options.jumpToInstance);
+        }
+        applyLint(cm);
+      });
+    }
+  } catch (error) {
+    setEditorStatus(`Failed to load: ${error.message}`, "error", { sticky: true });
+    pathEl.textContent = "";
+  }
+}
+
+function jumpToInstantiation(cm, target) {
+  if (!cm || !target) return false;
+  const { instanceName, childModule } = target;
+  if (!childModule) {
+    setEditorStatus("Missing child module name for instantiation lookup.", "warning", { sticky: true });
+    return false;
+  }
+
+  // Comment-stripped buffer (preserving offsets) so commented-out code is
+  // ignored when locating the instantiation.
+  const raw = cm.getValue();
+  const sanitized = raw
+    .replace(/\/\*[\s\S]*?\*\//g, (s) => " ".repeat(s.length))
+    .replace(/\/\/[^\n]*/g, (s) => " ".repeat(s.length));
+
+  const escapedChild = childModule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // A Verilog instantiation looks like:
+  //     <child_module> [#( params )] <instance_name> ( ... );
+  // We try the most specific match first (with the instance name), then fall
+  // back to just the child-module + identifier + `(` pattern.
+
+  let identIndex = -1;
+  let identLength = 0;
+
+  if (instanceName) {
+    const escapedInst = instanceName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Allow optional `#(...)` parameter block between the type and the name.
+    // Use a tolerant `[^;]*?` so multi-line param blocks still match, but the
+    // `;` boundary keeps us from running across statements.
+    const specific = new RegExp(
+      `\\b${escapedChild}\\b[^;]*?\\b${escapedInst}\\b\\s*\\(`,
+    );
+    const m = specific.exec(sanitized);
+    if (m) {
+      identIndex = m.index + m[0].lastIndexOf(instanceName);
+      identLength = instanceName.length;
+    }
+  }
+
+  if (identIndex < 0) {
+    // Fallback: any `<child_module> <ident> (` — useful when instance_name
+    // is unknown or doesn't match (e.g. generate-block expansion).
+    const generic = new RegExp(
+      `\\b${escapedChild}\\b\\s*(?:#\\s*\\([^;]*?\\))?\\s*([A-Za-z_][A-Za-z0-9_$]*)\\s*\\(`,
+    );
+    const m = generic.exec(sanitized);
+    if (m) {
+      identIndex = m.index + m[0].indexOf(m[1]);
+      identLength = m[1].length;
+    }
+  }
+
+  if (identIndex < 0) {
+    setEditorStatus(
+      `Could not locate instantiation of "${childModule}"${instanceName ? ` (${instanceName})` : ""} in this file.`,
+      "warning",
+      { sticky: true },
+    );
+    return false;
+  }
+
+  const fromPos = cm.posFromIndex(identIndex);
+  const toPos = cm.posFromIndex(identIndex + identLength);
+
+  cm.focus();
+  cm.setSelection(fromPos, toPos);
+  const margin = Math.floor(cm.getScrollerElement().offsetHeight / 3);
+  cm.scrollIntoView({ from: fromPos, to: toPos }, margin);
+
+  const lineHandle = cm.addLineClass(fromPos.line, "background", "cm-jump-highlight");
+  setTimeout(() => {
+    cm.removeLineClass(lineHandle, "background", "cm-jump-highlight");
+  }, 1500);
+
+  setEditorStatus(
+    `Jumped to line ${fromPos.line + 1}: instantiation of ${childModule}${instanceName ? ` (${instanceName})` : ""}.`,
+    "info",
+  );
+  return true;
+}
+
+function closeModuleCodeEditor() {
+  const overlay = document.getElementById("codeEditorOverlay");
+  if (overlay) overlay.classList.add("hidden");
+  codeEditorState.module = null;
+  codeEditorState.path = null;
+  codeEditorState.original = "";
+}
+
+async function saveModuleCodeEditor() {
+  const cm = codeEditorState.cm;
+  if (!cm || !codeEditorState.module) return;
+  const content = cm.getValue();
+  const moduleToReload = state.selectedModule;
+  const breadcrumbToReload = state.breadcrumb.length ? [...state.breadcrumb] : [];
+
+  const saveBtn = document.getElementById("codeEditorSave");
+  const discardBtn = document.getElementById("codeEditorDiscard");
+  if (saveBtn) saveBtn.disabled = true;
+  if (discardBtn) discardBtn.disabled = true;
+  setEditorStatus("Saving and re-parsing project...", "info");
+
+  try {
+    const saveResp = await apiRequest(`/api/project/modules/${encodeURIComponent(codeEditorState.module)}/source`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    });
+    codeEditorState.original = content;
+    const warning = saveResp && saveResp.reparse && saveResp.reparse.warning;
+    if (warning) {
+      const detail = saveResp && saveResp.reparse && saveResp.reparse.error;
+      setEditorStatus(detail ? `${warning} ${detail}` : warning, "warning", { sticky: true });
+      setStatus("Saved with parse warning", "warn");
+      return;
+    }
+    setEditorStatus("Saved. Refreshing viewer...", "info");
+
+    // Re-parse already happened on the server. Refresh the project listing
+    // and reload the currently focused module's graph so the viewer updates.
+    try {
+      await refreshProject();
+      if (moduleToReload && state.modules.includes(moduleToReload)) {
+        await loadGraph(
+          moduleToReload,
+          breadcrumbToReload.length ? breadcrumbToReload : [moduleToReload],
+        );
+      }
+      setStatus("Module updated", "ok");
+      setEditorStatus("Saved.", "info");
+    } catch (refreshErr) {
+      setEditorStatus(`Saved, but refresh failed: ${refreshErr.message}`, "warning", { sticky: true });
+    }
+  } catch (error) {
+    setEditorStatus(`Save failed: ${error.message}`, "error", { sticky: true });
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+    if (discardBtn) discardBtn.disabled = false;
+  }
+}
+
+function discardModuleCodeEditor() {
+  const cm = codeEditorState.cm;
+  if (!cm) return;
+  cm.setValue(codeEditorState.original || "");
+  setEditorStatus("Changes discarded.", "info");
+}
+
+document.getElementById("codeEditorClose")?.addEventListener("click", closeModuleCodeEditor);
+document.getElementById("codeEditorSave")?.addEventListener("click", saveModuleCodeEditor);
+document.getElementById("codeEditorDiscard")?.addEventListener("click", discardModuleCodeEditor);
+document.getElementById("codeEditorOverlay")?.addEventListener("click", (ev) => {
+  if (ev.target && ev.target.id === "codeEditorOverlay") closeModuleCodeEditor();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") {
+    const overlay = document.getElementById("codeEditorOverlay");
+    if (overlay && !overlay.classList.contains("hidden")) closeModuleCodeEditor();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Collapsible side panels (hierarchy + inspector)
+// ═══════════════════════════════════════════════════════════════════
+(function setupPanelToggles() {
+  const workspace = document.getElementById("workspace");
+  const leftBtn = document.getElementById("toggleLeftPanel");
+  const rightBtn = document.getElementById("toggleRightPanel");
+  if (!workspace) return;
+
+  function afterResize() {
+    // Cytoscape needs an explicit resize when its container size changes,
+    // otherwise the canvas keeps its old dimensions and clips the schematic.
+    if (state.cy) {
+      // Wait one frame so the grid has reflowed.
+      requestAnimationFrame(() => {
+        state.cy.resize();
+        if (state.cy.elements().length) state.cy.fit(undefined, 30);
+      });
+    }
+  }
+
+  function togglePanel(side) {
+    const cls = side === "left" ? "left-collapsed" : "right-collapsed";
+    const collapsed = workspace.classList.toggle(cls);
+    const btn = side === "left" ? leftBtn : rightBtn;
+    if (btn) {
+      const labelHide = side === "left" ? "Hide hierarchy" : "Hide inspector";
+      const labelShow = side === "left" ? "Show hierarchy" : "Show inspector";
+      btn.title = collapsed ? labelShow : labelHide;
+      btn.setAttribute("aria-label", collapsed ? labelShow : labelHide);
+    }
+    afterResize();
+  }
+
+  leftBtn?.addEventListener("click", () => togglePanel("left"));
+  rightBtn?.addEventListener("click", () => togglePanel("right"));
+})();
