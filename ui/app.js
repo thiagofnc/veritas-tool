@@ -1034,6 +1034,15 @@ function ensureCytoscape() {
         },
       },
       {
+        selector: "node.signal-trace-step-active",
+        style: {
+          "border-color": "#f59e0b",
+          "border-width": 4,
+          "z-index": 200,
+          opacity: 1,
+        },
+      },
+      {
         selector: "node.signal-trace-dimmed",
         style: {
           opacity: 0.2,
@@ -1143,11 +1152,12 @@ function ensureCytoscape() {
 
   function clearSignalTrace() {
     state.cy.elements(
-      ".signal-trace-upstream, .signal-trace-downstream, .signal-trace-origin, .signal-trace-dimmed"
+      ".signal-trace-upstream, .signal-trace-downstream, .signal-trace-origin, .signal-trace-dimmed, .signal-trace-step-active"
     ).removeClass(
-      "signal-trace-upstream signal-trace-downstream signal-trace-origin signal-trace-dimmed"
+      "signal-trace-upstream signal-trace-downstream signal-trace-origin signal-trace-dimmed signal-trace-step-active"
     );
     state.signalTrace = null;
+    clearLocalTraceSteps();
   }
 
   function buildTraceGraph() {
@@ -1305,6 +1315,9 @@ function ensureCytoscape() {
 
   function applySignalTrace(startPortId, keepHistory) {
     if (!keepHistory) signalTraceHistory.length = 0;
+    // Cap history stacks
+    while (signalTraceHistory.length > TRACE_HISTORY_CAP) signalTraceHistory.shift();
+    while (signalTraceFuture.length > TRACE_HISTORY_CAP) signalTraceFuture.shift();
     clearSignalTrace();
     clearRelationHighlights();
     state.cy.elements(".netlabel-highlighted, .netlabel-endpoint").removeClass("netlabel-highlighted netlabel-endpoint");
@@ -1407,6 +1420,10 @@ function ensureCytoscape() {
         }
       }
     });
+
+    // Build local step-through list from the trace
+    localTraceStepList = buildLocalTraceStepList(trace);
+    localTraceStepIndex = 0; // start at origin
 
     renderSignalTracePanel(trace);
   }
@@ -3538,16 +3555,188 @@ function applyCrossTraceHighlights(trace) {
 }
 
 // Cross-module trace navigation history for forward stepping.
+const TRACE_HISTORY_CAP = 50;
 const crossTraceHistory = [];
 const crossTraceFuture = [];
+
+// Step-through state for walking the local trace path one node at a time.
+let localTraceStepList = [];   // flat ordered list of waypoints in the current schematic
+let localTraceStepIndex = -1;  // current active step (-1 = none)
+
+// Build a linear step list from the local trace.
+// Each step: { portId, cyNode (resolved later), description, detail, color }
+// Order: downstream steps in BFS order (origin first, then each waypoint
+// the signal flows through in the current schematic).
+function buildLocalTraceStepList(trace) {
+  if (!trace || !state.cy) return [];
+  const steps = [];
+
+  // Helper: look up the parent instance/block data from the graph
+  function getParentData(portId) {
+    const node = state.cy.getElementById(portId);
+    if (!node || node.empty()) return null;
+    const d = node.data();
+    const pid = d.parent_node_id || d.instance_node_id || d.process_node_id;
+    if (!pid) return null;
+    const parent = state.cy.getElementById(pid);
+    if (!parent || parent.empty()) return null;
+    return parent.data();
+  }
+
+  // Describe what is happening at a step
+  function describeStep(step) {
+    const node = state.cy.getElementById(step.portId);
+    if (!node || node.empty()) return { desc: step.portName, detail: "" };
+    const d = node.data();
+    const kind = d.kind || "";
+    const parentData = getParentData(step.portId);
+
+    // Module IO ports
+    if (kind === "module_io") {
+      const dir = (d.direction || "").toLowerCase();
+      if (dir === "input") {
+        return { desc: `Module input: ${step.portName}`, detail: "Signal enters this module from outside" };
+      }
+      if (dir === "output") {
+        return { desc: `Module output: ${step.portName}`, detail: "Signal leaves this module" };
+      }
+      return { desc: `Module port: ${step.portName}`, detail: "" };
+    }
+
+    // Instance/process ports
+    if (kind === "instance_port" || kind === "process_port") {
+      const dir = (d.direction || "").toLowerCase();
+      const instLabel = step.parentLabel || "(block)";
+      const netInfo = step.netName ? ` via ${step.netName}` : "";
+
+      if (step.crossedInstance) {
+        // This is an output of an instance the signal passed through
+        if (parentData) {
+          const modType = parentData.module_name || parentData.always_kind || parentData.gate_type || "";
+          const modInfo = modType ? ` (${modType})` : "";
+          return {
+            desc: `${instLabel}${modInfo} produces ${step.portName}`,
+            detail: `Signal passes through ${instLabel} and exits as ${step.portName}`,
+          };
+        }
+        return { desc: `${instLabel} produces ${step.portName}`, detail: "Signal exits this block" };
+      }
+
+      if (dir === "input") {
+        return {
+          desc: `${step.portName} enters ${instLabel}`,
+          detail: `Signal${netInfo} connects to input ${step.portName} of ${instLabel}`,
+        };
+      }
+      if (dir === "output") {
+        return {
+          desc: `${instLabel} drives ${step.portName}`,
+          detail: `Output ${step.portName} of ${instLabel}`,
+        };
+      }
+      return { desc: `${instLabel}.${step.portName}`, detail: netInfo };
+    }
+
+    return { desc: step.portName || step.portId, detail: "" };
+  }
+
+  // Origin step
+  const origin = trace.origin;
+  const originDesc = describeStep(origin);
+  steps.push({
+    portId: origin.portId,
+    portName: origin.portName,
+    parentLabel: origin.parentLabel,
+    direction: "origin",
+    color: "#22d3ee",
+    ...originDesc,
+  });
+
+  // Downstream steps (signal flows forward from origin)
+  for (const step of trace.downstream) {
+    const desc = describeStep(step);
+    steps.push({
+      portId: step.portId,
+      portName: step.portName,
+      parentLabel: step.parentLabel,
+      netName: step.netName,
+      crossedInstance: step.crossedInstance,
+      direction: "downstream",
+      color: "#60a5fa",
+      ...desc,
+    });
+  }
+
+  return steps;
+}
+
+function goToLocalTraceStep(index) {
+  if (index < 0 || index >= localTraceStepList.length || !state.cy) return;
+  localTraceStepIndex = index;
+  const step = localTraceStepList[index];
+
+  // Clear previous step-active highlight
+  state.cy.nodes(".signal-trace-step-active").removeClass("signal-trace-step-active");
+
+  // Find and center on the node
+  const node = state.cy.getElementById(step.portId);
+  if (node && !node.empty()) {
+    node.removeClass("signal-trace-dimmed").addClass("signal-trace-step-active");
+    // Also un-dim parent instance
+    const pid = node.data("parent_node_id") || node.data("instance_node_id") || node.data("process_node_id");
+    if (pid) {
+      const parent = state.cy.getElementById(pid);
+      if (parent && !parent.empty()) parent.removeClass("signal-trace-dimmed");
+    }
+    const targetZoom = Math.max(state.cy.zoom(), 1);
+    state.cy.animate({
+      center: { eles: node },
+      zoom: targetZoom,
+      duration: 250,
+    });
+  }
+
+  // Re-render the panel so button states and description update
+  if (state.signalTrace) {
+    renderSignalTracePanel(state.signalTrace);
+  }
+}
+
+function localTraceStepNext() {
+  if (localTraceStepList.length === 0) return;
+  const next = localTraceStepIndex + 1;
+  if (next < localTraceStepList.length) goToLocalTraceStep(next);
+}
+
+function localTraceStepPrev() {
+  if (localTraceStepList.length === 0) return;
+  const prev = localTraceStepIndex - 1;
+  if (prev >= 0) goToLocalTraceStep(prev);
+}
+
+function clearLocalTraceSteps() {
+  localTraceStepList = [];
+  localTraceStepIndex = -1;
+  if (state.cy) state.cy.nodes(".signal-trace-step-active").removeClass("signal-trace-step-active");
+}
 
 async function requestCrossModuleTrace(moduleName, signal, keepHistory) {
   if (!keepHistory) {
     crossTraceHistory.length = 0;
     crossTraceFuture.length = 0;
   }
+  // Cap history stacks
+  while (crossTraceHistory.length > TRACE_HISTORY_CAP) crossTraceHistory.shift();
+  while (crossTraceFuture.length > TRACE_HISTORY_CAP) crossTraceFuture.shift();
+
   try {
     setStatus(`Tracing ${moduleName}.${signal}...`, "loading");
+    // Show inline loading indicator on the panel if it exists
+    const existingPanel = document.getElementById("crossTracePanel");
+    if (existingPanel) {
+      existingPanel.style.opacity = "0.5";
+      existingPanel.style.pointerEvents = "none";
+    }
     const response = await fetch(`${API_BASE}/api/signal/trace`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3560,30 +3749,39 @@ async function requestCrossModuleTrace(moduleName, signal, keepHistory) {
     const trace = await response.json();
     applyCrossTraceHighlights(trace);
     renderCrossModuleTracePanel(trace);
+
     setStatus(
       `Trace: ${trace.fanin.length} upstream, ${trace.fanout.length} downstream${trace.truncated ? " (truncated)" : ""}`,
       "ok"
     );
   } catch (exc) {
     setStatus(`Trace failed: ${exc.message || exc}`, "error");
+  } finally {
+    // Always restore the panel to interactive state
+    const panel = document.getElementById("crossTracePanel");
+    if (panel) {
+      panel.style.opacity = "";
+      panel.style.pointerEvents = "";
+    }
   }
 }
 
 // ── Trace rendering: role/op helpers ────────────────────────────────────
 const TRACE_ROLE_STYLE = {
-  driver:    { color: "#22d3ee", label: "DRIVER" },
-  compute:   { color: "#facc15", label: "COMPUTE" },
-  pipeline:  { color: "#f472b6", label: "SEQUENTIAL" },
-  transport: { color: "#a1a1aa", label: "TRANSPORT" },
-  load:      { color: "#60a5fa", label: "LOAD" },
-  unknown:   { color: "#71717a", label: "STEP" },
+  driver:    { color: "#22d3ee", label: "DRIVER",     tip: "This signal drives the traced path" },
+  compute:   { color: "#facc15", label: "COMPUTE",    tip: "Combinational logic that transforms the signal" },
+  pipeline:  { color: "#f472b6", label: "SEQUENTIAL", tip: "Clocked register / pipeline stage (non-blocking assignment)" },
+  transport: { color: "#a1a1aa", label: "TRANSPORT",  tip: "Signal passes through a module boundary or instance pin" },
+  load:      { color: "#60a5fa", label: "LOAD",       tip: "This signal is consumed here" },
+  dead_end:  { color: "#ef4444", label: "DEAD END",   tip: "No further connections found in this direction" },
+  unknown:   { color: "#71717a", label: "STEP",       tip: "Trace step" },
 };
 
 const TRACE_OP_BADGE = {
-  arithmetic: { color: "#fb923c", label: "+−×" },
-  comparison: { color: "#a78bfa", label: "=?" },
-  logic:      { color: "#34d399", label: "&|^" },
-  mux:        { color: "#e879f9", label: "MUX" },
+  arithmetic: { color: "#fb923c", label: "+\u2212\u00d7", tip: "Arithmetic operation (add, subtract, multiply, shift)" },
+  comparison: { color: "#a78bfa", label: "=?",  tip: "Comparison operation (==, !=, <, >)" },
+  logic:      { color: "#34d399", label: "&|^", tip: "Bitwise/logic operation (AND, OR, XOR, NOT)" },
+  mux:        { color: "#e879f9", label: "MUX", tip: "Multiplexer / conditional select (ternary, case)" },
   wire:       null,
 };
 
@@ -3683,7 +3881,7 @@ function renderTraceBadges(group) {
     const badge = TRACE_OP_BADGE[op];
     if (!badge) continue;
     parts.push(
-      `<span style="background:rgba(255,255,255,0.04);color:${badge.color};padding:0 5px;border-radius:8px;font-size:9px;margin-left:4px;border:1px solid ${badge.color}33;">${badge.label}</span>`
+      `<span title="${escapeHtml(badge.tip || badge.label)}" style="background:rgba(255,255,255,0.04);color:${badge.color};padding:0 5px;border-radius:8px;font-size:9px;margin-left:4px;border:1px solid ${badge.color}33;cursor:help;">${badge.label}</span>`
     );
   }
   return parts.join("");
@@ -3735,7 +3933,7 @@ function renderCrossModuleTracePanel(trace) {
     return `
       <div class="xtrace-hop" data-hop-dir="${direction}" data-hop-idx="${index}" data-trace-module="${escapeHtml(group.next_module || group.module)}" data-trace-signal="${escapeHtml(group.next_signal || group.signal)}" style="margin:3px 0;padding:5px 8px;border-left:2.5px solid ${accentColor};background:rgba(255,255,255,0.025);border-radius:0 4px 4px 0;transition:background 0.1s;cursor:pointer;">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-          <span style="display:inline-block;background:${roleStyle.color}22;color:${roleStyle.color};padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:0.06em;flex-shrink:0;">${roleStyle.label}</span>
+          <span title="${escapeHtml(roleStyle.tip || roleStyle.label)}" style="display:inline-block;background:${roleStyle.color}22;color:${roleStyle.color};padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:0.06em;flex-shrink:0;cursor:help;">${roleStyle.label}</span>
           <span style="color:#e4e4e7;font-size:12px;">${escapeHtml(headline)}</span>
           ${badges}
         </div>
@@ -3824,7 +4022,7 @@ function renderCrossModuleTracePanel(trace) {
       "fanout"
     )}
 
-    ${trace.truncated ? `<div style="color:#f59e0b;margin-top:8px;font-size:10px;">Trace truncated at max depth.</div>` : ""}
+    ${trace.truncated ? `<div style="color:#f59e0b;margin-top:8px;font-size:10px;">Trace truncated at max depth — some paths were not fully explored.</div>` : ""}
     <div style="color:#52525b;margin-top:10px;font-size:10px;border-top:1px solid #27272a;padding-top:8px;">
       Click any trace row to follow the flow there.${crossTraceHistory.length > 0 || crossTraceFuture.length > 0 ? " Use Back/Forward to move through your trace path." : ""}
       Click <span style="color:#22d3ee;">module</span> to open its schematic.
@@ -3910,7 +4108,7 @@ function renderCrossModuleTracePanel(trace) {
     });
   });
 
-  // Re-trace from a signal (replaces current trace, no history push)
+  // Re-trace from a signal
   panel.querySelectorAll(".xtrace-retrace").forEach((el) => {
     el.addEventListener("click", async (ev) => {
       ev.preventDefault();
@@ -3918,8 +4116,11 @@ function renderCrossModuleTracePanel(trace) {
       const mod = ev.currentTarget.getAttribute("data-trace-module");
       const sig = ev.currentTarget.getAttribute("data-trace-signal");
       if (mod && sig) {
-        crossTraceHistory.push({ module: origin.module, signal: origin.signal });
-        crossTraceFuture.length = 0;
+        // Don't push to history if we're already tracing this exact signal
+        if (mod !== origin.module || sig !== origin.signal) {
+          crossTraceHistory.push({ module: origin.module, signal: origin.signal });
+          crossTraceFuture.length = 0;
+        }
         if (mod !== state.selectedModule) {
           await loadGraph(mod);
         }
@@ -3936,8 +4137,11 @@ function renderCrossModuleTracePanel(trace) {
       const mod = row.getAttribute("data-trace-module");
       const sig = row.getAttribute("data-trace-signal");
       if (!mod || !sig) return;
-      crossTraceHistory.push({ module: origin.module, signal: origin.signal });
-      crossTraceFuture.length = 0;
+      // Don't push to history if we're already tracing this exact signal
+      if (mod !== origin.module || sig !== origin.signal) {
+        crossTraceHistory.push({ module: origin.module, signal: origin.signal });
+        crossTraceFuture.length = 0;
+      }
       if (mod !== state.selectedModule) {
         await loadGraph(mod);
       }
@@ -4047,6 +4251,11 @@ function renderSignalTracePanel(trace) {
     ? `<button id="traceForwardBtn" style="background:none;border:1px solid #3f3f46;color:#a1a1aa;cursor:pointer;font-size:10px;padding:2px 8px;border-radius:3px;display:flex;align-items:center;gap:3px;">Forward <span>→</span></button>`
     : "";
 
+  const stepCount = localTraceStepList.length;
+  const stepIdx = localTraceStepIndex;
+  const currentStep = stepIdx >= 0 && stepIdx < stepCount ? localTraceStepList[stepIdx] : null;
+  const stepLabel = stepCount > 0 ? `${stepIdx + 1} / ${stepCount}` : "";
+
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <div style="display:flex;align-items:center;gap:8px;">
@@ -4064,11 +4273,24 @@ function renderSignalTracePanel(trace) {
       <div style="font-size:13px;font-weight:600;">${originIcon} ${escapeHtml(origin.parentLabel)}<span style="color:#71717a;">.</span>${escapeHtml(origin.portName)}</div>
     </div>
 
+    ${stepCount > 1 ? `
+    <div style="margin-bottom:10px;padding:8px 10px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.18);border-radius:5px;">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <span style="color:#f59e0b;font-size:10px;font-weight:700;letter-spacing:0.06em;flex-shrink:0;">STEP THROUGH</span>
+        <button id="localStepPrev" ${stepIdx <= 0 ? "disabled" : ""} style="background:none;border:1px solid ${stepIdx <= 0 ? "#3f3f4655" : "#f59e0b55"};color:${stepIdx <= 0 ? "#52525b" : "#f59e0b"};cursor:${stepIdx <= 0 ? "default" : "pointer"};font-size:13px;padding:1px 8px;border-radius:3px;line-height:1;" title="Previous step (upstream)">&#9650;</button>
+        <span id="localStepCounter" style="color:#e4e4e7;font-size:11px;font-weight:600;min-width:48px;text-align:center;">${stepLabel}</span>
+        <button id="localStepNext" ${stepIdx >= stepCount - 1 ? "disabled" : ""} style="background:none;border:1px solid ${stepIdx >= stepCount - 1 ? "#3f3f4655" : "#f59e0b55"};color:${stepIdx >= stepCount - 1 ? "#52525b" : "#f59e0b"};cursor:${stepIdx >= stepCount - 1 ? "default" : "pointer"};font-size:13px;padding:1px 8px;border-radius:3px;line-height:1;" title="Next step (downstream)">&#9660;</button>
+        <span style="color:#71717a;font-size:9px;margin-left:auto;">arrow keys</span>
+      </div>
+      <div id="localStepDesc" style="color:#e4e4e7;font-size:12px;font-weight:600;margin-bottom:2px;">${currentStep ? escapeHtml(currentStep.desc) : ""}</div>
+      <div id="localStepDetail" style="color:#71717a;font-size:10px;">${currentStep ? escapeHtml(currentStep.detail) : ""}</div>
+    </div>` : ""}
+
     ${renderSection(trace.upstream, "#4ade80", "\u25b2 Comes from", "No upstream sources found")}
     ${renderSection(trace.downstream, "#60a5fa", "\u25bc Drives", "No downstream loads found")}
 
     <div style="color:#52525b;margin-top:10px;font-size:10px;border-top:1px solid #27272a;padding-top:8px;">
-      Click any port to follow the signal there. ${signalTraceHistory.length > 0 || signalTraceFuture.length > 0 ? "Use Back/Forward to move through your trace path." : ""}
+      ${stepCount > 1 ? 'Use <span style="color:#f59e0b;">Step Through</span> or arrow keys to walk the signal path. ' : ""}Click any port to re-trace from that point.${signalTraceHistory.length > 0 || signalTraceFuture.length > 0 ? " Back/Forward navigates your trace history." : ""}
     </div>
   `;
 
@@ -4076,16 +4298,21 @@ function renderSignalTracePanel(trace) {
   document.getElementById("closeTracePanel").addEventListener("click", () => {
     if (state.cy) {
       state.cy.elements(
-        ".signal-trace-upstream, .signal-trace-downstream, .signal-trace-origin, .signal-trace-dimmed"
+        ".signal-trace-upstream, .signal-trace-downstream, .signal-trace-origin, .signal-trace-dimmed, .signal-trace-step-active"
       ).removeClass(
-        "signal-trace-upstream signal-trace-downstream signal-trace-origin signal-trace-dimmed"
+        "signal-trace-upstream signal-trace-downstream signal-trace-origin signal-trace-dimmed signal-trace-step-active"
       );
     }
     state.signalTrace = null;
     signalTraceHistory.length = 0;
     signalTraceFuture.length = 0;
+    clearLocalTraceSteps();
     panel.remove();
   });
+
+  // Step-through buttons
+  document.getElementById("localStepPrev")?.addEventListener("click", () => localTraceStepPrev());
+  document.getElementById("localStepNext")?.addEventListener("click", () => localTraceStepNext());
 
   // Back/forward buttons
   document.getElementById("traceBackBtn")?.addEventListener("click", () => {
@@ -4147,8 +4374,12 @@ function renderSignalTracePanel(trace) {
 
   // Click a port row to follow the signal to that port
   panel.querySelectorAll(".strace-port-row").forEach((row) => {
-    row.addEventListener("mouseenter", () => { row.style.background = "rgba(255,255,255,0.06)"; });
-    row.addEventListener("mouseleave", () => { row.style.background = ""; });
+    row.addEventListener("mouseenter", () => {
+      if (!row.style.outline) row.style.background = "rgba(255,255,255,0.06)";
+    });
+    row.addEventListener("mouseleave", () => {
+      if (!row.style.outline) row.style.background = "";
+    });
     row.addEventListener("click", () => {
       const portId = row.getAttribute("data-port-id");
       if (portId) {
@@ -4168,6 +4399,18 @@ function renderSignalTracePanel(trace) {
       }
     });
   });
+
+  // Highlight the row matching the current step-through position
+  if (localTraceStepIndex >= 0 && localTraceStepIndex < localTraceStepList.length) {
+    const activeStep = localTraceStepList[localTraceStepIndex];
+    const activeRow = panel.querySelector(`.strace-port-row[data-port-id="${CSS.escape(activeStep.portId)}"]`);
+    if (activeRow) {
+      activeRow.style.outline = "1.5px solid #f59e0b";
+      activeRow.style.background = "rgba(245,158,11,0.08)";
+      // Scroll into view after a brief delay so the panel layout is settled
+      setTimeout(() => activeRow.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
+    }
+  }
 }
 
 function renderInspector() {
@@ -4875,6 +5118,19 @@ document.addEventListener("keydown", (e) => {
     if (state.cy && state.cy.elements().length) {
       e.preventDefault();
       openSearch();
+    }
+  }
+  // Arrow key step-through for local signal trace (when panel is open and
+  // no input/textarea is focused)
+  if (localTraceStepList.length > 0 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const tag = document.activeElement?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      localTraceStepNext();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      localTraceStepPrev();
     }
   }
 });

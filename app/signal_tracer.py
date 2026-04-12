@@ -77,6 +77,8 @@ def _classify_expression(expression: str | None) -> str | None:
 
 
 def _classify_role(hop_kind: str, process_style: str | None, blocking: bool | None) -> str:
+    if hop_kind == "dead_end":
+        return "dead_end"
     if hop_kind in ("instance_pin_in", "instance_pin_out", "module_port_in", "module_port_out"):
         return "transport"
     if hop_kind == "always":
@@ -360,8 +362,9 @@ def trace_signal(
         collected: list[dict[str, Any]] = []
         visited: set[tuple[str, str]] = set()
         queue: deque[tuple[str, str, int]] = deque()
-        queue.append((module_name, signal, 0))
-        visited.add((module_name, signal))
+        signal_clean = " ".join(signal.split())
+        queue.append((module_name, signal_clean, 0))
+        visited.add((module_name, signal_clean))
         truncated = False
 
         while queue:
@@ -374,6 +377,16 @@ def trace_signal(
                 continue
             module = modules.get(cur_mod)
             if module is None:
+                collected.append(
+                    make_entry(
+                        cur_mod,
+                        cur_sig,
+                        "dead_end",
+                        {"label": f"module not found: {cur_mod}", "detail": f"Module '{cur_mod}' is not in the project", "expression": ""},
+                        depth,
+                        direction,
+                    )
+                )
                 continue
 
             # Local drivers / loads
@@ -381,6 +394,20 @@ def trace_signal(
                 local = _find_fanin_local(module, cur_sig)
             else:
                 local = _find_fanout_local(module, cur_sig)
+
+            # Emit a dead_end hop when the signal has no local drivers/loads
+            # AND is not a module port (ports escape upward, handled below).
+            if not local and _is_module_port(module, cur_sig) is None:
+                collected.append(
+                    make_entry(
+                        cur_mod,
+                        cur_sig,
+                        "dead_end",
+                        {"label": f"dead end: {cur_sig}", "detail": f"No {direction} connections found", "expression": ""},
+                        depth,
+                        direction,
+                    )
+                )
 
             for hop in local:
                 hop_kind = hop["kind"]
