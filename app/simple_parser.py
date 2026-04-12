@@ -106,6 +106,11 @@ _EXPR_IGNORE = KEYWORDS | {
 }
 
 
+def _is_ident_char(ch: str) -> bool:
+    """Return True when ``ch`` can appear inside a Verilog identifier."""
+    return ch.isalnum() or ch in {"_", "$"}
+
+
 def _remove_comments(text: str) -> str:
     """Drop line/block comments so regexes do not match comment text."""
     no_block = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
@@ -242,10 +247,18 @@ def _extract_balanced_block(text: str, start: int) -> str:
     depth = 0
     pos = start
     while pos < len(text):
-        if text[pos:pos + 5] == "begin" and (pos == 0 or not text[pos - 1].isalnum()):
+        if (
+            text[pos:pos + 5] == "begin"
+            and (pos == 0 or not _is_ident_char(text[pos - 1]))
+            and (pos + 5 >= len(text) or not _is_ident_char(text[pos + 5]))
+        ):
             depth += 1
             pos += 5
-        elif text[pos:pos + 3] == "end" and (pos + 3 >= len(text) or not text[pos + 3].isalnum()):
+        elif (
+            text[pos:pos + 3] == "end"
+            and (pos == 0 or not _is_ident_char(text[pos - 1]))
+            and (pos + 3 >= len(text) or not _is_ident_char(text[pos + 3]))
+        ):
             depth -= 1
             if depth == 0:
                 return text[start:pos + 3]
@@ -539,5 +552,4 @@ class SimpleRegexParser(VerilogParserBackend):
             root_path = ""
 
         return Project(root_path=root_path, source_files=source_files, modules=modules)
-
 
