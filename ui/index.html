@@ -66,25 +66,33 @@
         </button>
         <aside class="panel panel-left">
           <h2>Hierarchy</h2>
+          <div class="side-tabs" id="leftSideTabs" role="tablist" aria-label="Left sidebar sections">
+            <button id="leftTabModules" class="side-tab active" type="button" role="tab" aria-selected="true" aria-controls="leftTabPanelModules">Modules</button>
+            <button id="leftTabFiles" class="side-tab" type="button" role="tab" aria-selected="false" aria-controls="leftTabPanelFiles">Files</button>
+          </div>
 
-          <section class="panel-section">
-            <h3>Top Candidates</h3>
-            <ul id="topList" class="item-list"></ul>
-          </section>
+          <div id="leftTabPanelModules" class="side-tab-panel active" role="tabpanel" aria-labelledby="leftTabModules">
+            <section class="panel-section">
+              <h3>Top Candidates</h3>
+              <ul id="topList" class="item-list"></ul>
+            </section>
 
-          <section class="panel-section">
-            <button id="createModuleBtn" type="button" class="action-btn" disabled>+ New Module</button>
-          </section>
+            <section class="panel-section">
+              <button id="createModuleBtn" type="button" class="action-btn" disabled>+ New Module</button>
+            </section>
 
-          <section class="panel-section tree-section">
-            <h3>Module Tree</h3>
-            <div id="hierarchyTree" class="hierarchy-tree"></div>
-          </section>
+            <section class="panel-section tree-section">
+              <h3>Module Tree</h3>
+              <div id="hierarchyTree" class="hierarchy-tree"></div>
+            </section>
+          </div>
 
-          <section class="panel-section source-files-section">
-            <h3>Source Files</h3>
-            <div id="sourceFileList" class="source-file-list"></div>
-          </section>
+          <div id="leftTabPanelFiles" class="side-tab-panel" role="tabpanel" aria-labelledby="leftTabFiles" hidden>
+            <section class="panel-section source-files-section">
+              <h3>Source Files</h3>
+              <div id="sourceFileList" class="source-file-list"></div>
+            </section>
+          </div>
         </aside>
 
         <section class="panel panel-center">
@@ -105,16 +113,6 @@
           </div>
 
           <nav id="breadcrumbBar" class="breadcrumb"></nav>
-
-          <div class="stats-wrapper collapsed">
-            <button id="statsToggle" class="stats-toggle" type="button" aria-expanded="false" aria-controls="graphStats">
-              <span class="stats-arrow">&#9654;</span>
-              <span id="statsLabel">Stats</span>
-            </button>
-            <div id="graphStats" class="graph-stats empty">
-              <p>Load a module graph to see a node/edge breakdown.</p>
-            </div>
-          </div>
 
           <div id="graphCanvas" class="graph-canvas">
             <div id="cyGraph" class="cy-graph"></div>

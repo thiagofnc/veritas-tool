@@ -32,6 +32,7 @@
 const state = {
   folder: PROJECT_OPTIONS[0].folder,
   parser: "pyverilog",
+  leftSidebarTab: "modules",
   tops: [],
   modules: [],
   sourceFiles: [],
@@ -66,10 +67,12 @@ const statusBadge = document.getElementById("statusBadge");
 const topList = document.getElementById("topList");
 const hierarchyTree = document.getElementById("hierarchyTree");
 const sourceFileList = document.getElementById("sourceFileList");
+const leftTabModules = document.getElementById("leftTabModules");
+const leftTabFiles = document.getElementById("leftTabFiles");
+const leftTabPanelModules = document.getElementById("leftTabPanelModules");
+const leftTabPanelFiles = document.getElementById("leftTabPanelFiles");
 const breadcrumbBar = document.getElementById("breadcrumbBar");
 const graphTag = document.getElementById("graphTag");
-const graphStats = document.getElementById("graphStats");
-const statsToggle = document.getElementById("statsToggle");
 const graphCanvas = document.getElementById("graphCanvas");
 const graphEmpty = document.getElementById("graphEmpty");
 const cyGraph = document.getElementById("cyGraph");
@@ -297,6 +300,12 @@ function renderHierarchyTree() {
   const rootList = document.createElement("ul");
   rootList.className = "tree-root";
 
+  function shouldMarkUnusedModule(moduleName, node) {
+    if (!moduleName || node?.unresolved) return false;
+    if (state.tops.includes(moduleName)) return false;
+    return state.unusedModules.includes(moduleName);
+  }
+
   function buildModuleNode(node, crumbs) {
     const item = document.createElement("li");
     item.className = "tree-item";
@@ -316,7 +325,7 @@ function renderHierarchyTree() {
     button.textContent = flags.length ? `${moduleName} [${flags.join(",")}]` : moduleName;
 
     // Mark modules that are never instantiated by any other module.
-    if (!node.unresolved && state.unusedModules.includes(moduleName)) {
+    if (shouldMarkUnusedModule(moduleName, node)) {
       button.classList.add("unused");
     }
 
@@ -420,51 +429,17 @@ function renderSourceFileList() {
   }
 }
 
-function renderGraphStats(nodeCounts, edgeCounts, edgeSignalCounts) {
-  const nodeKinds = [
-    { key: "instance", label: "instance nodes" },
-    { key: "instance_port", label: "instance pin nodes" },
-    { key: "process_port", label: "process pin nodes" },
-    { key: "always", label: "process nodes" },
-    { key: "module_io", label: "module I/O nodes" },
-    { key: "net", label: "net nodes" },
-  ];
-
-  const edgeKinds = [{ key: "connection", label: "connection edges" }];
-
-  const totalNodes = Object.values(nodeCounts).reduce((acc, value) => acc + value, 0);
-  const totalEdges = Object.values(edgeCounts).reduce((acc, value) => acc + value, 0);
-
-  const pills = [
-    `<span class="stat-pill total-nodes"><strong>Total nodes</strong>${totalNodes}</span>`,
-    `<span class="stat-pill total-edges"><strong>Total edges</strong>${totalEdges}</span>`,
-  ];
-
-  for (const kind of nodeKinds) {
-    pills.push(
-      `<span class="stat-pill ${kind.key}"><strong>${kind.label}</strong>${nodeCounts[kind.key] || 0}</span>`
-    );
-  }
-
-  for (const kind of edgeKinds) {
-    pills.push(
-      `<span class="stat-pill connection"><strong>${kind.label}</strong>${edgeCounts[kind.key] || 0}</span>`
-    );
-  }
-
-  pills.push(`<span class="stat-pill bus"><strong>bus edges</strong>${edgeSignalCounts.bus || 0}</span>`);
-  pills.push(`<span class="stat-pill wire"><strong>wire edges</strong>${edgeSignalCounts.wire || 0}</span>`);
-  if (edgeSignalCounts.mixed) {
-    pills.push(`<span class="stat-pill mixed"><strong>mixed edges</strong>${edgeSignalCounts.mixed}</span>`);
-  }
-
-  graphStats.classList.remove("empty");
-  graphStats.innerHTML = pills.join("");
-}
-
-function clearGraphStats() {
-  graphStats.classList.add("empty");
-  graphStats.innerHTML = "<p>Load a module graph to see a node/edge breakdown.</p>";
+function setLeftSidebarTab(tabName) {
+  state.leftSidebarTab = tabName === "files" ? "files" : "modules";
+  const modulesActive = state.leftSidebarTab === "modules";
+  leftTabModules?.classList.toggle("active", modulesActive);
+  leftTabModules?.setAttribute("aria-selected", String(modulesActive));
+  leftTabFiles?.classList.toggle("active", !modulesActive);
+  leftTabFiles?.setAttribute("aria-selected", String(!modulesActive));
+  leftTabPanelModules?.classList.toggle("active", modulesActive);
+  leftTabPanelFiles?.classList.toggle("active", !modulesActive);
+  if (leftTabPanelModules) leftTabPanelModules.hidden = !modulesActive;
+  if (leftTabPanelFiles) leftTabPanelFiles.hidden = modulesActive;
 }
 
 function ensureCytoscape() {
@@ -4756,7 +4731,6 @@ function showAlwaysDetail(data) {
 function renderGraph(rawGraph) {
   if (!rawGraph) {
     graphTag.textContent = "No graph loaded";
-    clearGraphStats();
     graphEmpty.classList.remove("hidden");
     hideTooltip();
 
@@ -4768,13 +4742,9 @@ function renderGraph(rawGraph) {
   }
 
   const graph = getRenderableGraph(rawGraph);
-  const nodeCounts = countByKind(graph.nodes || []);
-  const edgeCounts = countByKind(graph.edges || []);
-  const edgeSignalCounts = countEdgeSignalClasses(graph.edges || []);
 
   const focus = graph.focus_module || graph.top_module || state.selectedModule || "(unknown)";
   graphTag.textContent = `${focus} — ${graph.nodes.length} nodes / ${graph.edges.length} edges`;
-  renderGraphStats(nodeCounts, edgeCounts, edgeSignalCounts);
 
   renderCyGraph(graph);
 }
@@ -5022,12 +4992,6 @@ refreshBtn?.addEventListener("click", async () => {
   }
 });
 
-statsToggle?.addEventListener("click", () => {
-  const wrapper = statsToggle.closest(".stats-wrapper");
-  const collapsed = wrapper.classList.toggle("collapsed");
-  statsToggle.setAttribute("aria-expanded", String(!collapsed));
-});
-
 fitBtn?.addEventListener("click", () => {
   if (!state.cy || !state.cy.elements().length) {
     return;
@@ -5233,6 +5197,8 @@ searchInput?.addEventListener("keydown", (e) => {
 searchNextBtn?.addEventListener("click", searchNext);
 searchPrevBtn?.addEventListener("click", searchPrev);
 searchCloseBtn?.addEventListener("click", closeSearch);
+leftTabModules?.addEventListener("click", () => setLeftSidebarTab("modules"));
+leftTabFiles?.addEventListener("click", () => setLeftSidebarTab("files"));
 
 // Ctrl+F / Cmd+F to open search when graph canvas is present
 document.addEventListener("keydown", (e) => {
@@ -5262,8 +5228,7 @@ populateProjectOptions();
 enforcePortViewMode();
 showUnknownToggle.checked = state.showUnknownEdges;
 portViewToggle.checked = state.portView;
-
-clearGraphStats();
+setLeftSidebarTab(state.leftSidebarTab);
 renderBreadcrumb();
 renderHierarchyTree();
 renderSourceFileList();
