@@ -306,6 +306,12 @@ function renderHierarchyTree() {
     return state.unusedModules.includes(moduleName);
   }
 
+  function canInstantiateModule(moduleName, node = null) {
+    if (!moduleName) return false;
+    if (node?.unresolved || node?.cycle) return false;
+    return !state.tops.includes(moduleName);
+  }
+
   function buildModuleNode(node, crumbs) {
     const item = document.createElement("li");
     item.className = "tree-item";
@@ -348,7 +354,7 @@ function renderHierarchyTree() {
     item.appendChild(button);
 
     // "Instantiate" action link — lets the user add this module as an instance in another module.
-    if (!node.unresolved && !node.cycle) {
+    if (canInstantiateModule(moduleName, node)) {
       const instLink = document.createElement("button");
       instLink.type = "button";
       instLink.className = "tree-action-link";
@@ -393,6 +399,62 @@ function renderHierarchyTree() {
 
   rootList.appendChild(buildModuleNode(state.hierarchy, [state.hierarchy.module]));
   hierarchyTree.appendChild(rootList);
+
+  // ── Orphan modules: defined in the project but not in the hierarchy tree ──
+  const treeModules = new Set();
+  (function collectTreeModules(node) {
+    if (node.module) treeModules.add(node.module);
+    for (const child of node.instances || []) {
+      if (child.children) collectTreeModules(child.children);
+    }
+  })(state.hierarchy);
+
+  const orphans = state.modules.filter((name) => !treeModules.has(name));
+  if (orphans.length) {
+    const heading = document.createElement("h4");
+    heading.className = "orphan-heading";
+    heading.textContent = "Not in hierarchy";
+    hierarchyTree.appendChild(heading);
+
+    const orphanList = document.createElement("ul");
+    orphanList.className = "tree-root orphan-list";
+
+    for (const name of orphans) {
+      const li = document.createElement("li");
+      li.className = "tree-item";
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tree-module-btn orphan";
+      btn.textContent = name;
+      btn.addEventListener("click", async () => {
+        try {
+          setStatus("Loading graph...", "busy");
+          await loadGraph(name, [name]);
+          setStatus("Graph loaded", "ok");
+        } catch (error) {
+          setStatus("Graph load failed", "error");
+          inspector.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+        }
+      });
+      li.appendChild(btn);
+
+      if (!state.tops.includes(name)) {
+        const instLink = document.createElement("button");
+        instLink.type = "button";
+        instLink.className = "tree-action-link";
+        instLink.textContent = "instantiate";
+        instLink.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          openInstantiateDialog(name);
+        });
+        li.appendChild(instLink);
+      }
+
+      orphanList.appendChild(li);
+    }
+    hierarchyTree.appendChild(orphanList);
+  }
 }
 
 function renderSourceFileList() {
@@ -6111,6 +6173,11 @@ function openInstantiateDialog(childModule) {
   const nameInput = document.getElementById("instantiateName");
   const errorEl = document.getElementById("instantiateError");
   if (!overlay) return;
+
+  if (state.tops.includes(childModule)) {
+    setStatus("Top modules cannot be instantiated", "error");
+    return;
+  }
 
   titleEl.textContent = `Instantiate ${childModule}`;
   errorEl.textContent = "";

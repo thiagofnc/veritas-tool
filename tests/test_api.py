@@ -284,6 +284,44 @@ endmodule
 
             self.assertEqual(connectivity_status["code"], 200)
 
+    def test_cannot_instantiate_top_module(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "top.v").write_text(
+                """
+module top(input a, output y);
+  assign y = a;
+endmodule
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "helper.v").write_text(
+                """
+module helper(input a, output y);
+  assign y = a;
+endmodule
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with state_lock:
+                state.service = ProjectService(parser_backend="simple")
+                state.service.load_project(str(root))
+                state.loaded_folder = str(root)
+
+            response = self.client.post(
+                "/api/project/instantiate",
+                json={
+                    "child_module": "top",
+                    "parent_module": "helper",
+                    "instance_name": "top_inst",
+                },
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("cannot be instantiated", response.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

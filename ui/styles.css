@@ -1893,6 +1893,23 @@ body {
   opacity: 0.7;
 }
 
+/* ── Orphan modules section in hierarchy tree ── */
+.orphan-heading {
+  margin: 12px 0 6px;
+  padding: 4px 0;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.tree-module-btn.orphan {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
 /* ── Context action link inside tree ── */
 .tree-action-link {
   font-size: 9px;

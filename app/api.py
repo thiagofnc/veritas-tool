@@ -292,6 +292,10 @@ def instantiate_module(payload: InstantiateModuleRequest) -> dict[str, object]:
         with state_lock:
             parent_mod = state.service.get_module(payload.parent_module)
             child_mod = state.service.get_module(payload.child_module)
+            top_modules = set(state.service.get_top_candidates())
+
+            if payload.child_module in top_modules:
+                raise _bad_request(f"Top module '{payload.child_module}' cannot be instantiated.")
 
             src_path = parent_mod.source_file
             if not src_path:
