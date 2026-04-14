@@ -46,4 +46,11 @@ module line_top (
         .sum_out(sum_out),
         .valid_out(valid_out)
     );
+
+  new_module new_module_inst (
+    .input1(),
+    .input2(),
+    .output1()
+  );
+
 endmodule

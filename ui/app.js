@@ -2394,17 +2394,25 @@ function spreadNodesVertically(nodes, minGap = 28, anchorY = null) {
   }
 }
 
-function distributeColumns(columnEntries, startX, minGap = 300) {
+function distributeColumns(columnEntries, startX, minGap = 300, columnProtrusions = null) {
   let nextLeft = startX;
 
-  columnEntries.forEach((entry) => {
+  columnEntries.forEach((entry, i) => {
     const widths = entry.nodes.map((node) => node.outerWidth());
     const columnWidth = widths.length ? Math.max(...widths) : 0;
     const centerX = nextLeft + columnWidth / 2;
     entry.nodes.forEach((node) => {
       node.position({ x: centerX, y: node.position("y") });
     });
-    nextLeft += columnWidth + minGap;
+    // Ensure the gap between columns accounts for netlabel/stub protrusions
+    // on the right side of this column and the left side of the next column.
+    let gap = minGap;
+    if (columnProtrusions && i + 1 < columnEntries.length) {
+      const rightProt = columnProtrusions[i].right;
+      const leftProt = columnProtrusions[i + 1].left;
+      gap = Math.max(minGap, rightProt + leftProt + 40);
+    }
+    nextLeft += columnWidth + gap;
   });
 }
 
@@ -3335,7 +3343,48 @@ function applyPortViewBlockLayout(graph) {
     });
   });
 
-  distributeColumns(levelColumns, INSTANCE_COLUMN_START - 40, INSTANCE_MIN_COLUMN_GAP);
+  // Compute per-column netlabel protrusions so distributeColumns leaves
+  // enough horizontal room for netlabel rectangles on each side.
+  const netlabelNodes = state.cy.nodes('[kind = "netlabel_node"]');
+  const columnProtrusions = levelColumns.map(() => ({ left: 0, right: 0 }));
+
+  if (netlabelNodes.length) {
+    // Map each instance id to its column index, then map ports through it.
+    const instanceToColumn = new Map();
+    levelColumns.forEach((entry, colIdx) => {
+      entry.nodes.forEach((instNode) => {
+        instanceToColumn.set(instNode.id(), colIdx);
+      });
+    });
+
+    const portToColumn = new Map();
+    state.cy.nodes('[kind = "instance_port"], [kind = "process_port"]').forEach((portNode) => {
+      const instId = portNode.data("instance_node_id") || portNode.data("process_node_id");
+      const colIdx = instanceToColumn.get(instId);
+      if (colIdx !== undefined) {
+        portToColumn.set(portNode.id(), colIdx);
+      }
+    });
+
+    netlabelNodes.forEach((nl) => {
+      const portId = nl.data("connected_port");
+      const colIdx = portToColumn.get(portId);
+      if (colIdx === undefined) {
+        return;
+      }
+      const labelWidth = nl.data("label_width") || 50;
+      const protrusion = NETLABEL_WIRE_GAP + labelWidth;
+      const portNode = state.cy.getElementById(portId);
+      const dir = String(portNode.data("direction") || "").toLowerCase();
+      if (dir === "output") {
+        columnProtrusions[colIdx].right = Math.max(columnProtrusions[colIdx].right, protrusion);
+      } else {
+        columnProtrusions[colIdx].left = Math.max(columnProtrusions[colIdx].left, protrusion);
+      }
+    });
+  }
+
+  distributeColumns(levelColumns, INSTANCE_COLUMN_START - 40, INSTANCE_MIN_COLUMN_GAP, columnProtrusions);
   levelColumns.forEach((entry) => {
     spreadNodesVertically(entry.nodes, LAYOUT_GRID + 12, centerY);
   });
@@ -3375,12 +3424,82 @@ function applyPortViewBlockLayout(graph) {
   }
   placeInstancePortNodes(graph);
 
+  // Resolve vertical overlaps: after ports are placed, instances whose port
+  // stacks extend beyond their own bounds may overlap vertically.
+  levelColumns.forEach((entry) => {
+    const sorted = [...entry.nodes]
+      .filter((n) => n && !n.empty())
+      .sort((a, b) => a.position("y") - b.position("y"));
+
+    let lastBottom = null;
+    for (const node of sorted) {
+      const instId = node.id();
+      const nodeY = node.position("y");
+      const baseHH = getNodeHalfSize(node).halfHeight;
+      let topY = nodeY - baseHH;
+      let bottomY = nodeY + baseHH;
+
+      // Expand bounds to include port nodes.
+      const portNodes = state.cy.nodes('[kind = "instance_port"], [kind = "process_port"]').filter((p) =>
+        p.data("instance_node_id") === instId || p.data("process_node_id") === instId);
+      portNodes.forEach((p) => {
+        topY = Math.min(topY, p.position("y") - 10);
+        bottomY = Math.max(bottomY, p.position("y") + 10);
+      });
+
+      if (lastBottom !== null && topY < lastBottom + LAYOUT_GRID) {
+        const shift = lastBottom + LAYOUT_GRID - topY;
+        node.position({ x: node.position("x"), y: nodeY + shift });
+        portNodes.forEach((p) => {
+          p.position({ x: p.position("x"), y: p.position("y") + shift });
+        });
+        bottomY += shift;
+      }
+
+      lastBottom = bottomY;
+    }
+  });
+
   const allBlockNodes = instanceNodes.union(logicNodes);
   const leftBounds = allBlockNodes.map((node) => node.position("x") - getNodeHalfSize(node).halfWidth);
   const rightBounds = allBlockNodes.map((node) => node.position("x") + getNodeHalfSize(node).halfWidth);
   const minLeft = Math.min(...leftBounds);
   const maxRight = Math.max(...rightBounds);
-  placeModuleIoNodes(graph, snapToGrid(minLeft - IO_COLUMN_MARGIN), snapToGrid(maxRight + IO_COLUMN_MARGIN));
+
+  // Compute dynamic IO margin: ensure enough space for tip labels + netlabels
+  // on both the module_io side and the outermost instance column side.
+  let maxTipLabelWidth = 0;
+  state.cy.nodes('[kind = "module_io_tip_label"]').forEach((tl) => {
+    maxTipLabelWidth = Math.max(maxTipLabelWidth, tl.data("label_width") || 56);
+  });
+  let maxIoNetlabelWidth = 0;
+  let maxEdgeInstanceNetlabelWidth = 0;
+  netlabelNodes.forEach((nl) => {
+    const portNode = state.cy.getElementById(nl.data("connected_port"));
+    if (!portNode || portNode.empty()) {
+      return;
+    }
+    const lw = nl.data("label_width") || 50;
+    if (portNode.data("kind") === "module_io") {
+      maxIoNetlabelWidth = Math.max(maxIoNetlabelWidth, lw);
+    } else if (portNode.data("kind") === "instance_port" || portNode.data("kind") === "process_port") {
+      // Check if this port belongs to an edge column (first or last).
+      const instId = portNode.data("instance_node_id") || portNode.data("process_node_id");
+      if (instId && levelColumns.length) {
+        const firstCol = levelColumns[0].nodes.some((n) => n.id() === instId);
+        const lastCol = levelColumns[levelColumns.length - 1].nodes.some((n) => n.id() === instId);
+        if (firstCol || lastCol) {
+          maxEdgeInstanceNetlabelWidth = Math.max(maxEdgeInstanceNetlabelWidth, lw);
+        }
+      }
+    }
+  });
+  const ioNetlabelSpace = maxIoNetlabelWidth > 0 ? NETLABEL_WIRE_GAP + maxIoNetlabelWidth : 0;
+  const edgeInstanceNetlabelSpace = maxEdgeInstanceNetlabelWidth > 0 ? NETLABEL_WIRE_GAP + maxEdgeInstanceNetlabelWidth : 0;
+  const dynamicIoMargin = Math.max(IO_COLUMN_MARGIN,
+    maxTipLabelWidth + ioNetlabelSpace + edgeInstanceNetlabelSpace + 80);
+
+  placeModuleIoNodes(graph, snapToGrid(minLeft - dynamicIoMargin), snapToGrid(maxRight + dynamicIoMargin));
   placePortViewRoutes(graph);
   placeUnconnectedPortStubs();
   placeNetlabelNodes();
