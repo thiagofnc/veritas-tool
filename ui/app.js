@@ -29,8 +29,12 @@
   },
 ];
 
+const CUSTOM_PROJECT_VALUE = "__custom__";
+
 const state = {
-  folder: PROJECT_OPTIONS[0].folder,
+  folder: "",
+  folderPreset: CUSTOM_PROJECT_VALUE,
+  customFolder: "",
   parser: "pyverilog",
   leftSidebarTab: "modules",
   tops: [],
@@ -57,6 +61,7 @@ const state = {
 };
 
 const folderInput = document.getElementById("folderInput");
+const folderPathInput = document.getElementById("folderPathInput");
 const parserSelect = document.getElementById("parserSelect");
 const loadBtn = document.getElementById("loadBtn");
 const refreshBtn = document.getElementById("refreshBtn");
@@ -126,6 +131,11 @@ function populateProjectOptions() {
   }
 
   folderInput.innerHTML = "";
+  const customOption = document.createElement("option");
+  customOption.value = CUSTOM_PROJECT_VALUE;
+  customOption.textContent = "Custom path";
+  folderInput.appendChild(customOption);
+
   for (const project of PROJECT_OPTIONS) {
     const option = document.createElement("option");
     option.value = project.folder;
@@ -133,7 +143,43 @@ function populateProjectOptions() {
     folderInput.appendChild(option);
   }
 
-  folderInput.value = state.folder;
+  syncFolderControls();
+}
+
+function syncFolderControls() {
+  if (folderInput) {
+    folderInput.value = state.folderPreset || CUSTOM_PROJECT_VALUE;
+  }
+  if (folderPathInput) {
+    folderPathInput.value = state.customFolder || "";
+    folderPathInput.disabled = (state.folderPreset || CUSTOM_PROJECT_VALUE) !== CUSTOM_PROJECT_VALUE;
+  }
+}
+
+function getSelectedFolderPath() {
+  if (folderInput?.value === CUSTOM_PROJECT_VALUE) {
+    return folderPathInput ? folderPathInput.value.trim() : state.customFolder;
+  }
+  return folderInput ? folderInput.value.trim() : state.folder;
+}
+
+function updateFolderStateFromControls() {
+  if (!folderInput) {
+    return;
+  }
+
+  state.folderPreset = folderInput.value || CUSTOM_PROJECT_VALUE;
+  state.folder = getSelectedFolderPath();
+
+  if (folderPathInput) {
+    if (state.folderPreset === CUSTOM_PROJECT_VALUE) {
+      folderPathInput.value = state.customFolder || "";
+      folderPathInput.disabled = false;
+    } else {
+      folderPathInput.value = state.folderPreset;
+      folderPathInput.disabled = true;
+    }
+  }
 }
 
 function snapToGrid(value, grid = LAYOUT_GRID) {
@@ -5099,13 +5145,17 @@ async function pollLoadProgress() {
 }
 
 async function handleLoad() {
-  const folder = folderInput ? folderInput.value.trim() : state.folder;
+  const folder = getSelectedFolderPath();
   if (!folder) {
     setStatus("Need folder path", "error");
     return;
   }
 
+  state.folderPreset = folderInput ? folderInput.value : state.folderPreset;
   state.folder = folder;
+  if (state.folderPreset === CUSTOM_PROJECT_VALUE) {
+    state.customFolder = folder;
+  }
   state.parser = parserSelect ? parserSelect.value : state.parser;
 
   showLoadProgress();
@@ -5210,7 +5260,15 @@ portViewToggle?.addEventListener("change", async () => {
 
 
 folderInput?.addEventListener("change", () => {
-  state.folder = folderInput.value;
+  updateFolderStateFromControls();
+});
+
+folderPathInput?.addEventListener("input", () => {
+  if (folderInput?.value !== CUSTOM_PROJECT_VALUE) {
+    return;
+  }
+  state.customFolder = folderPathInput.value;
+  state.folder = folderPathInput.value.trim();
 });
 
 
