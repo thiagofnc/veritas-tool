@@ -46,6 +46,21 @@ class SimulationMessage:
 
 
 @dataclass
+class TestEvent:
+    """A single PASS/FAIL check extracted from run output.
+
+    Produced by scanning stdout/stderr line-by-line. When the testbench
+    includes a simulation timestamp (e.g. ``$display("PASS [t=%0t] ...")``)
+    the UI pins a marker on the waveform at that point so failures are easy
+    to localize. Events without a timestamp still contribute to counts."""
+    verdict: str                     # "pass" | "fail"
+    name: str                        # short label shown in the results list
+    time: int | None = None          # simulation time (same units as the VCD)
+    detail: str = ""                 # remainder of the line (for hover / log)
+    raw: str = ""                    # original line, for debugging
+
+
+@dataclass
 class SimulationResult:
     id: str
     testbench: str
@@ -74,6 +89,7 @@ class SimulationResult:
     expected_matched: bool | None = None
     diff: str = ""                   # unified diff excerpt (empty on match or absent)
     timed_out: bool = False
+    test_events: list[TestEvent] = field(default_factory=list)
 
 
 class SimulationError(RuntimeError):
@@ -82,9 +98,16 @@ class SimulationError(RuntimeError):
 
 DEFAULT_TB_TEMPLATE = """`timescale 1ns/1ps
 
-// Auto-generated testbench scaffold. Instantiate your DUT and drive its
-// inputs inside the initial block below. $dumpvars controls what shows up
-// in the waveform viewer.
+// Auto-generated testbench scaffold.
+//
+// Conventions this tool understands:
+//   * Emit one PASS / FAIL line per check. The helpers below use
+//     $display("PASS [t=%0t] <name>")  and $display("FAIL [t=%0t] ...").
+//     The [t=...] marker is parsed out and pinned to the waveform so you
+//     can jump straight to the point of failure.
+//   * $fatal / $error from SystemVerilog also count as failures.
+//   * Drop a <tb_name>.expected.txt file next to this testbench to diff
+//     stdout against a golden reference automatically.
 
 module {name};
 
@@ -98,15 +121,44 @@ module {name};
   // TODO: instantiate the DUT here, e.g.
   //   my_module dut (.clk(clk), .rst_n(rst_n), ...);
 
+  integer errors = 0;
+  integer checks = 0;
+
+  // Compare `actual` against `expected`. Emits a single PASS or FAIL line,
+  // tagged with $time so the tool can mark it on the waveform.
+  task automatic check;
+    input [255:0] label;           // short test name, padded string
+    input [63:0]  expected;
+    input [63:0]  actual;
+    begin
+      checks = checks + 1;
+      if (actual === expected) begin
+        $display("PASS [t=%0t] %0s", $time, label);
+      end else begin
+        $display("FAIL [t=%0t] %0s: expected 0x%0h, got 0x%0h",
+                 $time, label, expected, actual);
+        errors = errors + 1;
+      end
+    end
+  endtask
+
   initial begin
     $dumpfile("{name}.vcd");
     $dumpvars(0, {name});
 
     #20 rst_n = 1'b1;
 
-    // Drive stimulus here.
+    // Example checks:
+    //   check("reset clears count", 8'h00, dut.count);
+    //   @(posedge clk);
+    //   check("increment works",    8'h01, dut.count);
 
-    #200 $finish;
+    #200;
+    if (errors == 0)
+      $display("PASS [t=%0t] %0d checks passed", $time, checks);
+    else
+      $display("FAIL [t=%0t] %0d of %0d checks failed", $time, errors, checks);
+    $finish;
   end
 
 endmodule
@@ -407,39 +459,120 @@ class _RunAnalysis:
     warning_count: int = 0
     assertion_count: int = 0
     fatal_count: int = 0
+    events: list[TestEvent] = field(default_factory=list)
+
+
+# Timestamp qualifiers we understand inside a PASS/FAIL line.
+# Ordered roughly by how common each form is in the wild; the first match
+# on a line wins. All patterns capture the numeric time in group 1; an
+# optional unit suffix (ns/ps/us) is ignored because the VCD is in the
+# simulator's base time unit, which is the same base $time prints in.
+_TIME_QUAL_PATTERNS = [
+    re.compile(r"\[\s*t\s*=\s*(\d+)\s*[a-zA-Z]*\s*\]"),             # [t=123] / [t=123ns]
+    re.compile(r"\(\s*t\s*=\s*(\d+)\s*[a-zA-Z]*\s*\)"),             # (t=123)
+    re.compile(r"@\s*(\d+)\s*[a-zA-Z]*"),                           # @123 / @123ns
+    re.compile(r"\bat\s+time\s*=?\s*(\d+)\s*[a-zA-Z]*", re.IGNORECASE),  # at time 123 ns
+    re.compile(r"\bat\s+t\s*=\s*(\d+)\s*[a-zA-Z]*", re.IGNORECASE),      # at t=123 ns
+    re.compile(r"\btime\s*=\s*(\d+)\s*[a-zA-Z]*", re.IGNORECASE),        # time=123 ns
+]
+
+# Verdict keyword anywhere in the line (captured with its original casing
+# so we can tell PASS vs FAILED vs $error apart for counter buckets).
+_EVENT_VERDICT_RE = re.compile(
+    r"\b(?P<v>PASS(?:ED)?|FAIL(?:ED|URE)?|ERROR|\$error|\$fatal|FATAL)\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_time_qualifiers(s: str) -> str:
+    out = s
+    for pat in _TIME_QUAL_PATTERNS:
+        out = pat.sub("", out)
+    return out.strip(" \t:-")
+
+
+def _extract_time(line: str) -> int | None:
+    for pat in _TIME_QUAL_PATTERNS:
+        m = pat.search(line)
+        if m:
+            try:
+                return int(m.group(1))
+            except (ValueError, TypeError):
+                return None
+    return None
 
 
 def _analyze_run_output(text: str) -> _RunAnalysis:
-    """Scan combined run stdout+stderr for verdict markers and error counters.
+    """Scan combined run stdout+stderr for test events + counters.
 
-    Counts are per-line to avoid double-counting a single message that happens
-    to mention both "ERROR" and "assertion". Errors trump assertion counts
-    when both match on the same line (so a $error: assertion failure ... line
-    is counted once as both an error and an assertion — one of each)."""
+    Each line with a recognized verdict keyword (PASS / FAIL / ERROR /
+    $error / $fatal / FATAL) becomes a TestEvent. If the line also carries
+    a timestamp qualifier like ``[t=123]`` or ``@123``, that simulation
+    time is extracted so the UI can pin the event to the waveform.
+
+    Counters are derived from these events plus two extra scans for things
+    that don't produce per-test events: WARNING/$warning lines and
+    assertion-failure mentions (for testbenches that use raw `assert ...`).
+    """
     a = _RunAnalysis()
     for raw in (text or "").splitlines():
         line = raw.strip()
-        if not line:
+        if not line or line.startswith("VCD info:"):
             continue
-        # Skip iverilog's informational VCD banner so it doesn't get
-        # mis-detected as an error just because it contains "ERROR" in the
-        # middle of, say, a file path.
-        if line.startswith("VCD info:"):
-            continue
-        if _FAIL_MARKER_RE.search(line):
-            a.fail_count += 1
-        elif _PASS_MARKER_RE.search(line):
-            # Pass marker alone (without a fail on the same line) — avoids
-            # counting "PASS" inside a "FAIL: something PASSED earlier" log.
-            a.pass_count += 1
-        if _FATAL_LINE_RE.search(line):
-            a.fatal_count += 1
-        if _ERROR_LINE_RE.search(line):
-            a.error_count += 1
-        elif _WARN_LINE_RE.search(line):
+
+        # WARNING and assertion counters run independently — they don't
+        # produce per-test events (warnings aren't tests; a bare "assertion
+        # failed" line is usually followed by an ERROR line anyway).
+        if _WARN_LINE_RE.search(line):
             a.warning_count += 1
         if _ASSERT_LINE_RE.search(line):
             a.assertion_count += 1
+
+        m = _EVENT_VERDICT_RE.search(line)
+        if not m:
+            continue
+
+        v_raw = m.group("v").lower().lstrip("$")
+        is_fatal = v_raw.startswith("fatal")
+        is_error = v_raw.startswith("error")
+        is_fail = v_raw.startswith("fail")
+        is_pass = v_raw.startswith("pass")
+
+        # Bucket into the counter breakdown shown in the Results tab.
+        if is_fatal:
+            a.fatal_count += 1
+        if is_error:
+            a.error_count += 1
+
+        if is_pass:
+            verdict = "pass"
+            a.pass_count += 1
+        elif is_fail or is_error or is_fatal:
+            verdict = "fail"
+            if is_fail:
+                a.fail_count += 1
+        else:
+            continue
+
+        # Build a short label: everything after the verdict token, with
+        # the timestamp qualifier stripped so it doesn't duplicate the
+        # event's `time` field in the UI.
+        tail = line[m.end():].strip()
+        tail = tail.lstrip(":-").strip()
+        tail = _strip_time_qualifiers(tail)
+        t = _extract_time(line)
+        # Name = first sentence (up to colon/dash), detail = full tail.
+        name = tail.split(":", 1)[0].strip()
+        if not name:
+            name = tail[:80].strip() or v_raw.upper()
+
+        a.events.append(TestEvent(
+            verdict=verdict,
+            name=name[:160],
+            time=t,
+            detail=tail[:400],
+            raw=line[:400],
+        ))
     return a
 
 
@@ -737,12 +870,14 @@ def run_simulation(
         expected_path=str(expected_file) if expected_file else None,
         expected_matched=expected_matched,
         diff=diff_text,
+        test_events=analysis.events,
     )
 
 
 def result_to_dict(result: SimulationResult) -> dict:
     d = asdict(result)
     d["messages"] = [asdict(m) for m in result.messages]
+    d["test_events"] = [asdict(e) for e in result.test_events]
     return d
 
 

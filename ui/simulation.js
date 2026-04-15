@@ -563,19 +563,24 @@
     const verdictLabel = verdict === "pass" ? "PASS"
       : verdict === "fail" ? "FAIL"
       : "NO VERDICT";
+    const events = Array.isArray(result.test_events) ? result.test_events : [];
+    const eventPass = events.filter((e) => e.verdict === "pass").length;
+    const eventFail = events.filter((e) => e.verdict === "fail").length;
     const counters = [
-      { label: "pass markers",     value: result.pass_count,      kind: "ok" },
-      { label: "fail markers",     value: result.fail_count,      kind: result.fail_count ? "err" : "dim" },
-      { label: "errors",           value: result.error_count,     kind: result.error_count ? "err" : "dim" },
-      { label: "fatal",            value: result.fatal_count,     kind: result.fatal_count ? "err" : "dim" },
-      { label: "assertions failed",value: result.assertion_count, kind: result.assertion_count ? "err" : "dim" },
-      { label: "warnings",         value: result.warning_count,   kind: result.warning_count ? "warn" : "dim" },
+      { label: "checks passed",     value: eventPass,              kind: eventPass ? "ok" : "dim" },
+      { label: "checks failed",     value: eventFail,              kind: eventFail ? "err" : "dim" },
+      { label: "errors",            value: result.error_count,     kind: result.error_count ? "err" : "dim" },
+      { label: "fatal",             value: result.fatal_count,     kind: result.fatal_count ? "err" : "dim" },
+      { label: "assertions failed", value: result.assertion_count, kind: result.assertion_count ? "err" : "dim" },
+      { label: "warnings",          value: result.warning_count,   kind: result.warning_count ? "warn" : "dim" },
     ];
     const counterHtml = counters.map((c) => `
       <div class="sim-counter sim-counter-${c.kind}">
         <span class="sim-counter-value">${c.value ?? 0}</span>
         <span class="sim-counter-label">${escapeHtml(c.label)}</span>
       </div>`).join("");
+
+    const testsHtml = renderTestsSection(events);
 
     let expectedHtml = "";
     if (result.expected_path) {
@@ -620,8 +625,80 @@
         </div>
       </div>
       <div class="sim-counter-grid">${counterHtml}</div>
+      ${testsHtml}
       ${expectedHtml}
     `;
+
+    // Wire clickable test rows: left side of a passing/failing test jumps
+    // the primary waveform cursor to that test's time.
+    panel.querySelectorAll(".sim-test-row[data-time]").forEach((row) => {
+      row.addEventListener("click", () => {
+        const t = Number(row.getAttribute("data-time"));
+        if (!Number.isFinite(t)) return;
+        jumpToWaveformTime(t);
+      });
+    });
+  }
+
+  function renderTestsSection(events) {
+    if (!events.length) {
+      return `
+        <section class="sim-results-section">
+          <h4>Tests</h4>
+          <p class="sim-empty-hint">
+            No PASS/FAIL lines detected. Emit one per check, e.g.
+            <code>$display("PASS [t=%0t] my_check", $time);</code>
+            — the <code>[t=...]</code> tag lets the tool pin each result on the waveform.
+          </p>
+        </section>`;
+    }
+    const rows = events.map((e, idx) => {
+      const hasTime = Number.isFinite(e.time);
+      const timeCell = hasTime
+        ? `<span class="sim-test-time">${escapeHtml(formatTime(e.time))}</span>`
+        : `<span class="sim-test-time sim-test-time-missing" title="No [t=...] marker on this line">&mdash;</span>`;
+      const detail = e.detail && e.detail !== e.name
+        ? `<span class="sim-test-detail">${escapeHtml(e.detail)}</span>`
+        : "";
+      const dataAttr = hasTime ? ` data-time="${escapeAttr(String(e.time))}"` : "";
+      const clickable = hasTime ? " sim-test-clickable" : "";
+      return `
+        <li class="sim-test-row sim-test-${e.verdict}${clickable}"${dataAttr} data-idx="${idx}"
+            title="${hasTime ? "Click to jump the A cursor here" : ""}">
+          <span class="sim-test-chip sim-test-${e.verdict}">${e.verdict.toUpperCase()}</span>
+          ${timeCell}
+          <span class="sim-test-name">${escapeHtml(e.name || "(unnamed)")}</span>
+          ${detail}
+        </li>`;
+    }).join("");
+    return `
+      <section class="sim-results-section">
+        <h4>Tests <span class="sim-results-section-hint">click a row with a timestamp to jump the waveform cursor</span></h4>
+        <ul class="sim-test-list">${rows}</ul>
+      </section>`;
+  }
+
+  function jumpToWaveformTime(t) {
+    if (!sim.waveform) {
+      selectBottomTab("waveform");
+      return;
+    }
+    const total = sim.waveform.end_time || 1;
+    const clamped = Math.max(0, Math.min(total, t));
+    // If the target is off-screen, center the view on it so the cursor is
+    // actually visible after we place it.
+    const span = sim.viewEnd - sim.viewStart;
+    if (clamped < sim.viewStart || clamped > sim.viewEnd) {
+      let start = clamped - span / 2;
+      let end = start + span;
+      if (start < 0) { end -= start; start = 0; }
+      if (end > total) { start -= (end - total); end = total; }
+      sim.viewStart = Math.max(0, start);
+      sim.viewEnd = Math.max(sim.viewStart + 1, end);
+    }
+    sim.cursorTime = clamped;
+    selectBottomTab("waveform");
+    requestAnimationFrame(drawWaveform);
   }
 
   function renderDiff(diff) {
@@ -892,6 +969,7 @@
 
     // Time axis + graticule
     drawTimeAxis(ctx, w);
+    drawTestEventMarkers(ctx, w, h);
 
     const lanes = sim.selectedIds
       .map((id) => wave.signals.find((s) => s.id === id))
@@ -1038,6 +1116,55 @@
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  // Draw small PASS/FAIL flags at the top of the timeline for every test
+  // event that carried a [t=...] timestamp. Full-height tinted stems for
+  // failures so they're impossible to miss; just the flag for passes.
+  function drawTestEventMarkers(ctx, w, h) {
+    const events = sim.lastResult?.test_events;
+    if (!Array.isArray(events) || !events.length) return;
+    const visible = [];
+    for (const e of events) {
+      if (!Number.isFinite(e.time)) continue;
+      if (e.time < sim.viewStart || e.time > sim.viewEnd) continue;
+      visible.push(e);
+    }
+    if (!visible.length) return;
+
+    ctx.save();
+    for (const e of visible) {
+      const x = timeToX(e.time, w);
+      const isFail = e.verdict === "fail";
+      const color = isFail ? "#ef4444" : "#4ade80";
+
+      // Full-height translucent stem for failures so the user sees them
+      // from across the canvas; passes only draw within the axis band.
+      if (isFail) {
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.35;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([1, 3]);
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, AXIS_HEIGHT);
+        ctx.lineTo(x + 0.5, h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+
+      // Flag on the axis itself.
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(x - 4, AXIS_HEIGHT - 10);
+      ctx.lineTo(x + 4, AXIS_HEIGHT - 10);
+      ctx.lineTo(x + 4, AXIS_HEIGHT - 4);
+      ctx.lineTo(x, AXIS_HEIGHT);
+      ctx.lineTo(x - 4, AXIS_HEIGHT - 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   function niceStep(rough) {

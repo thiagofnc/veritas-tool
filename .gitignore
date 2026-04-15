@@ -5,3 +5,7 @@ __pycache__/
 # PyVerilog/PLY generated parser artifacts
 parsetab.py
 parser.out
+
+# Generated project artifacts
+*.vcp
+*.vdd
