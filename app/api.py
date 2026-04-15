@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 try:
+    from app.git_service import GitError, GitService
     from app.graph_builder import build_hierarchy_graph, build_module_connectivity_graph
     from app.hierarchy import build_hierarchy_tree
     from app.json_exporter import project_to_dict
@@ -17,6 +18,7 @@ try:
     from app.schematic_layout import build_schematic_connectivity_graph
     from app.signal_tracer import trace_signal
 except ImportError:  # Supports running as: python app/main.py
+    from git_service import GitError, GitService
     from graph_builder import build_hierarchy_graph, build_module_connectivity_graph
     from hierarchy import build_hierarchy_tree
     from json_exporter import project_to_dict
@@ -54,6 +56,29 @@ class LintRequest(BaseModel):
     content: str = Field(..., description="Verilog source text to syntax-check")
 
 
+class CloneRepositoryRequest(BaseModel):
+    url: str = Field(..., description="Repository URL, usually GitHub HTTPS or SSH")
+    destination_parent: str = Field(..., description="Existing parent folder for the clone")
+    destination_name: str | None = Field(default=None, description="Optional folder name for the new clone")
+    branch: str | None = Field(default=None, description="Optional branch to clone")
+
+
+class CommitAndPushRequest(BaseModel):
+    message: str = Field(..., description="Commit message")
+    folder: str | None = Field(default=None, description="Folder inside the target repository")
+    remote: str = Field(default="origin", description="Remote name to push to")
+    branch: str | None = Field(default=None, description="Branch to push; defaults to current branch")
+    push: bool = Field(default=True, description="When false, only creates the commit locally")
+    author_name: str | None = Field(default=None, description="Optional commit author name override")
+    author_email: str | None = Field(default=None, description="Optional commit author email override")
+
+
+class LoadCommitRequest(BaseModel):
+    commit: str = Field(..., description="Commit SHA, tag, or ref to open in read-only mode")
+    folder: str | None = Field(default=None, description="Folder inside the target repository")
+    parser_backend: str = Field(default="pyverilog", description="pyverilog or simple")
+
+
 @dataclass
 class _LoadProgress:
     active: bool = False
@@ -71,7 +96,11 @@ class _LoadProgress:
 class _AppState:
     def __init__(self) -> None:
         self.service = ProjectService(parser_backend="pyverilog")
+        self.git = GitService()
         self.loaded_folder: str | None = None
+        self.loaded_repo_root: str | None = None
+        self.loaded_commit: str | None = None
+        self.read_only: bool = False
         self.load_progress: _LoadProgress = _LoadProgress()
 
 
@@ -83,13 +112,41 @@ progress_lock = Lock()
 
 app = FastAPI(
     title="rtl_arch_visualizer API",
-    version="0.1.0",
+    version="0.38",
     description="Backend API for Verilog project loading and graph queries.",
 )
 
 
 def _bad_request(detail: str) -> HTTPException:
     return HTTPException(status_code=400, detail=detail)
+
+
+def _resolve_repo_folder(folder: str | None) -> str:
+    target = folder
+    if not target:
+        with state_lock:
+            target = state.loaded_folder
+    if not target:
+        raise _bad_request("No folder was provided and no project is currently loaded.")
+    return target
+
+
+def _update_loaded_repo_context(folder: str) -> None:
+    try:
+        info = state.git.get_repo_info(folder)
+    except GitError:
+        state.loaded_repo_root = None
+        return
+    state.loaded_repo_root = info.root
+
+
+def _ensure_project_writable() -> None:
+    if state.read_only:
+        commit_label = state.loaded_commit or "snapshot"
+        raise _bad_request(
+            f"Project is opened in read-only commit view ({commit_label}). "
+            "Reload the live repository folder to edit files."
+        )
 
 
 @app.get("/api/health")
@@ -152,6 +209,9 @@ def _run_load_in_background(folder: str, parser_backend: str) -> None:
         with state_lock:
             state.service = local_service
             state.loaded_folder = folder
+            state.loaded_commit = None
+            state.read_only = False
+            _update_loaded_repo_context(folder)
 
         update(stage="done", active=False, done=True, summary=summary, error=None)
     except (FileNotFoundError, NotADirectoryError, ValueError, RuntimeError) as exc:
@@ -224,6 +284,17 @@ def get_project() -> dict[str, object]:
         raise _bad_request(str(exc)) from exc
 
 
+@app.get("/api/project/context")
+def get_project_context() -> dict[str, object]:
+    with state_lock:
+        return {
+            "loaded_folder": state.loaded_folder,
+            "repo_root": state.loaded_repo_root,
+            "read_only": state.read_only,
+            "loaded_commit": state.loaded_commit,
+        }
+
+
 @app.get("/api/project/tops")
 def get_top_candidates(
     include_testbenches: bool = Query(default=False),
@@ -284,6 +355,7 @@ def get_module(module_name: str) -> dict[str, object]:
 def create_module(payload: CreateModuleRequest) -> dict[str, object]:
     try:
         with state_lock:
+            _ensure_project_writable()
             result = state.service.create_module(payload.name)
             return result
     except (RuntimeError, ValueError) as exc:
@@ -307,6 +379,7 @@ def instantiate_module(payload: InstantiateModuleRequest) -> dict[str, object]:
     """Add an instance of child_module inside parent_module's source file."""
     try:
         with state_lock:
+            _ensure_project_writable()
             parent_mod = state.service.get_module(payload.parent_module)
             child_mod = state.service.get_module(payload.child_module)
             top_modules = set(state.service.get_top_candidates())
@@ -411,6 +484,7 @@ def get_source_file(path: str = Query(..., description="Absolute path to a track
 def update_module_source(module_name: str, payload: ModuleSourceUpdate) -> dict[str, object]:
     try:
         with state_lock:
+            _ensure_project_writable()
             module = state.service.get_module(module_name)
             src_path = module.source_file
             if not src_path:
@@ -479,6 +553,7 @@ def update_source_file(
     requested = str(Path(path).resolve())
     try:
         with state_lock:
+            _ensure_project_writable()
             project = state.service.get_project()
             known_paths = {str(Path(source.path).resolve()) for source in project.source_files}
             if requested not in known_paths:
@@ -560,6 +635,121 @@ def lint_verilog(payload: LintRequest) -> dict[str, object]:
         return {"errors": [], "backend": "none"}
 
     return {"errors": errors, "backend": "pyverilog"}
+
+
+@app.post("/api/git/clone")
+def clone_repository(payload: CloneRepositoryRequest) -> dict[str, object]:
+    try:
+        return state.git.clone_repository(
+            url=payload.url,
+            destination_parent=payload.destination_parent,
+            destination_name=payload.destination_name,
+            branch=payload.branch,
+        )
+    except (FileNotFoundError, NotADirectoryError, ValueError, GitError) as exc:
+        raise _bad_request(str(exc)) from exc
+
+
+@app.get("/api/git/repo")
+def get_repo_info(folder: str | None = Query(default=None)) -> dict[str, object]:
+    try:
+        target = _resolve_repo_folder(folder)
+        info = state.git.get_repo_info(target)
+        return {
+            "repo_root": info.root,
+            "branch": info.branch,
+            "detached": info.detached,
+            "remotes": info.remotes,
+        }
+    except (ValueError, GitError) as exc:
+        raise _bad_request(str(exc)) from exc
+
+
+@app.get("/api/git/status")
+def get_git_status(folder: str | None = Query(default=None)) -> dict[str, object]:
+    try:
+        target = _resolve_repo_folder(folder)
+        return state.git.get_status(target)
+    except (ValueError, GitError) as exc:
+        raise _bad_request(str(exc)) from exc
+
+
+@app.get("/api/git/history")
+def get_git_history(
+    folder: str | None = Query(default=None),
+    max_count: int = Query(default=50, ge=1, le=200),
+) -> dict[str, object]:
+    try:
+        target = _resolve_repo_folder(folder)
+        return state.git.list_history(target, max_count=max_count)
+    except (ValueError, GitError) as exc:
+        raise _bad_request(str(exc)) from exc
+
+
+@app.post("/api/git/commit-and-push")
+def commit_and_push(payload: CommitAndPushRequest) -> dict[str, object]:
+    try:
+        target = _resolve_repo_folder(payload.folder)
+        return state.git.commit_and_push(
+            folder=target,
+            message=payload.message,
+            remote=payload.remote,
+            branch=payload.branch,
+            push=payload.push,
+            author_name=payload.author_name,
+            author_email=payload.author_email,
+        )
+    except (ValueError, GitError) as exc:
+        raise _bad_request(str(exc)) from exc
+
+
+@app.post("/api/git/load-commit")
+def load_commit_snapshot(payload: LoadCommitRequest) -> dict[str, object]:
+    if payload.parser_backend not in PARSER_CHOICES:
+        raise _bad_request(
+            f"Unsupported parser backend '{payload.parser_backend}'. "
+            f"Use one of: {', '.join(PARSER_CHOICES)}"
+        )
+
+    try:
+        target = _resolve_repo_folder(payload.folder)
+        snapshot = state.git.materialize_commit_snapshot(target, payload.commit)
+        local_service = ProjectService(parser_backend=payload.parser_backend)
+        project = local_service.load_project(snapshot["snapshot_path"])
+
+        diagnostics = [
+            {
+                "severity": d.severity,
+                "kind": d.kind,
+                "message": d.message,
+                "file": d.file,
+                "line": d.line,
+                "detail": d.detail,
+            }
+            for d in project.diagnostics
+        ]
+        tops = local_service.get_top_candidates()
+
+        with state_lock:
+            state.service = local_service
+            state.loaded_folder = snapshot["snapshot_path"]
+            state.loaded_repo_root = snapshot["repo_root"]
+            state.loaded_commit = snapshot["commit"]
+            state.read_only = True
+
+        return {
+            "loaded_folder": snapshot["snapshot_path"],
+            "repo_root": snapshot["repo_root"],
+            "loaded_commit": snapshot["commit"],
+            "read_only": True,
+            "parser_backend": payload.parser_backend,
+            "file_count": len(project.source_files),
+            "module_count": len(project.modules),
+            "top_candidates": tops,
+            "diagnostics": diagnostics,
+        }
+    except (FileNotFoundError, NotADirectoryError, ValueError, RuntimeError, GitError) as exc:
+        raise _bad_request(str(exc)) from exc
 
 
 @app.get("/api/project/hierarchy/{top_module}")

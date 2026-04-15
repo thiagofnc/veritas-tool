@@ -47,6 +47,9 @@
 
           <button id="loadBtn" type="button">Load</button>
           <button id="refreshBtn" type="button">Refresh</button>
+          <button id="cloneRepoBtn" type="button">Clone Repo</button>
+          <button id="gitHistoryBtn" type="button">Git History</button>
+          <button id="gitCommitBtn" type="button">Commit / Push</button>
 
           <span id="statusBadge" class="status idle">Idle</span>
         </div>
@@ -179,7 +182,7 @@
         </aside>
       </main>
     </div>
-    <div class="app-version-tag" aria-hidden="true">0.36</div>
+    <div class="app-version-tag" aria-hidden="true">0.38</div>
 
     <div id="createModuleOverlay" class="modal-overlay hidden">
       <div class="modal-panel">
@@ -195,6 +198,74 @@
         <div class="modal-footer">
           <button id="createModuleCancel" type="button">Cancel</button>
           <button id="createModuleConfirm" type="button" class="primary">Create</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="cloneRepoOverlay" class="modal-overlay hidden">
+      <div class="modal-panel git-modal-panel">
+        <div class="modal-header">
+          <h3>Clone Repository</h3>
+          <button id="cloneRepoClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label for="cloneRepoUrl">Repository URL</label>
+          <input id="cloneRepoUrl" type="text" placeholder="https://github.com/user/repo.git" spellcheck="false" />
+          <label for="cloneRepoParent">Destination parent folder</label>
+          <input id="cloneRepoParent" type="text" placeholder="C:\Projects" spellcheck="false" />
+          <label for="cloneRepoName">Destination folder name (optional)</label>
+          <input id="cloneRepoName" type="text" placeholder="repo-name" spellcheck="false" />
+          <label for="cloneRepoBranch">Branch (optional)</label>
+          <input id="cloneRepoBranch" type="text" placeholder="main" spellcheck="false" />
+          <span id="cloneRepoError" class="modal-error"></span>
+        </div>
+        <div class="modal-footer">
+          <button id="cloneRepoCancel" type="button">Cancel</button>
+          <button id="cloneRepoConfirm" type="button" class="primary">Clone and Load</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="gitHistoryOverlay" class="modal-overlay hidden">
+      <div class="modal-panel git-modal-panel git-history-panel">
+        <div class="modal-header">
+          <h3>Git History</h3>
+          <button id="gitHistoryClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div id="gitHistorySummary" class="git-history-summary"></div>
+          <div id="gitHistoryList" class="git-history-list"></div>
+          <span id="gitHistoryError" class="modal-error"></span>
+        </div>
+        <div class="modal-footer">
+          <button id="gitHistoryRefresh" type="button">Refresh History</button>
+          <button id="gitHistoryDismiss" type="button" class="primary">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="gitCommitOverlay" class="modal-overlay hidden">
+      <div class="modal-panel git-modal-panel">
+        <div class="modal-header">
+          <h3>Commit and Push</h3>
+          <button id="gitCommitClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label for="gitCommitMessage">Commit message</label>
+          <input id="gitCommitMessage" type="text" placeholder="Describe the change" spellcheck="false" />
+          <label for="gitCommitRemote">Remote</label>
+          <input id="gitCommitRemote" type="text" value="origin" spellcheck="false" />
+          <label for="gitCommitBranch">Branch (optional)</label>
+          <input id="gitCommitBranch" type="text" placeholder="current branch" spellcheck="false" />
+          <label class="modal-check" for="gitCommitPushNow">
+            <input id="gitCommitPushNow" type="checkbox" checked />
+            Push immediately after commit
+          </label>
+          <span id="gitCommitError" class="modal-error"></span>
+        </div>
+        <div class="modal-footer">
+          <button id="gitCommitCancel" type="button">Cancel</button>
+          <button id="gitCommitConfirm" type="button" class="primary">Commit</button>
         </div>
       </div>
     </div>

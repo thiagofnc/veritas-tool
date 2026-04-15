@@ -36,6 +36,17 @@ const state = {
   folderPreset: CUSTOM_PROJECT_VALUE,
   customFolder: "",
   parser: "pyverilog",
+  projectContext: {
+    loaded_folder: null,
+    repo_root: null,
+    read_only: false,
+    loaded_commit: null,
+  },
+  git: {
+    repo: null,
+    status: null,
+    history: [],
+  },
   leftSidebarTab: "modules",
   tops: [],
   modules: [],
@@ -65,6 +76,9 @@ const folderPathInput = document.getElementById("folderPathInput");
 const parserSelect = document.getElementById("parserSelect");
 const loadBtn = document.getElementById("loadBtn");
 const refreshBtn = document.getElementById("refreshBtn");
+const cloneRepoBtn = document.getElementById("cloneRepoBtn");
+const gitHistoryBtn = document.getElementById("gitHistoryBtn");
+const gitCommitBtn = document.getElementById("gitCommitBtn");
 const fitBtn = document.getElementById("fitBtn");
 const showUnknownToggle = document.getElementById("showUnknownToggle");
 const portViewToggle = document.getElementById("portViewToggle");
@@ -114,6 +128,20 @@ function setStatus(text, kind) {
   }
   statusBadge.textContent = text;
   statusBadge.className = `status ${kind}`;
+}
+
+function summarizePath(path) {
+  if (!path) return "(none)";
+  const normalized = String(path).replace(/\\/g, "/");
+  const parts = normalized.split("/");
+  return parts.length <= 4 ? normalized : `.../${parts.slice(-4).join("/")}`;
+}
+
+function formatIsoDate(text) {
+  if (!text) return "";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toLocaleString();
 }
 
 function escapeHtml(text) {
@@ -180,6 +208,78 @@ function updateFolderStateFromControls() {
       folderPathInput.disabled = true;
     }
   }
+}
+
+function getActiveRepoFolder() {
+  return state.projectContext.repo_root || state.folder || getSelectedFolderPath() || "";
+}
+
+function isReadOnlyProject() {
+  return Boolean(state.projectContext && state.projectContext.read_only);
+}
+
+function syncProjectInteractionState() {
+  const createBtn = document.getElementById("createModuleBtn");
+  const saveBtn = document.getElementById("codeEditorSave");
+  const commitDisabled = !state.projectContext.repo_root || isReadOnlyProject();
+  const historyDisabled = !state.projectContext.repo_root;
+
+  if (createBtn) {
+    createBtn.disabled = !state.tops.length || isReadOnlyProject();
+    createBtn.title = isReadOnlyProject() ? "Disabled while viewing a historical commit snapshot." : "";
+  }
+  if (saveBtn) {
+    saveBtn.disabled = isReadOnlyProject();
+    saveBtn.title = isReadOnlyProject() ? "Save is disabled in read-only commit view." : "";
+  }
+  if (gitCommitBtn) {
+    gitCommitBtn.disabled = commitDisabled;
+    gitCommitBtn.title = isReadOnlyProject()
+      ? "Commit and push are disabled while viewing a historical commit snapshot."
+      : (!state.projectContext.repo_root ? "Load a Git repository first." : "");
+  }
+  if (gitHistoryBtn) {
+    gitHistoryBtn.disabled = historyDisabled;
+    gitHistoryBtn.title = historyDisabled ? "Load a Git repository first." : "";
+  }
+}
+
+async function refreshProjectContext() {
+  try {
+    state.projectContext = await apiRequest("/api/project/context");
+  } catch {
+    state.projectContext = {
+      loaded_folder: null,
+      repo_root: null,
+      read_only: false,
+      loaded_commit: null,
+    };
+  }
+  syncProjectInteractionState();
+}
+
+async function refreshGitState() {
+  await refreshProjectContext();
+  if (!state.projectContext.repo_root) {
+    state.git.repo = null;
+    state.git.status = null;
+    state.git.history = [];
+    syncProjectInteractionState();
+    return;
+  }
+
+  const folder = getActiveRepoFolder();
+  const encodedFolder = encodeURIComponent(folder);
+  const [repo, status, history] = await Promise.all([
+    apiRequest(`/api/git/repo?folder=${encodedFolder}`),
+    apiRequest(`/api/git/status?folder=${encodedFolder}`).catch(() => null),
+    apiRequest(`/api/git/history?folder=${encodedFolder}&max_count=30`).catch(() => ({ commits: [] })),
+  ]);
+
+  state.git.repo = repo;
+  state.git.status = status;
+  state.git.history = history.commits || [];
+  syncProjectInteractionState();
 }
 
 function snapToGrid(value, grid = LAYOUT_GRID) {
@@ -354,6 +454,7 @@ function renderHierarchyTree() {
 
   function canInstantiateModule(moduleName, node = null) {
     if (!moduleName) return false;
+    if (isReadOnlyProject()) return false;
     if (node?.unresolved || node?.cycle) return false;
     return !state.tops.includes(moduleName);
   }
@@ -4951,7 +5052,7 @@ function renderInspector() {
     state.selectedNode && state.selectedNode.kind === "instance" ? state.selectedNode : null;
 
   const viewCodeButton = state.selectedModule
-    ? `<button id="viewModuleCodeBtn" data-module="${escapeHtml(state.selectedModule)}">View / Edit Code</button>`
+    ? `<button id="viewModuleCodeBtn" data-module="${escapeHtml(state.selectedModule)}">${isReadOnlyProject() ? "View Code" : "View / Edit Code"}</button>`
     : "";
 
   const jumpToDefButton = selectedInstance
@@ -4961,6 +5062,22 @@ function renderInspector() {
                 data-child-module="${escapeHtml(selectedInstance.module_name || "")}">Jump to Definition</button>`
     : "";
 
+  const repo = state.git.repo || null;
+  const repoStatus = state.git.status || null;
+  const repoBlock = repo
+    ? `
+      <hr style="border-color:#2b3f4d;border-style:solid;border-width:1px 0 0; margin:10px 0;" />
+      <div><span class="k">Repo root:</span><br>${escapeHtml(repo.repo_root || "(none)")}</div>
+      <div><span class="k">Branch:</span> ${escapeHtml(repo.branch || "(unknown)")}${repo.detached ? " (detached)" : ""}</div>
+      <div><span class="k">Remote:</span> ${escapeHtml((repo.remotes || []).map((item) => `${item.name}: ${item.url}`).join(" | ") || "(none)")}</div>
+      <div><span class="k">Working tree:</span> ${repoStatus ? (repoStatus.dirty ? "modified" : "clean") : "(unknown)"}</div>
+      ${state.projectContext.loaded_commit ? `<div><span class="k">Loaded commit:</span> ${escapeHtml(state.projectContext.loaded_commit)}</div>` : ""}
+    `
+    : "";
+  const readOnlyNote = isReadOnlyProject()
+    ? `<div class="repo-note read-only">Historical commit view is open. Editing, instantiation, and commit/push are disabled until you reload the live repository.</div>`
+    : (repo ? `<div class="repo-note">Use the topbar Git actions to clone, inspect commit history, or commit and push the current repository.</div>` : "");
+
   inspector.innerHTML = `
     <div><span class="k">Parser:</span> ${escapeHtml(summary.parser_backend || "-")}</div>
     <div><span class="k">Files:</span> ${summary.file_count ?? 0}</div>
@@ -4968,10 +5085,12 @@ function renderInspector() {
     <div><span class="k">Top candidates:</span> ${escapeHtml((summary.top_candidates || []).join(", ") || "(none)")}</div>
     <div><span class="k">Selected top:</span> ${escapeHtml(state.selectedTop || "(none)")}</div>
     <div><span class="k">Focus module:</span> ${escapeHtml(state.selectedModule || "(none)")}</div>
+    ${repoBlock}
     ${selectionBlock}
     ${viewCodeButton}
     ${jumpToDefButton}
     ${traceButton}
+    ${readOnlyNote}
   `;
 
   const btn = document.getElementById("traceSignalBtn");
@@ -5190,9 +5309,14 @@ async function refreshProject() {
   state.modules = modulesPayload.modules || [];
   state.sourceFiles = filesPayload.files || [];
   state.unusedModules = unusedPayload.unused_modules || [];
-
-  const createBtn = document.getElementById("createModuleBtn");
-  if (createBtn) createBtn.disabled = false;
+  state.summary = {
+    ...(state.summary || {}),
+    parser_backend: state.summary?.parser_backend || state.parser,
+    file_count: state.sourceFiles.length,
+    module_count: state.modules.length,
+    top_candidates: [...state.tops],
+  };
+  await refreshGitState();
 
   if (!state.tops.length) {
     state.selectedTop = null;
@@ -5225,6 +5349,7 @@ async function refreshProject() {
     retainedModule,
     retainedBreadcrumb.length ? retainedBreadcrumb : [retainedModule],
   );
+  syncProjectInteractionState();
 }
 
 // ── Project load progress bar ──────────────────────────────────────
@@ -5640,6 +5765,294 @@ renderInspector();
   } catch {
     setStatus("API unavailable", "error");
   }
+  await refreshProjectContext();
+  syncProjectInteractionState();
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+// Git UI
+// ═══════════════════════════════════════════════════════════════════
+function setModalHidden(id, hidden) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle("hidden", hidden);
+}
+
+function escapeAttrValue(text) {
+  return escapeHtml(text).replaceAll("`", "&#96;");
+}
+
+function renderGitHistoryModal() {
+  const summaryEl = document.getElementById("gitHistorySummary");
+  const listEl = document.getElementById("gitHistoryList");
+  const errorEl = document.getElementById("gitHistoryError");
+  if (!summaryEl || !listEl || !errorEl) return;
+
+  errorEl.textContent = "";
+  const repo = state.git.repo;
+  const status = state.git.status;
+
+  if (!repo) {
+    summaryEl.innerHTML = "";
+    listEl.innerHTML = '<div class="git-history-empty">Load a Git repository first.</div>';
+    return;
+  }
+
+  summaryEl.innerHTML = `
+    <div class="git-history-summary-item"><strong>Repo</strong><br>${escapeHtml(summarizePath(repo.repo_root || ""))}</div>
+    <div class="git-history-summary-item"><strong>Branch</strong><br>${escapeHtml(repo.branch || "(unknown)")}${repo.detached ? " (detached)" : ""}</div>
+    <div class="git-history-summary-item"><strong>Working tree</strong><br>${status ? (status.dirty ? "modified" : "clean") : "(unknown)"}</div>
+    <div class="git-history-summary-item"><strong>Mode</strong><br>${isReadOnlyProject() ? "read-only snapshot" : "live repo"}</div>
+  `;
+
+  if (!state.git.history.length) {
+    listEl.innerHTML = '<div class="git-history-empty">No commits available.</div>';
+    return;
+  }
+
+  listEl.innerHTML = state.git.history.map((commit) => `
+    <div class="git-history-row">
+      <div>
+        <div class="git-history-subject">${escapeHtml(commit.subject || "(no subject)")}</div>
+        <div class="git-history-meta">
+          <div><strong>${escapeHtml(commit.short_commit || "")}</strong> ${escapeHtml(commit.commit || "")}</div>
+          <div>${escapeHtml(commit.author_name || "")} &lt;${escapeHtml(commit.author_email || "")}&gt;</div>
+          <div>${escapeHtml(formatIsoDate(commit.authored_at))}</div>
+        </div>
+      </div>
+      <div class="git-history-actions">
+        <button
+          type="button"
+          class="git-open-commit-btn"
+          data-commit="${escapeAttrValue(commit.commit || "")}"
+        >
+          Open Read-Only
+        </button>
+      </div>
+    </div>
+  `).join("");
+
+  listEl.querySelectorAll(".git-open-commit-btn").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const commit = button.getAttribute("data-commit");
+      if (!commit) return;
+
+      errorEl.textContent = "";
+      button.disabled = true;
+      try {
+        setStatus("Loading commit...", "busy");
+        await apiRequest("/api/git/load-commit", {
+          method: "POST",
+          body: JSON.stringify({
+            folder: getActiveRepoFolder(),
+            commit,
+            parser_backend: state.parser,
+          }),
+        });
+        await refreshProject();
+        setStatus(`Loaded ${commit.slice(0, 7)} read-only`, "ok");
+        renderGitHistoryModal();
+        renderInspector();
+      } catch (error) {
+        errorEl.textContent = error.message || "Failed to load commit.";
+        setStatus("Commit load failed", "error");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+async function openGitHistoryModal() {
+  setModalHidden("gitHistoryOverlay", false);
+  const listEl = document.getElementById("gitHistoryList");
+  const errorEl = document.getElementById("gitHistoryError");
+  if (listEl) listEl.innerHTML = '<div class="git-history-empty">Loading commit history...</div>';
+  if (errorEl) errorEl.textContent = "";
+
+  try {
+    await refreshGitState();
+    renderGitHistoryModal();
+  } catch (error) {
+    if (errorEl) errorEl.textContent = error.message || "Failed to load git history.";
+  }
+}
+
+(function setupCloneRepoDialog() {
+  const overlay = document.getElementById("cloneRepoOverlay");
+  const urlInput = document.getElementById("cloneRepoUrl");
+  const parentInput = document.getElementById("cloneRepoParent");
+  const nameInput = document.getElementById("cloneRepoName");
+  const branchInput = document.getElementById("cloneRepoBranch");
+  const errorEl = document.getElementById("cloneRepoError");
+  const confirmBtn = document.getElementById("cloneRepoConfirm");
+  const closeBtn = document.getElementById("cloneRepoClose");
+  const cancelBtn = document.getElementById("cloneRepoCancel");
+  if (!overlay) return;
+
+  function hide() {
+    overlay.classList.add("hidden");
+  }
+
+  function show() {
+    overlay.classList.remove("hidden");
+    if (errorEl) errorEl.textContent = "";
+    if (parentInput && !parentInput.value.trim()) {
+      const current = getSelectedFolderPath();
+      if (current) {
+        const normalized = String(current).replace(/\//g, "\\");
+        const idx = normalized.lastIndexOf("\\");
+        if (idx > 0) parentInput.value = normalized.slice(0, idx);
+      }
+    }
+    urlInput?.focus();
+  }
+
+  async function cloneRepo() {
+    const url = urlInput?.value.trim() || "";
+    const destinationParent = parentInput?.value.trim() || "";
+    const destinationName = nameInput?.value.trim() || "";
+    const branch = branchInput?.value.trim() || "";
+    if (!url || !destinationParent) {
+      if (errorEl) errorEl.textContent = "Repository URL and destination parent are required.";
+      return;
+    }
+
+    confirmBtn.disabled = true;
+    if (errorEl) errorEl.textContent = "";
+    try {
+      setStatus("Cloning repository...", "busy");
+      const result = await apiRequest("/api/git/clone", {
+        method: "POST",
+        body: JSON.stringify({
+          url,
+          destination_parent: destinationParent,
+          destination_name: destinationName || null,
+          branch: branch || null,
+        }),
+      });
+
+      state.folderPreset = CUSTOM_PROJECT_VALUE;
+      state.customFolder = result.folder || "";
+      state.folder = result.folder || "";
+      syncFolderControls();
+      hide();
+      await handleLoad();
+      setStatus("Repository cloned and loaded", "ok");
+    } catch (error) {
+      if (errorEl) errorEl.textContent = error.message || "Clone failed.";
+      setStatus("Clone failed", "error");
+    } finally {
+      confirmBtn.disabled = false;
+    }
+  }
+
+  cloneRepoBtn?.addEventListener("click", show);
+  closeBtn?.addEventListener("click", hide);
+  cancelBtn?.addEventListener("click", hide);
+  overlay.addEventListener("click", (ev) => {
+    if (ev.target === overlay) hide();
+  });
+  confirmBtn?.addEventListener("click", cloneRepo);
+  branchInput?.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") cloneRepo();
+  });
+})();
+
+(function setupGitHistoryDialog() {
+  const overlay = document.getElementById("gitHistoryOverlay");
+  const closeBtn = document.getElementById("gitHistoryClose");
+  const dismissBtn = document.getElementById("gitHistoryDismiss");
+  const refreshBtnEl = document.getElementById("gitHistoryRefresh");
+  if (!overlay) return;
+
+  function hide() {
+    overlay.classList.add("hidden");
+  }
+
+  gitHistoryBtn?.addEventListener("click", openGitHistoryModal);
+  closeBtn?.addEventListener("click", hide);
+  dismissBtn?.addEventListener("click", hide);
+  refreshBtnEl?.addEventListener("click", openGitHistoryModal);
+  overlay.addEventListener("click", (ev) => {
+    if (ev.target === overlay) hide();
+  });
+})();
+
+(function setupGitCommitDialog() {
+  const overlay = document.getElementById("gitCommitOverlay");
+  const messageInput = document.getElementById("gitCommitMessage");
+  const remoteInput = document.getElementById("gitCommitRemote");
+  const branchInput = document.getElementById("gitCommitBranch");
+  const pushToggle = document.getElementById("gitCommitPushNow");
+  const errorEl = document.getElementById("gitCommitError");
+  const confirmBtn = document.getElementById("gitCommitConfirm");
+  const closeBtn = document.getElementById("gitCommitClose");
+  const cancelBtn = document.getElementById("gitCommitCancel");
+  if (!overlay) return;
+
+  function hide() {
+    overlay.classList.add("hidden");
+  }
+
+  function show() {
+    if (isReadOnlyProject()) {
+      setStatus("Read-only commit view", "warn");
+      return;
+    }
+    overlay.classList.remove("hidden");
+    if (errorEl) errorEl.textContent = "";
+    if (remoteInput && !remoteInput.value.trim()) remoteInput.value = "origin";
+    messageInput?.focus();
+  }
+
+  async function commitChanges() {
+    const message = messageInput?.value.trim() || "";
+    const remote = remoteInput?.value.trim() || "origin";
+    const branch = branchInput?.value.trim() || "";
+    const push = Boolean(pushToggle?.checked);
+    if (!message) {
+      if (errorEl) errorEl.textContent = "Commit message is required.";
+      return;
+    }
+
+    confirmBtn.disabled = true;
+    if (errorEl) errorEl.textContent = "";
+    try {
+      setStatus(push ? "Committing and pushing..." : "Committing...", "busy");
+      await apiRequest("/api/git/commit-and-push", {
+        method: "POST",
+        body: JSON.stringify({
+          folder: getActiveRepoFolder(),
+          message,
+          remote,
+          branch: branch || null,
+          push,
+        }),
+      });
+      hide();
+      messageInput.value = "";
+      await refreshGitState();
+      renderInspector();
+      setStatus(push ? "Commit pushed" : "Commit created", "ok");
+    } catch (error) {
+      if (errorEl) errorEl.textContent = error.message || "Commit failed.";
+      setStatus("Commit failed", "error");
+    } finally {
+      confirmBtn.disabled = false;
+    }
+  }
+
+  gitCommitBtn?.addEventListener("click", show);
+  closeBtn?.addEventListener("click", hide);
+  cancelBtn?.addEventListener("click", hide);
+  overlay.addEventListener("click", (ev) => {
+    if (ev.target === overlay) hide();
+  });
+  confirmBtn?.addEventListener("click", commitChanges);
+  branchInput?.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") commitChanges();
+  });
 })();
 
 // ═══════════════════════════════════════════════════════════════════
@@ -6304,6 +6717,10 @@ function closeModuleCodeEditor() {
 async function saveModuleCodeEditor() {
   const cm = codeEditorState.cm;
   if (!cm || !codeEditorState.path) return;
+  if (isReadOnlyProject()) {
+    setEditorStatus("Read-only commit view: saving is disabled.", "warning", { sticky: true });
+    return;
+  }
   const content = cm.getValue();
   const moduleToReload = state.selectedModule;
   const breadcrumbToReload = state.breadcrumb.length ? [...state.breadcrumb] : [];
@@ -6455,6 +6872,10 @@ warmCodeEditor();
   if (!overlay) return;
 
   function show() {
+    if (isReadOnlyProject()) {
+      setStatus("Read-only commit view", "warn");
+      return;
+    }
     overlay.classList.remove("hidden");
     if (nameInput) { nameInput.value = ""; nameInput.focus(); }
     if (errorEl) errorEl.textContent = "";
@@ -6508,6 +6929,10 @@ function openInstantiateDialog(childModule) {
   const nameInput = document.getElementById("instantiateName");
   const errorEl = document.getElementById("instantiateError");
   if (!overlay) return;
+  if (isReadOnlyProject()) {
+    setStatus("Read-only commit view", "warn");
+    return;
+  }
 
   if (state.tops.includes(childModule)) {
     setStatus("Top modules cannot be instantiated", "error");

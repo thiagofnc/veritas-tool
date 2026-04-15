@@ -170,6 +170,18 @@ body {
   min-width: 200px;
 }
 
+#cloneRepoBtn,
+#gitHistoryBtn,
+#gitCommitBtn {
+  border-color: rgba(34, 211, 238, 0.24);
+}
+
+#gitCommitBtn:disabled,
+#gitHistoryBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .controls button,
 .canvas-actions button {
   background: var(--surface-2);
@@ -1834,6 +1846,20 @@ body {
   color: var(--text-secondary);
 }
 
+.modal-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.modal-check input {
+  margin: 0;
+}
+
 .modal-body input,
 .modal-body select {
   padding: 7px 10px;
@@ -1886,6 +1912,109 @@ body {
 
 .modal-footer button.primary:hover {
   opacity: 0.85;
+}
+
+.git-modal-panel {
+  width: min(560px, 92vw);
+}
+
+.git-history-panel {
+  width: min(900px, 94vw);
+}
+
+.git-history-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.git-history-summary-item {
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+}
+
+.git-history-list {
+  max-height: 52vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.git-history-empty {
+  padding: 14px 12px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.git-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+}
+
+.git-history-subject {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.git-history-meta {
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.git-history-actions {
+  display: flex;
+  align-items: center;
+}
+
+.git-history-actions button {
+  font-family: inherit;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  background: rgba(34, 211, 238, 0.1);
+  color: var(--probe);
+  cursor: pointer;
+}
+
+.git-history-actions button:hover {
+  border-color: var(--probe);
+  background: rgba(34, 211, 238, 0.16);
+}
+
+.repo-note {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.repo-note.read-only {
+  border-color: rgba(245, 158, 11, 0.28);
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.08);
 }
 
 /* ── Unused module badge in hierarchy tree ── */

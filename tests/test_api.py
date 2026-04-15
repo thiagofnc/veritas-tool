@@ -9,6 +9,7 @@ try:
 
     from app import api as api_module
     from app.api import app, state, state_lock
+    from app.git_service import GitService
     from app.project_service import ProjectService
 except Exception:  # pragma: no cover - dependency/setup guard
     TestClient = None
@@ -20,7 +21,11 @@ class TestApi(unittest.TestCase):
         self.client = TestClient(app)
         with state_lock:
             state.service = ProjectService(parser_backend="simple")
+            state.git = GitService()
             state.loaded_folder = None
+            state.loaded_repo_root = None
+            state.loaded_commit = None
+            state.read_only = False
 
     def test_requires_loaded_project_for_query_endpoints(self) -> None:
         response = self.client.get("/api/project/tops")
@@ -321,6 +326,93 @@ endmodule
             )
             self.assertEqual(response.status_code, 400)
             self.assertIn("cannot be instantiated", response.json()["detail"])
+
+    def test_load_commit_snapshot_is_read_only(self) -> None:
+        import os
+        import subprocess
+
+        def git(args: list[str], cwd: str, env: dict[str, str] | None = None) -> str:
+            merged_env = os.environ.copy()
+            if env:
+                merged_env.update(env)
+            proc = subprocess.run(
+                ["git", *args],
+                cwd=cwd,
+                check=True,
+                capture_output=True,
+                text=True,
+                env=merged_env,
+            )
+            return proc.stdout.strip()
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            author_env = {
+                "GIT_AUTHOR_NAME": "Test User",
+                "GIT_AUTHOR_EMAIL": "test@example.com",
+                "GIT_COMMITTER_NAME": "Test User",
+                "GIT_COMMITTER_EMAIL": "test@example.com",
+            }
+
+            git(["init", "-b", "main"], cwd=temp_dir)
+
+            source_path = root / "top.v"
+            source_path.write_text(
+                """
+module top(input a, output y);
+  assign y = a;
+endmodule
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            git(["add", "-A"], cwd=temp_dir)
+            git(["commit", "-m", "v1"], cwd=temp_dir, env=author_env)
+            first_commit = git(["rev-parse", "HEAD"], cwd=temp_dir)
+
+            source_path.write_text(
+                """
+module top(input a, output y);
+  assign y = ~a;
+endmodule
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            git(["add", "-A"], cwd=temp_dir)
+            git(["commit", "-m", "v2"], cwd=temp_dir, env=author_env)
+
+            response = self.client.post(
+                "/api/git/load-commit",
+                json={
+                    "folder": temp_dir,
+                    "commit": first_commit,
+                    "parser_backend": "simple",
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertTrue(payload["read_only"])
+            self.assertEqual(payload["loaded_commit"], first_commit)
+
+            source_response = self.client.get("/api/project/modules/top/source")
+            self.assertEqual(source_response.status_code, 200)
+            self.assertIn("assign y = a;", source_response.json()["content"])
+            self.assertNotIn("assign y = ~a;", source_response.json()["content"])
+
+            save_response = self.client.put(
+                "/api/project/modules/top/source",
+                json={
+                    "content": """
+module top(input a, output y);
+  assign y = 1'b0;
+endmodule
+""".strip()
+                    + "\n"
+                },
+            )
+            self.assertEqual(save_response.status_code, 400)
+            self.assertIn("read-only", save_response.json()["detail"].lower())
 
 
 if __name__ == "__main__":
