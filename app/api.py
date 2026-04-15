@@ -93,7 +93,8 @@ class TestbenchSaveRequest(BaseModel):
 class RunSimulationRequest(BaseModel):
     path: str = Field(..., description="Absolute path to the testbench file (must live inside the loaded project)")
     top_module: str | None = Field(default=None, description="Optional override for the -s top-module passed to iverilog")
-    timeout_sec: float = Field(default=30.0, ge=1.0, le=300.0, description="Per-phase timeout in seconds")
+    timeout_sec: float = Field(default=30.0, ge=1.0, le=600.0, description="Per-phase timeout in seconds")
+    expected_path: str | None = Field(default=None, description="Optional absolute path to a golden-output file to diff against run stdout")
 
 
 @dataclass
@@ -974,6 +975,7 @@ def sim_run(payload: RunSimulationRequest) -> dict[str, object]:
             payload.path,
             top_module=payload.top_module,
             timeout_sec=payload.timeout_sec,
+            expected_path=payload.expected_path,
         )
         simulation_service.prune_old_runs(folder, keep=10)
         return simulation_service.result_to_dict(result)

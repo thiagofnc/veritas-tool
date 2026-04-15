@@ -11,6 +11,7 @@ footprint inside the loaded project folder:
 
 from __future__ import annotations
 
+import difflib
 import re
 import shutil
 import subprocess
@@ -59,6 +60,20 @@ class SimulationResult:
     vvp_path: str | None = None
     duration_ms: int = 0
     messages: list[SimulationMessage] = field(default_factory=list)
+    # Verdict + counters computed from run output.
+    verdict: str = "unknown"         # pass | fail | unknown
+    verdict_reason: str = ""         # human-readable explanation of the verdict
+    pass_count: int = 0
+    fail_count: int = 0
+    error_count: int = 0
+    warning_count: int = 0
+    assertion_count: int = 0
+    fatal_count: int = 0
+    # Expected-output comparison (populated when a golden file was found).
+    expected_path: str | None = None
+    expected_matched: bool | None = None
+    diff: str = ""                   # unified diff excerpt (empty on match or absent)
+    timed_out: bool = False
 
 
 class SimulationError(RuntimeError):
@@ -360,6 +375,126 @@ def _collect_source_files(project_root: str, *, exclude: set[str] | None = None)
     return files
 
 
+# Verdict / counter heuristics applied to run-phase stdout+stderr.
+#
+# PASS / FAIL markers: match on whole tokens so a normal word like "passed"
+# inside a sentence still counts, but we avoid matching substrings like
+# "Bypass" or "Unsurpassed". The regex is anchored by word boundaries and
+# a small set of common testbench idioms (TEST PASSED, ALL TESTS PASSED).
+_PASS_MARKER_RE = re.compile(
+    r"\b(?:ALL\s+TESTS?\s+PASSED|TESTS?\s+PASSED|PASSED|PASS)\b",
+    re.IGNORECASE,
+)
+_FAIL_MARKER_RE = re.compile(
+    r"\b(?:TESTS?\s+FAILED|FAILED|FAILURE|FAIL)\b",
+    re.IGNORECASE,
+)
+# Icarus formats $error / $fatal / $warning as lines that start (after any
+# leading filename:line: prefix) with ERROR / WARNING / FATAL. We also catch
+# the raw $error / $fatal / $warning tokens in case the testbench prints them
+# verbatim with $display.
+_ERROR_LINE_RE = re.compile(r"(?:^|[\s:])(?:ERROR|\$error|\$fatal)\b", re.IGNORECASE)
+_FATAL_LINE_RE = re.compile(r"(?:^|[\s:])(?:FATAL|\$fatal)\b", re.IGNORECASE)
+_WARN_LINE_RE = re.compile(r"(?:^|[\s:])(?:WARNING|\$warning)\b", re.IGNORECASE)
+_ASSERT_LINE_RE = re.compile(r"\bassert(?:ion)?\b.*\b(?:fail|error|violat)", re.IGNORECASE)
+
+
+@dataclass
+class _RunAnalysis:
+    pass_count: int = 0
+    fail_count: int = 0
+    error_count: int = 0
+    warning_count: int = 0
+    assertion_count: int = 0
+    fatal_count: int = 0
+
+
+def _analyze_run_output(text: str) -> _RunAnalysis:
+    """Scan combined run stdout+stderr for verdict markers and error counters.
+
+    Counts are per-line to avoid double-counting a single message that happens
+    to mention both "ERROR" and "assertion". Errors trump assertion counts
+    when both match on the same line (so a $error: assertion failure ... line
+    is counted once as both an error and an assertion — one of each)."""
+    a = _RunAnalysis()
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        # Skip iverilog's informational VCD banner so it doesn't get
+        # mis-detected as an error just because it contains "ERROR" in the
+        # middle of, say, a file path.
+        if line.startswith("VCD info:"):
+            continue
+        if _FAIL_MARKER_RE.search(line):
+            a.fail_count += 1
+        elif _PASS_MARKER_RE.search(line):
+            # Pass marker alone (without a fail on the same line) — avoids
+            # counting "PASS" inside a "FAIL: something PASSED earlier" log.
+            a.pass_count += 1
+        if _FATAL_LINE_RE.search(line):
+            a.fatal_count += 1
+        if _ERROR_LINE_RE.search(line):
+            a.error_count += 1
+        elif _WARN_LINE_RE.search(line):
+            a.warning_count += 1
+        if _ASSERT_LINE_RE.search(line):
+            a.assertion_count += 1
+    return a
+
+
+def _discover_expected_file(tb_path: Path) -> Path | None:
+    """Look for a golden-output file next to the testbench.
+
+    Accepted names (checked in order):
+        <stem>.expected.txt
+        <stem>.expected
+        <stem>.golden.txt
+        <stem>.golden
+    """
+    stem = tb_path.stem
+    parent = tb_path.parent
+    for suffix in (".expected.txt", ".expected", ".golden.txt", ".golden"):
+        cand = parent / f"{stem}{suffix}"
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _compare_expected(actual: str, expected_path: Path) -> tuple[bool, str]:
+    """Return (matched, diff_excerpt). Comparison normalizes line endings and
+    trims trailing whitespace per line. Empty expected file => matches any
+    output (treated as 'no expectation set')."""
+    try:
+        expected_raw = expected_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return False, f"(failed to read expected file: {exc})"
+
+    def normalize(s: str) -> list[str]:
+        return [ln.rstrip() for ln in s.replace("\r\n", "\n").split("\n")]
+
+    exp_lines = normalize(expected_raw)
+    got_lines = normalize(actual)
+    # Drop a single trailing blank line on either side so files ending with a
+    # newline don't spuriously mismatch.
+    if exp_lines and exp_lines[-1] == "":
+        exp_lines.pop()
+    if got_lines and got_lines[-1] == "":
+        got_lines.pop()
+    if exp_lines == got_lines:
+        return True, ""
+    diff = list(difflib.unified_diff(
+        exp_lines, got_lines,
+        fromfile="expected", tofile="actual",
+        lineterm="",
+    ))
+    # Cap diff size so a runaway log doesn't blow up the response payload.
+    MAX_LINES = 200
+    if len(diff) > MAX_LINES:
+        diff = diff[:MAX_LINES] + [f"... ({len(diff) - MAX_LINES} more diff lines truncated)"]
+    return False, "\n".join(diff)
+
+
 # iverilog emits messages like:
 #   C:/path/tb_foo.sv:42: syntax error
 #   tb_foo.sv:42: error: ...
@@ -398,6 +533,7 @@ def run_simulation(
     *,
     top_module: str | None = None,
     timeout_sec: float = 30.0,
+    expected_path: str | None = None,
 ) -> SimulationResult:
     tools = check_tools()
     if not tools["available"]:
@@ -461,6 +597,9 @@ def run_simulation(
             status="compile_error",
             compile_stderr=f"Compilation timed out after {timeout_sec}s",
             duration_ms=int((time.time() - t0) * 1000),
+            timed_out=True,
+            verdict="fail",
+            verdict_reason=f"Compilation timed out after {timeout_sec}s.",
         )
 
     if compile_proc.returncode != 0 or not vvp_path.exists():
@@ -474,6 +613,8 @@ def run_simulation(
             compile_stderr=compile_proc.stderr,
             messages=_parse_messages(compile_proc.stderr),
             duration_ms=int((time.time() - t0) * 1000),
+            verdict="fail",
+            verdict_reason="Compilation failed — see the Messages tab for source locations.",
         )
 
     try:
@@ -495,6 +636,9 @@ def run_simulation(
             run_stderr=f"Simulation timed out after {timeout_sec}s (increase time limit or reduce runtime).",
             vvp_path=str(vvp_path),
             duration_ms=int((time.time() - t0) * 1000),
+            timed_out=True,
+            verdict="fail",
+            verdict_reason=f"Simulation timed out after {timeout_sec}s.",
         )
 
     vcd_candidate = out_dir / f"{resolved_top}.vcd"
@@ -509,6 +653,65 @@ def run_simulation(
         _parse_messages(compile_proc.stderr, default_severity="warning")
         + _parse_messages(run_proc.stderr, default_severity="warning")
     )
+
+    # Verdict analysis: scan combined run output for PASS/FAIL markers and
+    # error counters. Treat stderr the same as stdout here — Icarus routes
+    # $error/$fatal messages to stderr, but user $display output lands on
+    # stdout, and testbenches aren't consistent about which they use.
+    analysis = _analyze_run_output((run_proc.stdout or "") + "\n" + (run_proc.stderr or ""))
+
+    # Resolve an expected-output file. Explicit override (from API payload)
+    # wins; otherwise look next to the testbench for a golden file.
+    expected_file: Path | None = None
+    if expected_path:
+        try:
+            expected_file = _resolve_sandboxed_path(project_root, expected_path)
+        except SimulationError:
+            expected_file = None
+        if expected_file and not expected_file.is_file():
+            expected_file = None
+    if expected_file is None:
+        expected_file = _discover_expected_file(tb_path)
+
+    expected_matched: bool | None = None
+    diff_text = ""
+    if expected_file is not None:
+        expected_matched, diff_text = _compare_expected(run_proc.stdout or "", expected_file)
+
+    # Decide the verdict. Precedence, worst → best:
+    #   compile/runtime failure from the shell, then golden mismatch, then
+    #   explicit FAIL markers or error-counter signals, then PASS markers,
+    #   then "unknown" (ran cleanly but said nothing about pass/fail).
+    verdict = "unknown"
+    reason = ""
+    if status != "ok":
+        verdict = "fail"
+        reason = f"Simulation exited with code {run_proc.returncode}."
+    elif expected_matched is False:
+        verdict = "fail"
+        reason = f"Output differs from {expected_file.name}."
+    elif analysis.fatal_count > 0 or analysis.fail_count > 0 or analysis.error_count > 0 or analysis.assertion_count > 0:
+        verdict = "fail"
+        bits = []
+        if analysis.fail_count:
+            bits.append(f"{analysis.fail_count} FAIL marker(s)")
+        if analysis.error_count:
+            bits.append(f"{analysis.error_count} $error/ERROR line(s)")
+        if analysis.fatal_count:
+            bits.append(f"{analysis.fatal_count} $fatal line(s)")
+        if analysis.assertion_count:
+            bits.append(f"{analysis.assertion_count} assertion failure(s)")
+        reason = "Run reported " + ", ".join(bits) + "."
+    elif analysis.pass_count > 0 or expected_matched is True:
+        verdict = "pass"
+        if expected_matched is True:
+            reason = f"Output matches {expected_file.name}."
+        else:
+            reason = f"{analysis.pass_count} PASS marker(s), no errors."
+    else:
+        verdict = "unknown"
+        reason = "No PASS/FAIL markers and no golden file — add $display(\"PASS\") or a .expected.txt file next to the testbench."
+
     return SimulationResult(
         id=sim_id,
         testbench=testbench_name,
@@ -523,6 +726,17 @@ def run_simulation(
         vvp_path=str(vvp_path),
         duration_ms=int((time.time() - t0) * 1000),
         messages=messages,
+        verdict=verdict,
+        verdict_reason=reason,
+        pass_count=analysis.pass_count,
+        fail_count=analysis.fail_count,
+        error_count=analysis.error_count,
+        warning_count=analysis.warning_count,
+        assertion_count=analysis.assertion_count,
+        fatal_count=analysis.fatal_count,
+        expected_path=str(expected_file) if expected_file else None,
+        expected_matched=expected_matched,
+        diff=diff_text,
     )
 
 

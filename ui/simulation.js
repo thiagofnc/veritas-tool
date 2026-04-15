@@ -36,7 +36,9 @@
     viewStart: 0,
     viewEnd: 1,
     cursorTime: null,
+    cursorTimeB: null,         // secondary measurement marker (right-click / Alt+click)
     draggingCursor: false,
+    draggingCursorB: false,
     panning: false,
     panAnchor: null,
     canvas: null,
@@ -209,6 +211,28 @@
       renderSignalTree();
       drawWaveform();
     });
+    $("simWaveClearB")?.addEventListener("click", () => {
+      sim.cursorTimeB = null;
+      drawWaveform();
+    });
+
+    // Clamp timeout input — browsers don't always enforce min/max on number
+    // inputs, and sending a negative timeout would be annoying for the user.
+    $("simTimeoutInput")?.addEventListener("change", (e) => {
+      const n = Number(e.target.value);
+      if (!Number.isFinite(n) || n < 1) e.target.value = 1;
+      else if (n > 600) e.target.value = 600;
+      else e.target.value = Math.round(n);
+    });
+  }
+
+  function currentTimeoutSec() {
+    const el = $("simTimeoutInput");
+    if (!el) return 30;
+    const n = Number(el.value);
+    if (!Number.isFinite(n) || n < 1) return 1;
+    if (n > 600) return 600;
+    return Math.round(n);
   }
 
   async function refreshTestbenches() {
@@ -451,12 +475,16 @@
     try {
       const result = await api("/api/sim/run", {
         method: "POST",
-        body: JSON.stringify({ path: sim.activeTb.path }),
+        body: JSON.stringify({
+          path: sim.activeTb.path,
+          timeout_sec: currentTimeoutSec(),
+        }),
       });
       sim.lastResult = result;
       renderRunResult(result);
     } catch (err) {
       setConsoleText(`Run failed: ${err.message}`, "error");
+      setVerdictBadge(null);
     } finally {
       runBtn.disabled = false;
       runBtn.innerHTML = originalLabel;
@@ -489,12 +517,122 @@
 
     $("simConsoleOut").innerHTML = parts.join("\n");
     renderMessages(result.messages || []);
+    setVerdictBadge(result);
+    renderResultsPanel(result);
 
     if (result.status === "ok" && result.vcd_path) {
       loadWaveform(result.vcd_path);
+    } else if (result.verdict === "fail") {
+      // Surface the reason straight away when the run failed.
+      selectBottomTab("results");
     } else if (result.status !== "ok") {
       selectBottomTab(result.messages?.length ? "messages" : "console");
     }
+  }
+
+  // ---------------- verdict + counters ----------------
+  function setVerdictBadge(result) {
+    const badge = $("simVerdictBadge");
+    const tabBadge = $("simResultsBadge");
+    if (!badge) return;
+    badge.className = "sim-verdict-badge";
+    if (!result) {
+      badge.classList.add("hidden");
+      if (tabBadge) tabBadge.classList.add("hidden");
+      return;
+    }
+    const verdict = result.verdict || "unknown";
+    badge.classList.remove("hidden");
+    badge.classList.add(`verdict-${verdict}`);
+    badge.textContent = verdict === "pass" ? "PASS"
+      : verdict === "fail" ? "FAIL"
+      : "NO VERDICT";
+    badge.title = result.verdict_reason || "";
+    if (tabBadge) {
+      tabBadge.classList.remove("hidden", "has-errors", "has-warnings");
+      tabBadge.textContent = badge.textContent;
+      if (verdict === "fail") tabBadge.classList.add("has-errors");
+      else if (verdict === "unknown") tabBadge.classList.add("has-warnings");
+    }
+  }
+
+  function renderResultsPanel(result) {
+    const panel = $("simResultsPanel");
+    if (!panel) return;
+    const verdict = result.verdict || "unknown";
+    const verdictLabel = verdict === "pass" ? "PASS"
+      : verdict === "fail" ? "FAIL"
+      : "NO VERDICT";
+    const counters = [
+      { label: "pass markers",     value: result.pass_count,      kind: "ok" },
+      { label: "fail markers",     value: result.fail_count,      kind: result.fail_count ? "err" : "dim" },
+      { label: "errors",           value: result.error_count,     kind: result.error_count ? "err" : "dim" },
+      { label: "fatal",            value: result.fatal_count,     kind: result.fatal_count ? "err" : "dim" },
+      { label: "assertions failed",value: result.assertion_count, kind: result.assertion_count ? "err" : "dim" },
+      { label: "warnings",         value: result.warning_count,   kind: result.warning_count ? "warn" : "dim" },
+    ];
+    const counterHtml = counters.map((c) => `
+      <div class="sim-counter sim-counter-${c.kind}">
+        <span class="sim-counter-value">${c.value ?? 0}</span>
+        <span class="sim-counter-label">${escapeHtml(c.label)}</span>
+      </div>`).join("");
+
+    let expectedHtml = "";
+    if (result.expected_path) {
+      const matched = result.expected_matched === true;
+      expectedHtml = `
+        <section class="sim-results-section">
+          <h4>Expected output</h4>
+          <div class="sim-expected-head">
+            <span class="sim-expected-path">${escapeHtml(shortPath(result.expected_path))}</span>
+            <span class="sim-expected-state ${matched ? "ok" : "fail"}">
+              ${matched ? "matches run stdout" : "differs from run stdout"}
+            </span>
+          </div>
+          ${result.diff
+            ? `<pre class="sim-diff">${renderDiff(result.diff)}</pre>`
+            : matched
+              ? `<p class="sim-empty-hint">No differences.</p>`
+              : ""}
+        </section>`;
+    } else {
+      expectedHtml = `
+        <section class="sim-results-section">
+          <h4>Expected output</h4>
+          <p class="sim-empty-hint">
+            No golden file found. Drop a file named
+            <code>${escapeHtml(result.testbench?.replace(/\.(sv|v)$/i, "") || "tb_name")}.expected.txt</code>
+            next to the testbench to enable automatic diffing.
+          </p>
+        </section>`;
+    }
+
+    panel.innerHTML = `
+      <div class="sim-results-header verdict-${verdict}">
+        <div class="sim-results-verdict">
+          <span class="sim-verdict-chip verdict-${verdict}">${verdictLabel}</span>
+          <div class="sim-verdict-reason">${escapeHtml(result.verdict_reason || "")}</div>
+        </div>
+        <div class="sim-results-meta">
+          <span>${escapeHtml(result.testbench || "")}</span>
+          <span>${result.duration_ms ?? 0} ms</span>
+          ${result.timed_out ? `<span class="sim-results-timeout">timed out</span>` : ""}
+        </div>
+      </div>
+      <div class="sim-counter-grid">${counterHtml}</div>
+      ${expectedHtml}
+    `;
+  }
+
+  function renderDiff(diff) {
+    return diff.split("\n").map((line) => {
+      let cls = "";
+      if (line.startsWith("+++") || line.startsWith("---")) cls = "sim-diff-file";
+      else if (line.startsWith("@@")) cls = "sim-diff-hunk";
+      else if (line.startsWith("+")) cls = "sim-diff-add";
+      else if (line.startsWith("-")) cls = "sim-diff-del";
+      return `<span class="${cls}">${escapeHtml(line)}</span>`;
+    }).join("\n");
   }
 
   function formatCommand(result) {
@@ -603,6 +741,7 @@
       sim.viewStart = 0;
       sim.viewEnd = Math.max(1, data.end_time || 1);
       sim.cursorTime = null;
+      sim.cursorTimeB = null;
       // Default: auto-pick the first handful of signals so the user sees
       // something useful immediately. Prefer clock-like names first.
       const ranked = [...data.signals].sort((a, b) => {
@@ -775,7 +914,7 @@
       ctx.stroke();
     }
 
-    // Cursor
+    // Primary cursor (A) — amber, dashed.
     if (sim.cursorTime != null) {
       const x = timeToX(sim.cursorTime, w);
       ctx.strokeStyle = "#f59e0b";
@@ -786,13 +925,82 @@
       ctx.lineTo(x + 0.5, h);
       ctx.stroke();
       ctx.setLineDash([]);
-      // Cursor readout in toolbar
-      $("simWaveCursor").textContent = `cursor: ${formatTime(sim.cursorTime)}`;
-    } else {
-      $("simWaveCursor").innerHTML = "cursor: &mdash;";
+      drawCursorHandle(ctx, x, "A", "#f59e0b");
     }
 
+    // Secondary marker (B) — magenta, dashed. Measurement band between A and B.
+    if (sim.cursorTimeB != null) {
+      const xb = timeToX(sim.cursorTimeB, w);
+      if (sim.cursorTime != null) {
+        const xa = timeToX(sim.cursorTime, w);
+        const x0 = Math.min(xa, xb);
+        const x1 = Math.max(xa, xb);
+        ctx.fillStyle = "rgba(217, 70, 239, 0.07)";
+        ctx.fillRect(x0, 0, x1 - x0, h);
+      }
+      ctx.strokeStyle = "#d946ef";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 4]);
+      ctx.beginPath();
+      ctx.moveTo(xb + 0.5, 0);
+      ctx.lineTo(xb + 0.5, h);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      drawCursorHandle(ctx, xb, "B", "#d946ef");
+    }
+
+    updateCursorReadouts();
     ctx.restore();
+  }
+
+  function drawCursorHandle(ctx, x, label, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    const w = 14;
+    const h = 12;
+    // Small triangular flag so markers are identifiable even without labels.
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + w, 0);
+    ctx.lineTo(x + w, h - 4);
+    ctx.lineTo(x, h);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#0b0c0e";
+    ctx.font = "bold 9px 'IBM Plex Mono', monospace";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.fillText(label, x + w / 2, h / 2 - 1);
+    ctx.restore();
+  }
+
+  function updateCursorReadouts() {
+    const aEl = $("simWaveCursor");
+    const bEl = $("simWaveCursorB");
+    const dEl = $("simWaveDelta");
+    const clearBtn = $("simWaveClearB");
+    if (aEl) {
+      aEl.innerHTML = sim.cursorTime != null
+        ? `A: ${escapeHtml(formatTime(sim.cursorTime))}`
+        : "A: &mdash;";
+    }
+    if (bEl) {
+      bEl.innerHTML = sim.cursorTimeB != null
+        ? `B: ${escapeHtml(formatTime(sim.cursorTimeB))}`
+        : "B: &mdash;";
+    }
+    if (dEl) {
+      if (sim.cursorTime != null && sim.cursorTimeB != null) {
+        const delta = Math.abs(sim.cursorTimeB - sim.cursorTime);
+        dEl.innerHTML = `&#916;: ${escapeHtml(formatTime(delta))}`;
+        dEl.classList.add("active");
+      } else {
+        dEl.innerHTML = "&#916;: &mdash;";
+        dEl.classList.remove("active");
+      }
+    }
+    if (clearBtn) clearBtn.classList.toggle("hidden", sim.cursorTimeB == null);
   }
 
   function drawTimeAxis(ctx, w) {
@@ -1108,6 +1316,17 @@
       drawWaveform();
     }, { passive: false });
 
+    canvas.addEventListener("contextmenu", (e) => {
+      // Right-click places/moves the secondary marker and suppresses the
+      // browser context menu so the user can drag it with the right button.
+      if (!sim.waveform) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      sim.cursorTimeB = clampToView(xToTime(x, canvas.clientWidth));
+      drawWaveform();
+    });
+
     canvas.addEventListener("mousedown", (e) => {
       if (!sim.waveform) return;
       const rect = canvas.getBoundingClientRect();
@@ -1115,9 +1334,14 @@
       if (e.shiftKey || e.button === 1) {
         sim.panning = true;
         sim.panAnchor = { x, start: sim.viewStart, end: sim.viewEnd };
-      } else {
+      } else if (e.button === 2 || e.altKey) {
+        // Secondary marker: right mouse button or Alt+left.
+        sim.draggingCursorB = true;
+        sim.cursorTimeB = clampToView(xToTime(x, canvas.clientWidth));
+        drawWaveform();
+      } else if (e.button === 0) {
         sim.draggingCursor = true;
-        sim.cursorTime = Math.max(sim.viewStart, Math.min(sim.viewEnd, xToTime(x, canvas.clientWidth)));
+        sim.cursorTime = clampToView(xToTime(x, canvas.clientWidth));
         drawWaveform();
       }
     });
@@ -1128,6 +1352,11 @@
         const rect = canvas.getBoundingClientRect();
         const x = Math.max(0, Math.min(canvas.clientWidth, e.clientX - rect.left));
         sim.cursorTime = xToTime(x, canvas.clientWidth);
+        drawWaveform();
+      } else if (sim.draggingCursorB) {
+        const rect = canvas.getBoundingClientRect();
+        const x = Math.max(0, Math.min(canvas.clientWidth, e.clientX - rect.left));
+        sim.cursorTimeB = xToTime(x, canvas.clientWidth);
         drawWaveform();
       } else if (sim.panning && sim.panAnchor) {
         const rect = canvas.getBoundingClientRect();
@@ -1148,9 +1377,14 @@
 
     window.addEventListener("mouseup", () => {
       sim.draggingCursor = false;
+      sim.draggingCursorB = false;
       sim.panning = false;
       sim.panAnchor = null;
     });
+  }
+
+  function clampToView(t) {
+    return Math.max(sim.viewStart, Math.min(sim.viewEnd, t));
   }
 
   window.addEventListener("resize", () => {

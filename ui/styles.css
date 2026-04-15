@@ -2936,3 +2936,217 @@ body.sim-mode #loadProgress { display: none !important; }
   border-radius: 2px;
 }
 
+/* ---------------- simulation: timeout + verdict badge ---------------- */
+.sim-timeout-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-0);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sim-timeout-label { color: var(--text-tertiary); }
+.sim-timeout-unit { color: var(--text-tertiary); }
+.sim-timeout-field input {
+  width: 48px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  text-align: right;
+  padding: 2px 0;
+  outline: none;
+}
+.sim-timeout-field input:focus {
+  color: var(--probe);
+}
+
+.sim-verdict-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-default);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  background: var(--surface-0);
+}
+.sim-verdict-badge.hidden { display: none; }
+.sim-verdict-badge.verdict-pass {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: rgba(74, 222, 128, 0.08);
+}
+.sim-verdict-badge.verdict-fail {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgba(239, 68, 68, 0.10);
+}
+.sim-verdict-badge.verdict-unknown {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+/* ---------------- simulation: results panel ---------------- */
+.sim-results-panel {
+  flex: 1;
+  overflow: auto;
+  padding: 14px 18px 20px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.sim-results-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  margin-bottom: 14px;
+}
+.sim-results-header.verdict-pass { border-color: rgba(74, 222, 128, 0.35); }
+.sim-results-header.verdict-fail { border-color: rgba(239, 68, 68, 0.40); }
+.sim-results-header.verdict-unknown { border-color: rgba(245, 158, 11, 0.35); }
+
+.sim-results-verdict { display: flex; flex-direction: column; gap: 6px; }
+.sim-verdict-chip {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-default);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  background: var(--surface-0);
+  color: var(--text-secondary);
+}
+.sim-verdict-chip.verdict-pass { color: var(--ok); border-color: var(--ok); }
+.sim-verdict-chip.verdict-fail { color: var(--danger); border-color: var(--danger); }
+.sim-verdict-chip.verdict-unknown { color: var(--warn); border-color: var(--warn); }
+.sim-verdict-reason { color: var(--text-primary); font-size: 12px; max-width: 60ch; }
+
+.sim-results-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: right;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.sim-results-timeout { color: var(--warn); }
+
+.sim-counter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.sim-counter {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+.sim-counter-value {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1;
+}
+.sim-counter-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-tertiary);
+}
+.sim-counter-ok .sim-counter-value { color: var(--ok); }
+.sim-counter-err .sim-counter-value { color: var(--danger); }
+.sim-counter-warn .sim-counter-value { color: var(--warn); }
+.sim-counter-dim .sim-counter-value { color: var(--text-tertiary); }
+
+.sim-results-section { margin-top: 16px; }
+.sim-results-section h4 {
+  margin: 0 0 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+.sim-expected-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.sim-expected-path {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--text-secondary);
+}
+.sim-expected-state { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; }
+.sim-expected-state.ok { color: var(--ok); }
+.sim-expected-state.fail { color: var(--danger); }
+
+.sim-diff {
+  margin: 0;
+  padding: 10px 12px;
+  background: #0b0c0e;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre;
+  overflow: auto;
+  max-height: 320px;
+}
+.sim-diff .sim-diff-file { color: var(--text-muted); }
+.sim-diff .sim-diff-hunk { color: var(--probe); }
+.sim-diff .sim-diff-add  { color: var(--ok); }
+.sim-diff .sim-diff-del  { color: var(--danger); }
+
+/* ---------------- simulation: second marker / delta ---------------- */
+.sim-wave-cursor-b { color: #d946ef; }
+.sim-wave-delta-readout {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+}
+.sim-wave-delta-readout.active {
+  color: var(--text-primary);
+  border-color: var(--border-emphasis);
+  background: rgba(217, 70, 239, 0.08);
+}
+.sim-wave-clear-b { border-color: rgba(217, 70, 239, 0.45); color: #d946ef; }
+.sim-wave-clear-b:hover { color: #f0abfc; border-color: #d946ef; }
+

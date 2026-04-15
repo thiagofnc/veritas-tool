@@ -216,6 +216,12 @@
                 <span class="sim-tool-dot"></span>
                 <span class="sim-tool-label">Checking Icarus Verilog...</span>
               </span>
+              <label class="sim-timeout-field" for="simTimeoutInput" title="Per-phase timeout in seconds (compile and run each get this budget).">
+                <span class="sim-timeout-label">timeout</span>
+                <input id="simTimeoutInput" type="number" min="1" max="600" step="1" value="30" />
+                <span class="sim-timeout-unit">s</span>
+              </label>
+              <span id="simVerdictBadge" class="sim-verdict-badge hidden" title="Verdict from last run">&mdash;</span>
               <button id="simRunBtn" type="button" class="sim-run-btn" disabled>
                 <svg viewBox="0 0 16 16" aria-hidden="true"><polygon points="4,3 13,8 4,13" fill="currentColor"/></svg>
                 Run
@@ -266,6 +272,10 @@
               <div class="sim-bottom">
                 <div class="sim-tabs" role="tablist">
                   <button class="sim-tab active" data-tab="waveform" type="button" role="tab">Waveform</button>
+                  <button class="sim-tab" data-tab="results" type="button" role="tab">
+                    Results
+                    <span id="simResultsBadge" class="sim-msg-badge hidden">&mdash;</span>
+                  </button>
                   <button class="sim-tab" data-tab="console" type="button" role="tab">Console</button>
                   <button class="sim-tab" data-tab="messages" type="button" role="tab">
                     Messages
@@ -289,7 +299,10 @@
                         </select>
                       </label>
                       <span class="sim-wave-sep"></span>
-                      <span id="simWaveCursor" class="sim-wave-cursor-readout">cursor: &mdash;</span>
+                      <span id="simWaveCursor" class="sim-wave-cursor-readout" title="Primary cursor (click to place)">A: &mdash;</span>
+                      <span id="simWaveCursorB" class="sim-wave-cursor-readout sim-wave-cursor-b" title="Secondary marker (right-click or Alt+click to place)">B: &mdash;</span>
+                      <span id="simWaveDelta" class="sim-wave-delta-readout" title="Time delta between markers">&#916;: &mdash;</span>
+                      <button id="simWaveClearB" type="button" class="sim-subtle-btn sim-wave-clear-b hidden" title="Remove secondary marker">clear B</button>
                       <span class="sim-wave-sep"></span>
                       <span id="simWaveRange" class="sim-wave-range-readout"></span>
                       <span class="sim-wave-flex"></span>
@@ -309,6 +322,11 @@
                           <canvas id="simWaveCanvas" class="sim-wave-canvas"></canvas>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                  <div class="sim-tab-panel" data-tab="results">
+                    <div id="simResultsPanel" class="sim-results-panel">
+                      <p class="sim-empty-hint">Run a simulation to see a verdict, counters, and (if configured) a diff against the expected output.</p>
                     </div>
                   </div>
                   <div class="sim-tab-panel" data-tab="console">
