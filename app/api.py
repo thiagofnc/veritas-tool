@@ -119,6 +119,33 @@ def _bad_request(detail: str) -> HTTPException:
     return HTTPException(status_code=400, detail=detail)
 
 
+def _select_folder_dialog(initial_dir: str | None = None) -> str | None:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError as exc:  # pragma: no cover - standard library guard
+        raise RuntimeError("Folder picker is unavailable in this Python environment.") from exc
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except Exception:
+        pass
+
+    chosen = filedialog.askdirectory(
+        initialdir=initial_dir if initial_dir and Path(initial_dir).is_dir() else None,
+        title="Select Verilog project folder",
+        parent=root,
+        mustexist=True,
+    )
+    root.destroy()
+
+    if not chosen:
+        return None
+    return str(Path(chosen).resolve())
+
+
 def _resolve_repo_folder(folder: str | None) -> str:
     target = folder
     if not target:
@@ -155,6 +182,14 @@ def _ensure_project_writable() -> None:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/system/select-folder")
+def select_folder(initial_dir: str | None = Query(default=None)) -> dict[str, str | None]:
+    try:
+        return {"selected_folder": _select_folder_dialog(initial_dir=initial_dir)}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 def _run_load_in_background(folder: str) -> None:

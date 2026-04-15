@@ -169,6 +169,10 @@ body {
   min-width: 200px;
 }
 
+.picker-input {
+  cursor: pointer;
+}
+
 .controls button,
 .canvas-actions button {
   background: var(--surface-2);

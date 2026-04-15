@@ -32,6 +32,21 @@ class TestApi(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("No project loaded", response.json()["detail"])
 
+    def test_select_folder_endpoint_returns_chosen_path(self) -> None:
+        with patch.object(api_module, "_select_folder_dialog", return_value=r"C:\Projects\demo") as picker:
+            response = self.client.get("/api/system/select-folder", params={"initial_dir": r"C:\Projects"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"selected_folder": r"C:\Projects\demo"})
+        picker.assert_called_once_with(initial_dir=r"C:\Projects")
+
+    def test_select_folder_endpoint_allows_cancel(self) -> None:
+        with patch.object(api_module, "_select_folder_dialog", return_value=None):
+            response = self.client.get("/api/system/select-folder")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"selected_folder": None})
+
     def test_project_load_hierarchy_and_graph_endpoints(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

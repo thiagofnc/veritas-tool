@@ -187,12 +187,16 @@ function populateProjectOptions() {
 }
 
 function syncFolderControls() {
+  const isCustom = (state.folderPreset || CUSTOM_PROJECT_VALUE) === CUSTOM_PROJECT_VALUE;
   if (folderInput) {
     folderInput.value = state.folderPreset || CUSTOM_PROJECT_VALUE;
   }
   if (folderPathInput) {
     folderPathInput.value = state.customFolder || "";
-    folderPathInput.disabled = (state.folderPreset || CUSTOM_PROJECT_VALUE) !== CUSTOM_PROJECT_VALUE;
+    folderPathInput.disabled = !isCustom;
+    folderPathInput.readOnly = isCustom;
+    folderPathInput.title = isCustom ? "Click to choose a folder from File Explorer." : "";
+    folderPathInput.classList.toggle("picker-input", isCustom);
   }
 }
 
@@ -215,10 +219,47 @@ function updateFolderStateFromControls() {
     if (state.folderPreset === CUSTOM_PROJECT_VALUE) {
       folderPathInput.value = state.customFolder || "";
       folderPathInput.disabled = false;
+      folderPathInput.readOnly = true;
     } else {
       folderPathInput.value = state.folderPreset;
       folderPathInput.disabled = true;
+      folderPathInput.readOnly = false;
     }
+    folderPathInput.title = state.folderPreset === CUSTOM_PROJECT_VALUE ? "Click to choose a folder from File Explorer." : "";
+    folderPathInput.classList.toggle("picker-input", state.folderPreset === CUSTOM_PROJECT_VALUE);
+  }
+}
+
+async function browseForFolder() {
+  if (folderInput?.value !== CUSTOM_PROJECT_VALUE) {
+    return;
+  }
+
+  const initialDir = (folderPathInput?.value || state.customFolder || "").trim();
+  if (folderPathInput) {
+    folderPathInput.disabled = true;
+  }
+
+  try {
+    const params = new URLSearchParams();
+    if (initialDir) {
+      params.set("initial_dir", initialDir);
+    }
+    const result = await apiRequest(`/api/system/select-folder${params.toString() ? `?${params.toString()}` : ""}`);
+    if (!result.selected_folder) {
+      return;
+    }
+
+    state.customFolder = result.selected_folder;
+    state.folder = result.selected_folder;
+    if (folderPathInput) {
+      folderPathInput.value = result.selected_folder;
+    }
+  } catch (error) {
+    setStatus("Folder browse failed", "error");
+    inspector.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+  } finally {
+    syncFolderControls();
   }
 }
 
@@ -5585,12 +5626,11 @@ folderInput?.addEventListener("change", () => {
   updateFolderStateFromControls();
 });
 
-folderPathInput?.addEventListener("input", () => {
-  if (folderInput?.value !== CUSTOM_PROJECT_VALUE) {
+folderPathInput?.addEventListener("click", async () => {
+  if (folderInput?.value !== CUSTOM_PROJECT_VALUE || folderPathInput.disabled) {
     return;
   }
-  state.customFolder = folderPathInput.value;
-  state.folder = folderPathInput.value.trim();
+  await browseForFolder();
 });
 
 
