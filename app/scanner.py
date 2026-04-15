@@ -13,6 +13,13 @@ except ImportError:  # Supports running as: python app/main.py
 # MVP scope: only module source files, not headers/includes.
 VERILOG_EXTENSIONS = {".v", ".sv"}
 WINDOWS_HIDDEN_ATTRIBUTE = 0x2
+DEFAULT_EXCLUDED_DIR_NAMES = {
+    "node_modules",
+    "__pycache__",
+    "venv",
+    ".venv",
+    "env",
+}
 
 
 def _name_is_hidden(name: str) -> bool:
@@ -35,7 +42,7 @@ def _path_is_hidden(path: Path) -> bool:
     return bool(attributes & WINDOWS_HIDDEN_ATTRIBUTE)
 
 
-def scan_verilog_files(root_path: str) -> list[str]:
+def scan_verilog_files(root_path: str, excluded_dir_names: set[str] | None = None) -> list[str]:
     """Recursively discover visible .v/.sv files and return sorted absolute paths."""
     root = Path(root_path).resolve()
     if not root.exists():
@@ -43,13 +50,15 @@ def scan_verilog_files(root_path: str) -> list[str]:
     if not root.is_dir():
         raise NotADirectoryError(f"Root path is not a directory: {root}")
 
+    excluded = {name.lower() for name in (excluded_dir_names or DEFAULT_EXCLUDED_DIR_NAMES)}
     discovered: list[str] = []
     for current_root, dirnames, filenames in os.walk(root):
         # In-place filtering tells os.walk which folders to skip entirely.
         dirnames[:] = [
             dirname
             for dirname in dirnames
-            if not _name_is_hidden(dirname)
+            if dirname.lower() not in excluded
+            and not _name_is_hidden(dirname)
             and not _path_is_hidden(Path(current_root) / dirname)
         ]
 

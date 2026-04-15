@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 
 try:
+    from app.parse_cache import build_file_signature, get_cached_parse, store_cached_parse
     from app.models import (
         AlwaysAssignment, AlwaysBlock, ContinuousAssign, Diagnostic, GatePrimitive,
         Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile,
@@ -22,6 +23,7 @@ try:
     )
     from app.parser_base import VerilogParserBackend
 except ImportError:  # Supports running as: python app/main.py
+    from parse_cache import build_file_signature, get_cached_parse, store_cached_parse
     from models import (
         AlwaysAssignment, AlwaysBlock, ContinuousAssign, Diagnostic, GatePrimitive,
         Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile,
@@ -730,15 +732,40 @@ class SimpleRegexParser(VerilogParserBackend):
                 except Exception:
                     pass
             try:
-                modules.extend(_parse_modules_from_file(file_path))
+                signature = build_file_signature(file_path)
+                cached = get_cached_parse("simple", signature)
+                if cached is not None:
+                    modules.extend(cached.modules)
+                    diagnostics.extend(cached.diagnostics)
+                    continue
+
+                parsed_modules = _parse_modules_from_file(file_path)
+                modules.extend(parsed_modules)
+                store_cached_parse(
+                    "simple",
+                    signature,
+                    modules=parsed_modules,
+                    diagnostics=[],
+                )
             except OSError as exc:
-                diagnostics.append(Diagnostic(
+                diagnostic = Diagnostic(
                     severity="error",
                     kind="read_failure",
                     message=f"Could not read {Path(file_path).name}: {exc}",
                     file=str(Path(file_path).resolve()),
                     detail=type(exc).__name__,
-                ))
+                )
+                diagnostics.append(diagnostic)
+                try:
+                    signature = build_file_signature(file_path)
+                except OSError:
+                    continue
+                store_cached_parse(
+                    "simple",
+                    signature,
+                    modules=[],
+                    diagnostics=[diagnostic],
+                )
 
         if progress_callback is not None and total > 0:
             try:
@@ -758,4 +785,3 @@ class SimpleRegexParser(VerilogParserBackend):
             modules=modules,
             diagnostics=diagnostics,
         )
-

@@ -1,6 +1,7 @@
-﻿import unittest
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from app.project_service import ProjectService
 
@@ -83,9 +84,34 @@ endmodule
         with self.assertRaises(RuntimeError):
             service.get_module_connectivity_graph("top")
 
+    def test_reuses_cached_parse_for_unchanged_files_across_reloads(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "top.v"
+            source.write_text(
+                """
+module top(input a, output y);
+  assign y = a;
+endmodule
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            service = ProjectService(parser_backend="simple")
+
+            import app.simple_parser as simple_parser
+
+            real_parse_file = simple_parser._parse_modules_from_file
+            with patch("app.simple_parser._parse_modules_from_file") as parse_file:
+                parse_file.side_effect = real_parse_file
+                first = service.load_project(str(root))
+                second = service.load_project(str(root))
+
+            self.assertEqual(len(first.modules), 1)
+            self.assertEqual(len(second.modules), 1)
+            self.assertEqual(parse_file.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
-
-
-

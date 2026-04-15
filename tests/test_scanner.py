@@ -34,6 +34,25 @@ class TestScanVerilogFiles(unittest.TestCase):
 
             self.assertEqual(scan_verilog_files(str(root)), expected)
 
+    def test_skips_common_non_source_directories(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            (root / "top.v").write_text("module top; endmodule\n", encoding="utf-8")
+
+            node_modules = root / "node_modules"
+            node_modules.mkdir()
+            (node_modules / "vendor.sv").write_text("module vendor; endmodule\n", encoding="utf-8")
+
+            venv = root / "venv"
+            venv.mkdir()
+            (venv / "shadow.v").write_text("module shadow; endmodule\n", encoding="utf-8")
+
+            self.assertEqual(
+                scan_verilog_files(str(root)),
+                [str((root / "top.v").resolve())],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
