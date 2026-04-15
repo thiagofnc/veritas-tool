@@ -94,6 +94,7 @@ const leftTabPanelGit = document.getElementById("leftTabPanelGit");
 const breadcrumbBar = document.getElementById("breadcrumbBar");
 const graphTag = document.getElementById("graphTag");
 const graphCanvas = document.getElementById("graphCanvas");
+const readModeBadge = document.getElementById("readModeBadge");
 const graphEmpty = document.getElementById("graphEmpty");
 const cyGraph = document.getElementById("cyGraph");
 const schematicLayer = document.getElementById("schematicLayer");
@@ -129,6 +130,11 @@ function setStatus(text, kind) {
   }
   statusBadge.textContent = text;
   statusBadge.className = `status ${kind}`;
+}
+
+function updateReadModeBadge() {
+  if (!readModeBadge) return;
+  readModeBadge.classList.toggle("hidden", !isReadOnlyProject());
 }
 
 function summarizePath(path) {
@@ -271,6 +277,7 @@ async function refreshProjectContext() {
       loaded_commit: null,
     };
   }
+  updateReadModeBadge();
   syncProjectInteractionState();
 }
 
@@ -5084,22 +5091,6 @@ function renderInspector() {
                 data-child-module="${escapeHtml(selectedInstance.module_name || "")}">Jump to Definition</button>`
     : "";
 
-  const repo = state.git.repo || null;
-  const repoStatus = state.git.status || null;
-  const repoBlock = repo
-    ? `
-      <hr style="border-color:#2b3f4d;border-style:solid;border-width:1px 0 0; margin:10px 0;" />
-      <div><span class="k">Repo root:</span><br>${escapeHtml(repo.repo_root || "(none)")}</div>
-      <div><span class="k">Branch:</span> ${escapeHtml(repo.branch || "(unknown)")}${repo.detached ? " (detached)" : ""}</div>
-      <div><span class="k">Remote:</span> ${escapeHtml((repo.remotes || []).map((item) => `${item.name}: ${item.url}`).join(" | ") || "(none)")}</div>
-      <div><span class="k">Working tree:</span> ${repoStatus ? (repoStatus.dirty ? "modified" : "clean") : "(unknown)"}</div>
-      ${state.projectContext.loaded_commit ? `<div><span class="k">Loaded commit:</span> ${escapeHtml(state.projectContext.loaded_commit)}</div>` : ""}
-    `
-    : "";
-  const readOnlyNote = isReadOnlyProject()
-    ? `<div class="repo-note read-only">Historical commit view is open. Editing, instantiation, and commit/push are disabled until you reload the live repository.</div>`
-    : (repo ? `<div class="repo-note">Use the topbar Git actions to clone, inspect commit history, or commit and push the current repository.</div>` : "");
-
   inspector.innerHTML = `
     <div><span class="k">Parser:</span> ${escapeHtml(summary.parser_backend || "-")}</div>
     <div><span class="k">Files:</span> ${summary.file_count ?? 0}</div>
@@ -5107,12 +5098,10 @@ function renderInspector() {
     <div><span class="k">Top candidates:</span> ${escapeHtml((summary.top_candidates || []).join(", ") || "(none)")}</div>
     <div><span class="k">Selected top:</span> ${escapeHtml(state.selectedTop || "(none)")}</div>
     <div><span class="k">Focus module:</span> ${escapeHtml(state.selectedModule || "(none)")}</div>
-    ${repoBlock}
     ${selectionBlock}
     ${viewCodeButton}
     ${jumpToDefButton}
     ${traceButton}
-    ${readOnlyNote}
   `;
 
   const btn = document.getElementById("traceSignalBtn");
@@ -5452,6 +5441,78 @@ async function pollLoadProgress() {
   }
 }
 
+async function runBackgroundLoad(startPath, payload, options = {}) {
+  const {
+    busyStatus = "Loading...",
+    failureStatus = "Project load failed",
+    successStatus = null,
+    errorTarget = inspector,
+  } = options;
+
+  showLoadProgress();
+  setStatus(busyStatus, "busy");
+
+  try {
+    await apiRequest(startPath, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    hideLoadProgress();
+    setStatus(failureStatus, "error");
+    if (errorTarget) {
+      errorTarget.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+    }
+    renderGraph(null);
+    throw error;
+  }
+
+  let finalSnap;
+  try {
+    finalSnap = await pollLoadProgress();
+  } catch (error) {
+    hideLoadProgress();
+    setStatus("Progress polling failed", "error");
+    if (errorTarget) {
+      errorTarget.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+    }
+    throw error;
+  }
+
+  if (finalSnap.error) {
+    hideLoadProgress();
+    setStatus(failureStatus, "error");
+    if (errorTarget) {
+      errorTarget.innerHTML = `<p>${escapeHtml(finalSnap.error)}</p>`;
+    }
+    renderGraph(null);
+    throw new Error(finalSnap.error);
+  }
+
+  state.summary = finalSnap.summary || null;
+  renderInspector();
+
+  try {
+    await refreshProject();
+    renderInspector();
+    setStatus(successStatus || `Project loaded (${state.summary?.parser_backend || state.parser})`, "ok");
+  } catch (error) {
+    setStatus("Project loaded, refresh failed", "error");
+    if (errorTarget) {
+      errorTarget.innerHTML = `
+        <p>${escapeHtml(error.message)}</p>
+        <p>Project parsing succeeded with parser: <strong>${escapeHtml(state.summary?.parser_backend || state.parser)}</strong></p>
+      `;
+    }
+    renderGraph(null);
+    throw error;
+  } finally {
+    hideLoadProgress();
+  }
+
+  return finalSnap;
+}
+
 async function handleLoad() {
   const folder = getSelectedFolderPath();
   if (!folder) {
@@ -5465,58 +5526,14 @@ async function handleLoad() {
     state.customFolder = folder;
   }
   state.parser = parserSelect ? parserSelect.value : state.parser;
-
-  showLoadProgress();
-  setStatus("Loading...", "busy");
-
-  try {
-    await apiRequest("/api/project/load", {
-      method: "POST",
-      body: JSON.stringify({ folder: state.folder, parser_backend: state.parser }),
-    });
-  } catch (error) {
-    hideLoadProgress();
-    setStatus("Project load failed", "error");
-    inspector.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
-    renderGraph(null);
-    return;
-  }
-
-  let finalSnap;
-  try {
-    finalSnap = await pollLoadProgress();
-  } catch (error) {
-    hideLoadProgress();
-    setStatus("Progress polling failed", "error");
-    inspector.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
-    return;
-  }
-
-  if (finalSnap.error) {
-    hideLoadProgress();
-    setStatus("Project load failed", "error");
-    inspector.innerHTML = `<p>${escapeHtml(finalSnap.error)}</p>`;
-    renderGraph(null);
-    return;
-  }
-
-  state.summary = finalSnap.summary || null;
-  renderInspector();
-
-  try {
-    await refreshProject();
-    renderInspector();
-    setStatus(`Project loaded (${state.summary?.parser_backend || state.parser})`, "ok");
-  } catch (error) {
-    setStatus("Project loaded, refresh failed", "error");
-    inspector.innerHTML = `
-      <p>${escapeHtml(error.message)}</p>
-      <p>Project parsing succeeded with parser: <strong>${escapeHtml(state.summary?.parser_backend || state.parser)}</strong></p>
-    `;
-    renderGraph(null);
-  } finally {
-    hideLoadProgress();
-  }
+  await runBackgroundLoad(
+    "/api/project/load",
+    { folder: state.folder, parser_backend: state.parser },
+    {
+      busyStatus: "Loading...",
+      failureStatus: "Project load failed",
+    },
+  );
 }
 
 loadBtn?.addEventListener("click", handleLoad);
@@ -5858,13 +5875,15 @@ function renderGitSidebar() {
         </div>
       </div>
       <div class="git-history-actions">
-        <button
+        ${isReadOnlyProject() && state.projectContext.loaded_commit === commit.commit
+          ? `<button type="button" class="git-open-commit-btn" disabled>CURRENTLY OPEN</button>`
+          : `<button
           type="button"
           class="git-open-commit-btn"
           data-commit="${escapeAttrValue(commit.commit || "")}"
         >
-          Open Read-Only
-        </button>
+          OPEN READ-ONLY
+        </button>`}
       </div>
     </div>
   `).join("");
@@ -5877,18 +5896,21 @@ function renderGitSidebar() {
       errorEl.textContent = "";
       button.disabled = true;
       try {
-        setStatus("Loading commit...", "busy");
-        await apiRequest("/api/git/load-commit", {
-          method: "POST",
-          body: JSON.stringify({
+        await runBackgroundLoad(
+          "/api/git/load-commit",
+          {
             folder: getActiveRepoFolder(),
             commit,
             parser_backend: state.parser,
-          }),
-        });
-        await refreshProject();
-        setStatus(`Loaded ${commit.slice(0, 7)} read-only`, "ok");
-        renderGitSidebar();
+          },
+          {
+            busyStatus: "Loading commit...",
+            failureStatus: "Commit load failed",
+            successStatus: `Loaded ${commit.slice(0, 7)} read-only`,
+            errorTarget: null,
+          },
+        );
+        await refreshGitSidebar();
         renderInspector();
       } catch (error) {
         errorEl.textContent = error.message || "Failed to load commit.";

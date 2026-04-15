@@ -330,6 +330,7 @@ endmodule
     def test_load_commit_snapshot_is_read_only(self) -> None:
         import os
         import subprocess
+        import time
 
         def git(args: list[str], cwd: str, env: dict[str, str] | None = None) -> str:
             merged_env = os.environ.copy()
@@ -392,8 +393,25 @@ endmodule
             )
             self.assertEqual(response.status_code, 200)
             payload = response.json()
-            self.assertTrue(payload["read_only"])
-            self.assertEqual(payload["loaded_commit"], first_commit)
+            self.assertTrue(payload["started"])
+
+            progress = None
+            for _ in range(80):
+                progress_response = self.client.get("/api/project/load/progress")
+                self.assertEqual(progress_response.status_code, 200)
+                progress = progress_response.json()
+                if progress["done"]:
+                    break
+                time.sleep(0.02)
+            self.assertIsNotNone(progress)
+            self.assertTrue(progress["done"])
+            self.assertIsNone(progress["error"])
+
+            context_response = self.client.get("/api/project/context")
+            self.assertEqual(context_response.status_code, 200)
+            context = context_response.json()
+            self.assertTrue(context["read_only"])
+            self.assertEqual(context["loaded_commit"], first_commit)
 
             source_response = self.client.get("/api/project/modules/top/source")
             self.assertEqual(source_response.status_code, 200)

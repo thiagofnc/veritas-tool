@@ -173,51 +173,131 @@ def _run_load_in_background(folder: str, parser_backend: str) -> None:
         update(stage="parsing", current=current, total=total, current_file=current_file)
 
     try:
-        update(stage="scanning", current=0, total=0, current_file="")
-        local_service = ProjectService(parser_backend=parser_backend)
-        project = local_service.load_project(folder, progress_callback=on_file)
-
-        update(stage="finalizing", current_file="")
-        tops = local_service.get_top_candidates()
-
-        diagnostics = [
-            {
-                "severity": d.severity,
-                "kind": d.kind,
-                "message": d.message,
-                "file": d.file,
-                "line": d.line,
-                "detail": d.detail,
-            }
-            for d in project.diagnostics
-        ]
-        summary = {
-            "loaded_folder": folder,
-            "parser_backend": parser_backend,
-            "root_path": project.root_path,
-            "file_count": len(project.source_files),
-            "module_count": len(project.modules),
-            "top_candidates": tops,
-            "diagnostics": diagnostics,
-            "diagnostic_counts": {
-                "error": sum(1 for d in project.diagnostics if d.severity == "error"),
-                "warning": sum(1 for d in project.diagnostics if d.severity == "warning"),
-                "info": sum(1 for d in project.diagnostics if d.severity == "info"),
-            },
-        }
-
-        with state_lock:
-            state.service = local_service
-            state.loaded_folder = folder
-            state.loaded_commit = None
-            state.read_only = False
-            _update_loaded_repo_context(folder)
-
-        update(stage="done", active=False, done=True, summary=summary, error=None)
+        _load_project_into_state(
+            folder=folder,
+            parser_backend=parser_backend,
+            update_progress=update,
+            on_file=on_file,
+            loaded_folder=folder,
+            loaded_repo_root=None,
+            loaded_commit=None,
+            read_only=False,
+        )
     except (FileNotFoundError, NotADirectoryError, ValueError, RuntimeError) as exc:
         update(stage="error", active=False, done=True, error=str(exc))
     except Exception as exc:  # pragma: no cover - unexpected backend failures
         update(stage="error", active=False, done=True, error=f"Failed to load project: {exc}")
+
+
+def _load_project_into_state(
+    *,
+    folder: str,
+    parser_backend: str,
+    update_progress,
+    on_file,
+    loaded_folder: str,
+    loaded_repo_root: str | None,
+    loaded_commit: str | None,
+    read_only: bool,
+) -> None:
+    update_progress(stage="scanning", current=0, total=0, current_file="")
+    local_service = ProjectService(parser_backend=parser_backend)
+    project = local_service.load_project(folder, progress_callback=on_file)
+
+    update_progress(stage="finalizing", current_file="")
+    tops = local_service.get_top_candidates()
+
+    diagnostics = [
+        {
+            "severity": d.severity,
+            "kind": d.kind,
+            "message": d.message,
+            "file": d.file,
+            "line": d.line,
+            "detail": d.detail,
+        }
+        for d in project.diagnostics
+    ]
+    summary = {
+        "loaded_folder": loaded_folder,
+        "parser_backend": parser_backend,
+        "root_path": project.root_path,
+        "file_count": len(project.source_files),
+        "module_count": len(project.modules),
+        "top_candidates": tops,
+        "diagnostics": diagnostics,
+        "diagnostic_counts": {
+            "error": sum(1 for d in project.diagnostics if d.severity == "error"),
+            "warning": sum(1 for d in project.diagnostics if d.severity == "warning"),
+            "info": sum(1 for d in project.diagnostics if d.severity == "info"),
+        },
+    }
+
+    with state_lock:
+        state.service = local_service
+        state.loaded_folder = loaded_folder
+        state.loaded_repo_root = loaded_repo_root
+        state.loaded_commit = loaded_commit
+        state.read_only = read_only
+        if not read_only:
+            _update_loaded_repo_context(loaded_folder)
+
+    update_progress(stage="done", active=False, done=True, summary=summary, error=None)
+
+
+def _run_commit_load_in_background(repo_folder: str, commit: str, parser_backend: str) -> None:
+    def update(**fields) -> None:
+        with progress_lock:
+            for key, value in fields.items():
+                setattr(state.load_progress, key, value)
+
+    def on_file(current: int, total: int, current_file: str) -> None:
+        update(stage="parsing", current=current, total=total, current_file=current_file)
+
+    try:
+        update(stage="scanning", current=0, total=0, current_file=f"Preparing commit {commit}")
+        snapshot = state.git.materialize_commit_snapshot(repo_folder, commit)
+        _load_project_into_state(
+            folder=snapshot["snapshot_path"],
+            parser_backend=parser_backend,
+            update_progress=update,
+            on_file=on_file,
+            loaded_folder=snapshot["snapshot_path"],
+            loaded_repo_root=snapshot["repo_root"],
+            loaded_commit=snapshot["commit"],
+            read_only=True,
+        )
+    except (FileNotFoundError, NotADirectoryError, ValueError, RuntimeError, GitError) as exc:
+        update(stage="error", active=False, done=True, error=str(exc))
+    except Exception as exc:  # pragma: no cover - unexpected backend failures
+        update(stage="error", active=False, done=True, error=f"Failed to load commit: {exc}")
+
+
+def _start_background_load(*, folder: str, parser_backend: str, worker_target, worker_args: tuple, current_file: str = "") -> dict[str, object]:
+    with progress_lock:
+        if state.load_progress.active:
+            raise _bad_request("A project load is already in progress.")
+        state.load_progress = _LoadProgress(
+            active=True,
+            done=False,
+            stage="scanning",
+            current=0,
+            total=0,
+            current_file=current_file,
+            folder=folder,
+            parser_backend=parser_backend,
+            error=None,
+            summary=None,
+        )
+
+    worker = Thread(
+        target=worker_target,
+        args=worker_args,
+        daemon=True,
+        name="project-load-worker",
+    )
+    worker.start()
+    return {"started": True, "folder": folder, "parser_backend": parser_backend}
 
 
 @app.post("/api/project/load")
@@ -227,33 +307,12 @@ def load_project(payload: LoadProjectRequest) -> dict[str, object]:
             f"Unsupported parser backend '{payload.parser_backend}'. "
             f"Use one of: {', '.join(PARSER_CHOICES)}"
         )
-
-    with progress_lock:
-        if state.load_progress.active:
-            raise _bad_request("A project load is already in progress.")
-        # Reset progress state for the new load.
-        state.load_progress = _LoadProgress(
-            active=True,
-            done=False,
-            stage="scanning",
-            current=0,
-            total=0,
-            current_file="",
-            folder=payload.folder,
-            parser_backend=payload.parser_backend,
-            error=None,
-            summary=None,
-        )
-
-    worker = Thread(
-        target=_run_load_in_background,
-        args=(payload.folder, payload.parser_backend),
-        daemon=True,
-        name="project-load-worker",
+    return _start_background_load(
+        folder=payload.folder,
+        parser_backend=payload.parser_backend,
+        worker_target=_run_load_in_background,
+        worker_args=(payload.folder, payload.parser_backend),
     )
-    worker.start()
-
-    return {"started": True, "folder": payload.folder, "parser_backend": payload.parser_backend}
 
 
 @app.get("/api/project/load/progress")
@@ -713,41 +772,13 @@ def load_commit_snapshot(payload: LoadCommitRequest) -> dict[str, object]:
 
     try:
         target = _resolve_repo_folder(payload.folder)
-        snapshot = state.git.materialize_commit_snapshot(target, payload.commit)
-        local_service = ProjectService(parser_backend=payload.parser_backend)
-        project = local_service.load_project(snapshot["snapshot_path"])
-
-        diagnostics = [
-            {
-                "severity": d.severity,
-                "kind": d.kind,
-                "message": d.message,
-                "file": d.file,
-                "line": d.line,
-                "detail": d.detail,
-            }
-            for d in project.diagnostics
-        ]
-        tops = local_service.get_top_candidates()
-
-        with state_lock:
-            state.service = local_service
-            state.loaded_folder = snapshot["snapshot_path"]
-            state.loaded_repo_root = snapshot["repo_root"]
-            state.loaded_commit = snapshot["commit"]
-            state.read_only = True
-
-        return {
-            "loaded_folder": snapshot["snapshot_path"],
-            "repo_root": snapshot["repo_root"],
-            "loaded_commit": snapshot["commit"],
-            "read_only": True,
-            "parser_backend": payload.parser_backend,
-            "file_count": len(project.source_files),
-            "module_count": len(project.modules),
-            "top_candidates": tops,
-            "diagnostics": diagnostics,
-        }
+        return _start_background_load(
+            folder=target,
+            parser_backend=payload.parser_backend,
+            worker_target=_run_commit_load_in_background,
+            worker_args=(target, payload.commit, payload.parser_backend),
+            current_file=f"Preparing commit {payload.commit}",
+        )
     except (FileNotFoundError, NotADirectoryError, ValueError, RuntimeError, GitError) as exc:
         raise _bad_request(str(exc)) from exc
 
