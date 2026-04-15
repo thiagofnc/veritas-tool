@@ -26,14 +26,13 @@ module uart_rx (
             frame_error <= 1'b0;
             busy <= 1'b0;
         end else begin
-            data_valid <= 1'b0;
-            frame_error <= 1'b0;
-
             if (baud_tick) begin
                 case (state)
                     STATE_IDLE: begin
                         busy <= 1'b0;
                         bit_index <= 3'd0;
+                        data_valid <= 1'b0;
+                        frame_error <= 1'b0;
                         if (!rx) begin
                             state <= STATE_DATA;
                             busy <= 1'b1;
