@@ -1,158 +1,86 @@
-﻿# Veritas: Verilog Design Tool
+# Veritas: Verilog Design Tool
 
  ## Vision for the project
 
  Veritas is not going to be just another HDL editor, it is going to be the backbone of RTL design, simulation and debugging. I intend on making it the central environment where engineers can move from idea to implementation to verification without constantly switching tools. Veritas will unify code editing, hierarchy exploration, connectivity visualization, signal tracing, simulation, diagnostics, and AI-assisted development into one coherent system built specifically for Verilog and SystemVerilog. Veritas will treat a design as a living system that can be explored, modified and validated continuously. Engineers should be able to open a module, understand how it fits into the larger architecture, trace signals across instances and processes, edit the source directly, run checks and simulations, and get immediate feedback in the same environment.
 
-## Current State Preview
-
 ![Current state of the software](docs/images/mvp_ui.png)
 
-## Current State
+## Current Capabilities
 
-This is no longer just a "load RTL, print a tree" prototype. The project now has a reasonably complete scan -> parse -> model -> query -> visualize pipeline, with multiple ways to inspect the same module depending on how much detail you want.
+- Recursive `.v` / `.sv` discovery with hidden-file filtering and a few common directory exclusions.
+- PyVerilog-based structural parsing of modules, ports, internal signals, instances, gate primitives, continuous assigns, and `always`-family blocks.
+- Source-linked diagnostics for parse failures and unresolved trace boundaries.
+- Top-module inference with heuristics that try to ignore obvious testbenches by default.
+- Hierarchy queries and module-level connectivity graphs in `compact` and `detailed` modes.
+- Schematic-style rendering derived from the connectivity graph, with `full`, `simplified`, and `bus` display modes.
+- Width-aware metadata for ports and signals, including bus detection when the width can be inferred.
+- Local and cross-module signal tracing, including both data dependencies and control dependencies.
+- Source browsing and editing through the API, plus incremental reparse of changed files.
+- Module creation and instance insertion helpers.
+- Git workflows through the backend: clone, status, history, commit/push, and read-only loading of historical commits.
+- Managed testbench creation plus discovered-testbench support, Icarus Verilog simulation runs, and VCD parsing for waveform display.
+- Browser UI with hierarchy drill-down, file browsing, graph inspection, signal trace panels, Git panels, and read-only commit mode.
 
-Major capabilities in the current codebase:
+## How It Works
 
-- recursive `.v` / `.sv` project discovery with hidden-file and hidden-folder filtering
-- two parser backends:
-  - `pyverilog` for AST-based parsing
-  - `simple` for regex-based fallback parsing
-- normalized project model covering files, modules, ports, signals, instances, pin mappings, gate primitives, continuous assigns, and always blocks
-- top-module inference and hierarchy tree generation
-- module connectivity graphs in `compact` and `detailed` modes
-- schematic rendering built from the connectivity graph with `full`, `simplified`, and `bus` routing modes
-- width-aware signal metadata, bus classification, and directed-flow inference where possible
-- compact-edge aggregation to reduce repeated parallel edges
-- process-aware visualization for `always`, `always_ff`, `always_comb`, and `always_latch` blocks
-- browser UI with hierarchy drill-down, breadcrumbs, graph stats, inspector panels, hover tooltips, signal tracing, and always-block detail overlays
-- FastAPI endpoints for loading projects and querying hierarchy/connectivity data
-- JSON export of parsed project data
+### Scan and Parse
 
-## What Changed Since The Early MVP
+`app/scanner.py` walks the project tree and keeps only visible `.v` and `.sv` files. The backend then parses those files with `PyVerilogParser` in [app/pyverilog_parser.py](app/pyverilog_parser.py).
 
-The software has moved past the original "module hierarchy plus a basic graph" stage.
+The parser is intentionally centered on one backend right now: PyVerilog. That is a deliberate simplification. The older README described multiple parser backends, but the current codebase does not expose a selectable fallback parser anymore. Keeping one real parser reduces drift between the model, the graph builder, and the UI.
 
-Notable additions and changes:
+The parser also caches per-file results in memory and parses files in small parallel batches. That keeps reloads responsive on repeated scans without forcing the rest of the system to reason about multiple project-model formats.
 
-- connectivity is now modeled explicitly instead of only showing hierarchy relationships
-- the graph builder now includes module I/O, instance pins, internal nets, gate primitives, continuous assigns, and collapsed process nodes
-- the UI can switch between abstract graph views and routed schematic-style views
-- process blocks are no longer opaque: the parsers extract read signals, written signals, control summaries, and assignment summaries
-- port-level visualization is now first-class, which makes it easier to understand how a signal enters and leaves an instance or process
-- schematic routing has multiple display modes so dense modules can be viewed either as a fuller routed drawing or a more compressed bus-centric summary
-- edge aggregation and unknown-flow filtering were added to keep noisy modules readable
-- the inspector and preview panels expose the graph metadata that the renderer is using, which helps with debugging and interpretation
+### Normalized Project Model
 
-## How The Main Features Work
+Everything gets folded into the dataclasses in [app/models.py](app/models.py): files, modules, ports, signals, instances, assigns, gates, always blocks, locations, and diagnostics.
 
-### 1) Project Scanning
+That normalized model is the key architectural choice in the project. Hierarchy, connectivity, tracing, editing, simulation, and UI inspection all consume the same structure instead of each feature reparsing the source independently. The main benefit is consistency: if parsing gets better, multiple downstream features improve automatically.
 
-`app/scanner.py` walks a root folder recursively, ignores hidden files/folders, and keeps only `.v` and `.sv` files. The result is a deterministic file list that gets passed into the selected parser backend.
+### Connectivity and Schematic Views
 
-### 2) Parsing
+Connectivity graphs are built in [app/graph_builder.py](app/graph_builder.py). The compact mode emphasizes readable endpoint relationships; the detailed mode materializes more intermediate wiring structure.
 
-The parser stage converts source files into a normalized `Project` dataclass model.
+The schematic view in [app/schematic_layout.py](app/schematic_layout.py) is not a separate parser or a separate truth source. It starts from the compact connectivity graph and then applies block placement and routing. That avoids having two graph-generation pipelines that can disagree.
 
-- `pyverilog` is the richer backend and the default option in the API/UI
-- `simple` is a fallback backend that uses regex-based extraction when PyVerilog is unavailable or when AST coverage is not enough for a file
+### Signal Tracing
 
-Both backends currently extract:
+Signal tracing lives in [app/signal_tracer.py](app/signal_tracer.py). A useful implementation detail is that the tracer treats both RHS data sources and enclosing `if`/`case` condition signals as direct dependencies. That means tracing the fan-in of a muxed or conditionally assigned signal shows not just the data inputs, but also the select or enable signal that actually controls the assignment.
 
-- module definitions
-- ports and directions
-- declared signals
-- child instances and named pin mappings
-- gate primitives
-- continuous `assign` statements
-- always blocks with assignment summaries and read/write signal summaries
+That choice makes the trace more useful for debugging real RTL behavior. A purely data-only trace tends to miss the exact signal users usually care about first: the control that decides which branch is active.
 
-The always-block extraction is one of the bigger improvements over the earlier version. Instead of only recording that a process exists, the code now collects which signals are read, which are written, and what assignments appear inside the process. That metadata is what powers the always-block overlay in the UI.
+### Editing and Project State
 
-### 3) Service Layer
+The API in [app/api.py](app/api.py) supports reading and writing module or file source, creating modules, and inserting new instantiations.
 
-`app/project_service.py` is the orchestration layer used by the CLI and API. It is responsible for:
+File saves try an incremental reparse first. If the updated file no longer parses cleanly, the backend can keep the previous in-memory project model instead of immediately destroying the loaded graph state. That is an important usability decision: a temporary syntax error in the editor should not make the whole project view disappear while the user is mid-edit.
 
-- loading a project
-- returning sorted module names
-- inferring top-module candidates
-- generating hierarchy trees
-- generating connectivity graphs
-- switching between raw connectivity graphs and schematic-formatted output
+### Git Integration
 
-This layer keeps the API thin. The UI asks for graphs with a few query parameters, and the service decides whether to build a compact/detailed connectivity graph or a routed schematic graph.
+Git operations live in [app/git_service.py](app/git_service.py). The service uses the local `git` CLI rather than a hosting API. That is the right abstraction for this workflow because the tool is operating on local working trees, local status, local commits, and the user's existing credentials.
 
-### 4) Connectivity Graphs
+Historical commit viewing is implemented by materializing a temporary snapshot of a commit and loading that snapshot as a read-only project. That keeps browsing old revisions safe without checking files in and out of the live working tree.
 
-Connectivity graphs are built primarily in `app/graph_builder.py`.
+### Simulation and Waveforms
 
-There are two main modes:
+Simulation support is in [app/simulation_service.py](app/simulation_service.py) and [app/vcd_parser.py](app/vcd_parser.py).
 
-- `compact`: shows endpoint-to-endpoint connections with less visual clutter
-- `detailed`: inserts explicit net nodes so you can see parent-scope wiring more directly
+The backend manages a `testbenches/` folder for authored testbenches and a `.veritas_sim/` folder for run artifacts. Keeping generated outputs inside a dedicated sandbox under the project root makes cleanup and path validation straightforward, and it avoids scattering temporary files across the machine.
 
-The graph builder can include:
+Runs are executed through `iverilog` and `vvp`. The resulting VCD is parsed into a JSON-friendly structure so the frontend can render waveforms and change radix without reparsing the file.
 
-- module I/O nodes
-- instance nodes
-- instance port nodes
-- net nodes
-- gate nodes
-- assign nodes
-- collapsed always/process nodes
-- process port nodes
+## API Surface
 
-Signal direction is inferred from module port direction, child-pin direction, and known write/read behavior where possible. If the builder cannot confidently determine direction, the edge is kept with `flow="unknown"` instead of guessing. That uncertainty is surfaced directly in the UI so the graph does not silently overclaim.
+Main groups of endpoints:
 
-Compact mode also supports edge aggregation. When multiple nets connect the same endpoints, the builder can collapse them into one visual edge while preserving metadata such as the underlying net names and net count. This keeps repeated wiring patterns from overwhelming the view.
-
-### 5) Schematic View
-
-Schematic output is built in `app/schematic_layout.py`.
-
-The schematic view is not a completely separate parser or data model. It starts from the compact connectivity graph, then applies block placement and route generation so the same connectivity information can be shown as a more hardware-like diagram.
-
-Current schematic modes:
-
-- `full`: more complete routed view
-- `simplified`: lighter-weight routed view for readability
-- `bus`: emphasizes grouped/bus-style signal presentation
-
-Because the schematic is derived from the connectivity graph, improvements to parsing and connectivity inference automatically improve the routed view as well.
-
-### 6) UI Interactions
-
-The browser UI in `ui/` now supports a more complete inspection workflow:
-
-- load a project from the preset project selector
-- choose a parser backend
-- browse inferred top modules
-- drill through the hierarchy tree
-- open module connectivity for the selected scope
-- switch between graph modes and schematic modes
-- aggregate edges or reveal unknown-flow edges
-- inspect selected nodes/edges in the right-hand panel
-- double-click an instance to navigate into the child module
-- double-click a port to trace upstream and downstream signal paths
-- double-click an always block to open a more detailed process summary overlay
-
-The graph stats bar and JSON preview are also useful when debugging graph-builder behavior, since they show node/edge counts and a small sample of the payload the renderer received.
-
-## API
-
-The FastAPI app lives in `app/api.py`.
-
-Main endpoints:
-
-- `GET /api/health`
-- `POST /api/project/load`
-- `GET /api/project`
-- `GET /api/project/tops`
-- `GET /api/project/modules`
-- `GET /api/project/modules/{module_name}`
-- `GET /api/project/hierarchy/{top_module}`
-- `GET /api/project/graph/{module_name}`
-- `GET /api/project/connectivity/{module_name}`
+- Project loading and progress: `/api/project/load`, `/api/project/load/progress`, `/api/project/context`
+- Project queries: `/api/project`, `/api/project/tops`, `/api/project/modules`, `/api/project/files`
+- Source editing: `/api/project/modules/{module_name}/source`, `/api/project/files/source`
+- Structure and graphs: `/api/project/hierarchy/{top_module}`, `/api/project/graph/{module_name}`, `/api/project/connectivity/{module_name}`
+- Trace: `/api/signal/trace`
+- Git: `/api/git/clone`, `/api/git/repo`, `/api/git/status`, `/api/git/history`, `/api/git/commit-and-push`, `/api/git/load-commit`
+- Simulation: `/api/sim/tools`, `/api/sim/testbenches`, `/api/sim/testbench`, `/api/sim/run`, `/api/sim/waveform`
 
 Useful connectivity query parameters:
 
@@ -162,9 +90,7 @@ Useful connectivity query parameters:
 - `schematic=true|false`
 - `schematic_mode=full|simplified|bus`
 
-When `schematic=true`, the API returns the routed schematic-style graph payload instead of the plain connectivity graph. When `port_view=true`, the graph includes explicit instance/process pin nodes so the UI can render boundary-aware connections.
-
-## CLI Usage
+## CLI
 
 From the repository root:
 
@@ -172,36 +98,32 @@ From the repository root:
 python -m app.main scan "C:\path\to\your\verilog-project"
 ```
 
-Choose a parser backend:
+Write the parsed project model to JSON:
 
 ```bash
-python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog
-python -m app.main scan "C:\path\to\your\verilog-project" --parser simple
+python -m app.main scan "C:\path\to\your\verilog-project" --out out/project.json
 ```
 
-Write parsed project JSON:
+Print the legacy hierarchy graph JSON when exactly one top module is inferred:
 
 ```bash
-python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --out out/project.json
+python -m app.main scan "C:\path\to\your\verilog-project" --graph
 ```
 
-Print the legacy hierarchy graph JSON when a single top module is inferred:
+## Running the App
 
-```bash
-python -m app.main scan "C:\path\to\your\verilog-project" --parser pyverilog --graph
-```
-
-## Running The API And UI
-
-Install runtime dependencies:
+Install Python dependencies:
 
 ```bash
 python -m pip install fastapi uvicorn pyverilog
 ```
 
-If you do not want to install `pyverilog`, you can still use the `simple` parser backend.
+Optional tools used by specific features:
 
-Run the server:
+- `git` on `PATH` for repository features
+- `iverilog` and `vvp` on `PATH` for simulation
+
+Start the server:
 
 ```bash
 python -m uvicorn app.api:app --reload
@@ -212,37 +134,6 @@ Open:
 - UI: `http://127.0.0.1:8000/`
 - API docs: `http://127.0.0.1:8000/docs`
 
-Current UI note:
-
-- the project selector in `ui/app.js` still uses hardcoded local paths rather than a general folder picker
-- `ui/index.html` loads Cytoscape and ELK from CDNs
-
-## Data Model
-
-Defined in `app/models.py`.
-
-- `SourceFile(path)`
-- `Port(name, direction, width=None, bit_width=None, is_bus=False)`
-- `Signal(name, width=None, kind="wire", bit_width=None, is_bus=False)`
-- `PinConnection(child_port, parent_signal)`
-- `Instance(name, module_name, connections, pin_connections)`
-- `GatePrimitive(name, gate_type, output, inputs)`
-- `ContinuousAssign(target, expression, source_signals)`
-- `AlwaysAssignment(target, expression, condition, blocking, source_signals)`
-- `AlwaysBlock(name, sensitivity, kind, process_style, assignments, control_summary, summary_lines, ...)`
-- `ModuleDef(name, ports, signals, instances, gates, assigns, always_blocks, source_file)`
-- `Project(root_path, source_files, modules)`
-
-## Sample Projects
-
-Bundled examples live under `sample_projects/`:
-
-- `01_linear_chain`
-- `02_serial_subsystem`
-- `03_sensor_hub`
-- `04_three_module_chain`
-- `05_tracer_path_lab`
-
 ## Testing
 
 Run the test suite:
@@ -251,56 +142,37 @@ Run the test suite:
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-Quick syntax checks commonly used during development:
-
-```bash
-python -m py_compile app/graph_builder.py app/project_service.py app/api.py app/schematic_layout.py
-node --check ui/app.js
-```
-
 ## Repository Layout
 
 - `app/main.py`: CLI entry point
 - `app/api.py`: FastAPI routes and UI serving
-- `app/project_service.py`: orchestration service
-- `app/scanner.py`: file discovery
-- `app/models.py`: core dataclasses
-- `app/parser_base.py`: parser backend interface
-- `app/pyverilog_parser.py`: AST parser backend
-- `app/simple_parser.py`: regex fallback parser
-- `app/hierarchy.py`: top inference and hierarchy tree
-- `app/graph_builder.py`: hierarchy and connectivity graph builders
-- `app/schematic_layout.py`: schematic placement and routing
-- `app/json_exporter.py`: project JSON export
-- `ui/index.html`, `ui/styles.css`, `ui/app.js`: browser client
+- `app/project_service.py`: project orchestration
+- `app/scanner.py`: source-file discovery
+- `app/pyverilog_parser.py`: PyVerilog-based parser
+- `app/models.py`: shared data model
+- `app/graph_builder.py`: hierarchy and connectivity graph generation
+- `app/schematic_layout.py`: schematic layout and routing
+- `app/signal_tracer.py`: local and cross-module tracing
+- `app/git_service.py`: local Git operations
+- `app/simulation_service.py`: testbench and simulation workflow
+- `app/vcd_parser.py`: waveform parsing
+- `ui/`: browser client
 - `tests/`: unit tests
-- `sample_projects/`: bundled RTL examples
-- `out/`: generated output files
-- `artifacts/`: debug logs and summaries
+- `sample_projects/`: bundled example RTL projects
 
-## Known Limitations
+## Notes and Limitations
 
-- this is not a full elaborating Verilog/SystemVerilog compiler
-- advanced SystemVerilog coverage is still incomplete
-- some direction inference is still heuristic, so unknown-flow edges can remain
-- very dense modules can still become visually busy even with aggregation/schematic routing
-- the UI project picker is still preset-path based rather than a true filesystem browser
-- the UI is browser-served, not packaged as a desktop application
+- The tool is not a full Verilog/SystemVerilog elaborator or compiler.
+- SystemVerilog coverage is still partial and bounded by what PyVerilog can parse well here.
+- Direction and dependency inference are still heuristic in some cases, so unknown or approximate edges can remain.
+- The UI now supports a custom folder picker, but it still also contains hardcoded preset paths in `ui/app.js` for local development.
+- Simulation depends on external Icarus Verilog binaries and will report `tool_missing` when they are not installed.
 
-## Generated Files
+## Verified README Corrections
 
-Do not commit generated parser/cache artifacts.
+The previous README no longer matched the code in a few places. These are the most important corrections reflected above:
 
-- `parsetab.py`
-- `parser.out`
-- `__pycache__/`
-
-## Ideas for fonts
-
-- https://fonts.google.com/specimen/Bytesized?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
-- https://fonts.google.com/specimen/Bruno+Ace+SC?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
-- https://fonts.google.com/specimen/Bruno+Ace?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
-- https://fonts.google.com/specimen/Bitcount+Grid+Single?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
-- https://fonts.google.com/specimen/Anta?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
-- https://fonts.google.com/specimen/Aldrich?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
-- https://fonts.google.com/specimen/Alatsi?preview.text=Veritas&specimen.preview.text=Veritas&preview.script=Latn
+- The current backend uses PyVerilog only; there is no user-selectable `simple` parser path in the CLI or API.
+- The CLI does not currently accept `--parser`.
+- The backend now includes Git, source-editing, commit-snapshot, testbench, simulation, and waveform features that were under-described before.
+- The old statement that the UI only relies on preset project paths is no longer fully correct because there is now a folder-picker flow, even though preset paths are still present for development.
