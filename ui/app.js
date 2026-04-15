@@ -4048,7 +4048,7 @@ async function requestCrossModuleTrace(moduleName, signal, keepHistory) {
     const response = await fetch(`${API_BASE}/api/signal/trace`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ module: moduleName, signal, max_hops: 500 }),
+      body: JSON.stringify({ module: moduleName, signal, max_hops: 160 }),
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({ detail: response.statusText }));
@@ -4195,6 +4195,140 @@ function renderTraceBadges(group) {
   return parts.join("");
 }
 
+let crossTraceStepList = [];
+let crossTraceStepIndex = -1;
+
+function flattenTraceChainHops(chains) {
+  const seen = new Set();
+  const hops = [];
+  for (const chain of chains || []) {
+    for (const hop of chain || []) {
+      const key = [
+        hop.module || "",
+        hop.signal || "",
+        hop.kind || "",
+        hop.detail || "",
+        hop.next_module || "",
+        hop.next_signal || "",
+      ].join("::");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      hops.push(hop);
+    }
+  }
+  return hops;
+}
+
+function buildExpandedTraceGroups(trace) {
+  const upstreamSource = (trace?.chains?.fanin && trace.chains.fanin.length)
+    ? trace.chains.fanin
+    : (trace?.fanin || []).map((hop) => [hop]);
+  const downstreamSource = (trace?.chains?.fanout && trace.chains.fanout.length)
+    ? trace.chains.fanout
+    : (trace?.fanout || []).map((hop) => [hop]);
+  const upstreamHops = flattenTraceChainHops(upstreamSource);
+  const downstreamHops = flattenTraceChainHops(downstreamSource);
+  return {
+    fanin: groupTraceHops(upstreamHops),
+    fanout: groupTraceHops(downstreamHops),
+  };
+}
+
+function buildCrossTraceStepList(groupedFanin, groupedFanout) {
+  const steps = [];
+  const addStep = (group, direction) => {
+    steps.push({
+      direction,
+      module: group.next_module || group.module,
+      signal: group.next_signal || group.signal,
+      label: formatHopHeadline(group),
+      detail: group.detail || "",
+    });
+  };
+
+  [...groupedFanin].reverse().forEach((group) => addStep(group, "fanin"));
+  groupedFanout.forEach((group) => addStep(group, "fanout"));
+  return steps;
+}
+
+function findCrossTraceFocusElement(signal) {
+  if (!state.cy || !signal) return null;
+
+  const exactNode = state.cy.nodes().filter((node) => {
+    const data = node.data();
+    if (data.kind === "module_io") return (data.port_name || "") === signal;
+    if (data.kind === "netlabel_node") return (data.net_label_text || "") === signal;
+    if (data.kind === "net") return (data.label || "") === signal;
+    return false;
+  });
+  if (exactNode.length) return exactNode[0];
+
+  const portNode = state.cy.nodes().filter((node) => {
+    const data = node.data();
+    if (data.kind !== "instance_port" && data.kind !== "process_port") return false;
+    return node.connectedEdges().some((edge) => summarizeEdgeNetName(edge.data()) === signal);
+  });
+  if (portNode.length) return portNode[0];
+
+  const edge = state.cy.edges().filter((candidate) => summarizeEdgeNetName(candidate.data()) === signal);
+  if (edge.length) return edge[0];
+
+  return null;
+}
+
+async function goToCrossTraceStep(index, trace) {
+  if (!trace) return;
+  if (index < 0 || index >= crossTraceStepList.length) return;
+  crossTraceStepIndex = index;
+
+  const step = crossTraceStepList[index];
+  if (step && step.module && step.module !== state.selectedModule) {
+    await loadGraph(step.module);
+    applyCrossTraceHighlights(trace);
+  }
+
+  if (state.cy) {
+    state.cy.elements(".xtrace-active").removeClass("xtrace-active");
+    const target = findCrossTraceFocusElement(step?.signal || "");
+    if (target && !target.empty()) {
+      target.addClass("xtrace-active");
+      const centerEles = target.isEdge && target.isEdge() ? target.connectedNodes() : target;
+      state.cy.animate({
+        center: { eles: centerEles },
+        zoom: Math.max(state.cy.zoom(), 1),
+        duration: 250,
+      });
+    }
+  }
+
+  const panel = document.getElementById("crossTracePanel");
+  if (!panel) return;
+
+  panel.querySelectorAll(".xtrace-hop").forEach((row) => {
+    row.style.outline = "";
+    row.style.background = "rgba(255,255,255,0.025)";
+  });
+
+  const row = panel.querySelector(`.xtrace-hop[data-step-index="${index}"]`);
+  if (row) {
+    row.style.outline = "1.5px solid #f59e0b";
+    row.style.background = "rgba(245,158,11,0.08)";
+    setTimeout(() => row.scrollIntoView({ behavior: "smooth", block: "nearest" }), 30);
+  }
+
+  renderCrossModuleTracePanel(trace);
+}
+
+async function crossTraceStepPrev(trace) {
+  if (crossTraceStepList.length === 0) return;
+  await goToCrossTraceStep(Math.max(0, crossTraceStepIndex - 1), trace);
+}
+
+async function crossTraceStepNext(trace) {
+  if (crossTraceStepList.length === 0) return;
+  await goToCrossTraceStep(Math.min(crossTraceStepList.length - 1, crossTraceStepIndex + 1), trace);
+}
+
 function renderCrossModuleTracePanel(trace) {
   if (!trace) {
     const existing = document.getElementById("crossTracePanel");
@@ -4218,21 +4352,15 @@ function renderCrossModuleTracePanel(trace) {
     if (canvas) canvas.appendChild(panel);
   }
 
-  // Persist expand/collapse for long lists.
-  const expandKey = "__expandedSections";
-  if (!panel[expandKey]) panel[expandKey] = { fanin: false, fanout: false };
+  const expandedGroups = buildExpandedTraceGroups(trace);
+  const groupedFanin = expandedGroups.fanin;
+  const groupedFanout = expandedGroups.fanout;
+  crossTraceStepList = buildCrossTraceStepList(groupedFanin, groupedFanout);
+  if (crossTraceStepIndex < 0 || crossTraceStepIndex >= crossTraceStepList.length) {
+    crossTraceStepIndex = crossTraceStepList.length ? 0 : -1;
+  }
 
-  const groupedFanin = groupTraceHops(trace.fanin || []);
-  const groupedFanout = groupTraceHops(trace.fanout || []);
-
-  const INITIAL_CAP = 8;
-
-  const faninShown = panel[expandKey].fanin ? groupedFanin : groupedFanin.slice(0, INITIAL_CAP);
-  const faninHidden = panel[expandKey].fanin ? 0 : Math.max(0, groupedFanin.length - INITIAL_CAP);
-  const fanoutShown = panel[expandKey].fanout ? groupedFanout : groupedFanout.slice(0, INITIAL_CAP);
-  const fanoutHidden = panel[expandKey].fanout ? 0 : Math.max(0, groupedFanout.length - INITIAL_CAP);
-
-  const renderHop = (group, accentColor, index, direction) => {
+  const renderHop = (group, accentColor, index, direction, stepIndex) => {
     const roleStyle = traceRoleStyle(group.role);
     const headline = formatHopHeadline(group);
     const badges = renderTraceBadges(group);
@@ -4240,7 +4368,7 @@ function renderCrossModuleTracePanel(trace) {
     const stepLabel = direction === "fanin" ? "Step backward" : "Step forward";
 
     return `
-      <div class="xtrace-hop" data-hop-dir="${direction}" data-hop-idx="${index}" data-trace-module="${escapeHtml(group.next_module || group.module)}" data-trace-signal="${escapeHtml(group.next_signal || group.signal)}" style="margin:3px 0;padding:6px 8px;border-left:2.5px solid ${accentColor};background:rgba(255,255,255,0.025);border-radius:0 4px 4px 0;transition:background 0.1s;">
+      <div class="xtrace-hop" data-hop-dir="${direction}" data-hop-idx="${index}" data-step-index="${stepIndex}" data-trace-module="${escapeHtml(group.next_module || group.module)}" data-trace-signal="${escapeHtml(group.next_signal || group.signal)}" style="margin:3px 0;padding:6px 8px;border-left:2.5px solid ${accentColor};background:rgba(255,255,255,0.025);border-radius:0 4px 4px 0;transition:background 0.1s;">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
           <span title="${escapeHtml(roleStyle.tip || roleStyle.label)}" style="display:inline-block;background:${roleStyle.color}22;color:${roleStyle.color};padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:0.06em;flex-shrink:0;cursor:help;">${roleStyle.label}</span>
           <span style="color:#e4e4e7;font-size:12px;">${escapeHtml(headline)}</span>
@@ -4257,23 +4385,27 @@ function renderCrossModuleTracePanel(trace) {
       </div>`;
   };
 
-  const renderSection = (groups, accent, heading, emptyMsg, hiddenCount, expandId, direction) => {
-    const totalCount = groups.length + hiddenCount;
-    let html = `<div style="color:${accent};font-weight:700;margin:10px 0 6px;font-size:11px;letter-spacing:0.04em;">${heading} <span style="font-weight:400;color:#71717a;font-size:10px;">(${totalCount})</span></div>`;
+  let renderedStepIndex = 0;
+  const renderSection = (groups, accent, heading, emptyMsg, direction) => {
+    let html = `<div style="color:${accent};font-weight:700;margin:10px 0 6px;font-size:11px;letter-spacing:0.04em;">${heading} <span style="font-weight:400;color:#71717a;font-size:10px;">(${groups.length})</span></div>`;
     if (!groups.length) {
       html += `<div style="color:#52525b;margin:2px 0 4px 2px;font-size:11px;">${emptyMsg}</div>`;
       return html;
     }
-    html += groups.map((g, i) => renderHop(g, accent, i, direction)).join("");
-    if (hiddenCount > 0) {
-      html += `<div style="margin:6px 0 0 4px;"><a href="#" id="${expandId}" style="color:${accent};text-decoration:none;font-size:10px;font-weight:500;">Show ${hiddenCount} more \u25bc</a></div>`;
-    }
+    html += groups.map((g, i) => {
+      const htmlRow = renderHop(g, accent, i, direction, renderedStepIndex);
+      renderedStepIndex += 1;
+      return htmlRow;
+    }).join("");
     return html;
   };
 
   const origin = trace.origin || {};
   const totalDrivers = groupedFanin.length;
   const totalLoads = groupedFanout.length;
+  const activeStep = crossTraceStepIndex >= 0 ? crossTraceStepList[crossTraceStepIndex] : null;
+  const stepCount = crossTraceStepList.length;
+  const stepLabel = stepCount > 0 ? `${crossTraceStepIndex + 1} / ${stepCount}` : "";
 
   // Build breadcrumb from crossTraceHistory
   let breadcrumbHtml = "";
@@ -4318,28 +4450,36 @@ function renderCrossModuleTracePanel(trace) {
       <div style="color:#71717a;font-size:10px;margin-top:3px;">${totalDrivers} direct driver${totalDrivers === 1 ? "" : "s"} \u2022 ${totalLoads} direct load${totalLoads === 1 ? "" : "s"}${trace.truncated ? " \u2022 truncated" : ""}</div>
     </div>
 
+    ${stepCount > 0 ? `
+    <div style="margin-bottom:10px;padding:8px 10px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.18);border-radius:5px;">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <span style="color:#f59e0b;font-size:10px;font-weight:700;letter-spacing:0.06em;flex-shrink:0;">GUIDED TRACE</span>
+        <button id="crossStepPrev" ${crossTraceStepIndex <= 0 ? "disabled" : ""} style="background:none;border:1px solid ${crossTraceStepIndex <= 0 ? "#3f3f4655" : "#f59e0b55"};color:${crossTraceStepIndex <= 0 ? "#52525b" : "#f59e0b"};cursor:${crossTraceStepIndex <= 0 ? "default" : "pointer"};font-size:13px;padding:1px 8px;border-radius:3px;line-height:1;" title="Previous step">&#9650;</button>
+        <span style="color:#e4e4e7;font-size:11px;font-weight:600;min-width:48px;text-align:center;">${stepLabel}</span>
+        <button id="crossStepNext" ${crossTraceStepIndex >= stepCount - 1 ? "disabled" : ""} style="background:none;border:1px solid ${crossTraceStepIndex >= stepCount - 1 ? "#3f3f4655" : "#f59e0b55"};color:${crossTraceStepIndex >= stepCount - 1 ? "#52525b" : "#f59e0b"};cursor:${crossTraceStepIndex >= stepCount - 1 ? "default" : "pointer"};font-size:13px;padding:1px 8px;border-radius:3px;line-height:1;" title="Next step">&#9660;</button>
+      </div>
+      <div style="color:#e4e4e7;font-size:12px;font-weight:600;margin-bottom:2px;">${activeStep ? escapeHtml(activeStep.label) : ""}</div>
+      <div style="color:#71717a;font-size:10px;">${activeStep ? escapeHtml(`${activeStep.module}.${activeStep.signal}${activeStep.detail ? ` - ${activeStep.detail}` : ""}`) : ""}</div>
+    </div>` : ""}
+
     ${renderSection(
-      faninShown,
+      groupedFanin,
       "#4ade80",
       "\u25b2 Upstream",
       "No drivers found",
-      faninHidden,
-      "traceExpandFanin",
       "fanin"
     )}
     ${renderSection(
-      fanoutShown,
+      groupedFanout,
       "#60a5fa",
       "\u25bc Downstream",
       "No loads found",
-      fanoutHidden,
-      "traceExpandFanout",
       "fanout"
     )}
 
     ${trace.truncated ? `<div style="color:#f59e0b;margin-top:8px;font-size:10px;">Only the first set of direct relations is shown.</div>` : ""}
     <div style="color:#52525b;margin-top:10px;font-size:10px;border-top:1px solid #27272a;padding-top:8px;">
-      This panel shows only signals directly related to the current origin. Use <span style="color:#e4e4e7;">Step forward</span> or <span style="color:#e4e4e7;">Step backward</span> to walk one boundary at a time.${crossTraceHistory.length > 0 || crossTraceFuture.length > 0 ? " Back/Forward navigates the walked path." : ""}
+      The lists below are the full upstream and downstream steps for this signal. Use the guided trace arrows to walk them one step at a time, or click a row to jump directly to that step.${crossTraceHistory.length > 0 || crossTraceFuture.length > 0 ? " Back/Forward navigates the walked path." : ""}
     </div>
   `;
 
@@ -4397,17 +4537,8 @@ function renderCrossModuleTracePanel(trace) {
     });
   });
 
-  panel.querySelector("#traceExpandFanin")?.addEventListener("click", (ev) => {
-    ev.preventDefault();
-    panel[expandKey].fanin = true;
-    renderCrossModuleTracePanel(trace);
-  });
-
-  panel.querySelector("#traceExpandFanout")?.addEventListener("click", (ev) => {
-    ev.preventDefault();
-    panel[expandKey].fanout = true;
-    renderCrossModuleTracePanel(trace);
-  });
+  panel.querySelector("#crossStepPrev")?.addEventListener("click", () => crossTraceStepPrev(trace));
+  panel.querySelector("#crossStepNext")?.addEventListener("click", () => crossTraceStepNext(trace));
 
     // Navigate to module schematic
   panel.querySelectorAll(".xtrace-nav").forEach((el) => {
@@ -4445,9 +4576,28 @@ function renderCrossModuleTracePanel(trace) {
 
   // Hover affordance on hop rows
   panel.querySelectorAll(".xtrace-hop").forEach((row) => {
-    row.addEventListener("mouseenter", () => { row.style.background = "rgba(255,255,255,0.05)"; });
-    row.addEventListener("mouseleave", () => { row.style.background = "rgba(255,255,255,0.025)"; });
+    row.addEventListener("mouseenter", () => {
+      if (!row.style.outline) row.style.background = "rgba(255,255,255,0.05)";
+    });
+    row.addEventListener("mouseleave", () => {
+      if (!row.style.outline) row.style.background = "rgba(255,255,255,0.025)";
+    });
+    row.addEventListener("click", () => {
+      const raw = row.getAttribute("data-step-index");
+      const idx = raw ? parseInt(raw, 10) : NaN;
+      if (Number.isFinite(idx)) {
+        goToCrossTraceStep(idx, trace);
+      }
+    });
   });
+
+  if (crossTraceStepIndex >= 0) {
+    const activeRow = panel.querySelector(`.xtrace-hop[data-step-index="${crossTraceStepIndex}"]`);
+    if (activeRow) {
+      activeRow.style.outline = "1.5px solid #f59e0b";
+      activeRow.style.background = "rgba(245,158,11,0.08)";
+    }
+  }
 
 }
 

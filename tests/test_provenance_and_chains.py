@@ -170,7 +170,7 @@ class TestPyVerilogProvenance(unittest.TestCase):
 
 
 class TestTracerChainsAndProvenance(unittest.TestCase):
-    def test_cross_module_fanout_chain_stays_on_direct_relation(self) -> None:
+    def test_cross_module_fanout_chain_shows_end_to_end_direct_path(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             _load_simple_project(root)
@@ -178,18 +178,19 @@ class TestTracerChainsAndProvenance(unittest.TestCase):
             project = service.load_project(str(root))
             result = trace_signal(project, "top", "src")
 
-            # Direct tracing should stop at the first local load.
             chains = result["chains"]["fanout"]
             self.assertTrue(chains, "Expected non-empty fanout chains")
-            self.assertEqual(len(chains), 1, chains)
-            self.assertEqual(len(chains[0]), 1, chains)
-            hop = chains[0][0]
-            self.assertEqual(hop["module"], "top")
-            self.assertEqual(hop["kind"], "assign")
-            self.assertEqual(hop["detail"], "branch = src")
-            self.assertIn("source_file", hop)
-            self.assertIn("location", hop)
-            self.assertTrue(hop["resolved_module"])
+            cross_chains = [c for c in chains if any(h.get("crosses") == "down" for h in c)]
+            self.assertTrue(cross_chains, chains)
+            chain = cross_chains[0]
+            details = [hop["detail"] for hop in chain]
+            self.assertIn("branch = src", details)
+            self.assertTrue(any(h.get("next_module") == "child" for h in chain))
+            self.assertTrue(any("out_sig = in_sig" in detail for detail in details))
+            for hop in chain:
+                self.assertIn("source_file", hop)
+                self.assertIn("location", hop)
+                self.assertTrue(hop["resolved_module"])
 
     def test_fanin_chain_reaches_reset_assignment(self) -> None:
         with TemporaryDirectory() as temp_dir:

@@ -131,7 +131,7 @@ endmodule
 
 
 class TestDirectTraceStopsAtCurrentBoundary(unittest.TestCase):
-    def test_trace_reports_only_constructs_directly_related_to_origin(self) -> None:
+    def test_trace_reports_direct_hops_and_reconstructs_chain(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             _write(root, "chain.v", """
@@ -150,9 +150,10 @@ endmodule
             self.assertEqual(fanin[0]["detail"], "c = b")
 
             chains = result["chains"]["fanin"]
-            self.assertEqual(len(chains), 1, chains)
-            self.assertEqual(len(chains[0]), 1, chains)
-            self.assertEqual(chains[0][0]["detail"], "c = b")
+            self.assertTrue(chains, chains)
+            details = [hop["detail"] for hop in chains[0] if hop["kind"] == "assign"]
+            self.assertIn("c = b", details)
+            self.assertIn("b = a", details)
 
 
 if __name__ == "__main__":

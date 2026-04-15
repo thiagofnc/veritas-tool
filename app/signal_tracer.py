@@ -496,6 +496,7 @@ def trace_signal(
             "blocking": blocking,
             "condition": hop.get("condition", ""),
             "dep_kind": hop.get("dep_kind"),
+            "sources": hop.get("sources"),
             "data_sources": hop.get("data_sources"),
             "condition_sources": hop.get("condition_sources"),
             "target": hop.get("target"),
@@ -510,28 +511,34 @@ def trace_signal(
             "resolved_module": module_obj is not None,
         }
 
-    def walk(direction: str) -> tuple[list[dict[str, Any]], bool]:
+    def collect_direct_entries(
+        cur_module_name: str,
+        cur_signal: str,
+        direction: str,
+        *,
+        depth: int = 0,
+    ) -> tuple[list[dict[str, Any]], bool]:
         assert direction in {"fanin", "fanout"}
-        signal_clean = " ".join(signal.split())
+        signal_clean = " ".join(cur_signal.split())
         collected: list[dict[str, Any]] = []
 
-        module = modules.get(module_name)
+        module = modules.get(cur_module_name)
         if module is None:
             diagnostics.append(Diagnostic(
                 severity="warning",
                 kind="unresolved_module",
                 message=(
-                    f"Module '{module_name}' is not in the loaded project; "
+                    f"Module '{cur_module_name}' is not in the loaded project; "
                     f"{direction} trace truncated at this boundary."
                 ),
                 detail=signal_clean,
             ))
             collected.append(make_entry(
-                module_name,
+                cur_module_name,
                 signal_clean,
                 "dead_end",
-                {"label": f"module not found: {module_name}", "detail": f"Module '{module_name}' is not in the project", "expression": ""},
-                0,
+                {"label": f"module not found: {cur_module_name}", "detail": f"Module '{cur_module_name}' is not in the project", "expression": ""},
+                depth,
                 direction,
             ))
             return _dedupe_entries(collected, limit=max_hops), False
@@ -566,11 +573,11 @@ def trace_signal(
                     ))
 
                 collected.append(make_entry(
-                    module_name,
+                    cur_module_name,
                     signal_clean,
                     hop_kind,
                     hop,
-                    0,
+                    depth,
                     direction,
                     crosses="down",
                     next_module=child_mod_name,
@@ -579,11 +586,11 @@ def trace_signal(
                 continue
 
             collected.append(make_entry(
-                module_name,
+                cur_module_name,
                 signal_clean,
                 hop_kind,
                 hop,
-                0,
+                depth,
                 direction,
             ))
 
@@ -592,22 +599,23 @@ def trace_signal(
             if (direction == "fanin" and port_dir in ("input", "inout")) or (
                 direction == "fanout" and port_dir in ("output", "inout")
             ):
-                for parent_mod, parent_inst in parents.get(module_name, []):
+                for parent_mod, parent_inst in parents.get(cur_module_name, []):
                     for child_port, parent_sig in _iter_instance_pins(parent_inst):
                         if child_port != signal_clean or _is_noise_signal(parent_sig):
                             continue
                         entry_kind = "module_port_in" if direction == "fanin" else "module_port_out"
                         collected.append(make_entry(
-                            module_name,
+                            cur_module_name,
                             signal_clean,
                             entry_kind,
                             {
                                 "label": f"{parent_mod}.{parent_inst.name}",
                                 "detail": f"\u2191 {parent_mod}.{parent_sig}",
                                 "expression": "",
+                                "instance_name": parent_inst.name,
                                 "location": parent_inst.location,
                             },
-                            0,
+                            depth,
                             direction,
                             crosses="up",
                             next_module=parent_mod,
@@ -616,11 +624,11 @@ def trace_signal(
 
         if not collected:
             collected.append(make_entry(
-                module_name,
+                cur_module_name,
                 signal_clean,
                 "dead_end",
                 {"label": f"dead end: {signal_clean}", "detail": f"No {direction} connections found", "expression": ""},
-                0,
+                depth,
                 direction,
             ))
 
@@ -630,9 +638,80 @@ def trace_signal(
             truncated = True
         return deduped, truncated
 
+    def walk(direction: str) -> tuple[list[dict[str, Any]], bool]:
+        assert direction in {"fanin", "fanout"}
+        return collect_direct_entries(module_name, signal, direction, depth=0)
+
     def build_chains(hops: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
-        """Each direct hop is its own one-step path from the current origin."""
-        return [[hop] for hop in hops]
+        """Reconstruct whole chains of direct correlations from one origin."""
+        direction = hops[0]["direction"] if hops else "fanout"
+        chain_limit = max(1, max_hops)
+        chains: list[list[dict[str, Any]]] = []
+        emitted: set[tuple[tuple[Any, ...], ...]] = set()
+        exploration_truncated = False
+
+        def next_states_from_hop(hop: dict[str, Any]) -> list[tuple[str, str]]:
+            next_states: list[tuple[str, str]] = []
+            if hop.get("crosses") and hop.get("next_module") and hop.get("next_signal"):
+                next_states.append((hop["next_module"], hop["next_signal"]))
+                return next_states
+
+            if direction == "fanin":
+                for source_name in hop.get("sources") or []:
+                    clean = " ".join(str(source_name).split())
+                    if clean and not _is_noise_signal(clean):
+                        next_states.append((hop["module"], clean))
+            else:
+                target = hop.get("target")
+                clean = " ".join(str(target).split()) if target else ""
+                if clean and not _is_noise_signal(clean):
+                    next_states.append((hop["module"], clean))
+            return next_states
+
+        def record_chain(path: list[dict[str, Any]]) -> None:
+            nonlocal exploration_truncated
+            key = tuple(_hop_signature(h) for h in path)
+            if key in emitted:
+                return
+            emitted.add(key)
+            chains.append(path)
+            if len(chains) >= chain_limit:
+                exploration_truncated = True
+
+        def descend(cur_module_name: str, cur_signal: str, path: list[dict[str, Any]], seen_states: set[tuple[str, str]]) -> None:
+            nonlocal exploration_truncated
+            if exploration_truncated:
+                return
+
+            direct_hops, _ = collect_direct_entries(cur_module_name, cur_signal, direction, depth=len(path))
+            if not direct_hops:
+                if path:
+                    record_chain(path)
+                return
+
+            for hop in direct_hops:
+                if exploration_truncated:
+                    return
+
+                next_path = [*path, hop]
+                next_states = next_states_from_hop(hop)
+                if not next_states or hop["kind"] == "dead_end":
+                    record_chain(next_path)
+                    continue
+
+                progressed = False
+                for next_module_name, next_signal_name in next_states:
+                    state_key = (next_module_name, next_signal_name)
+                    if state_key in seen_states:
+                        continue
+                    progressed = True
+                    descend(next_module_name, next_signal_name, next_path, seen_states | {state_key})
+
+                if not progressed:
+                    record_chain(next_path)
+
+        descend(module_name, signal, [], {(module_name, " ".join(signal.split()))})
+        return chains[:chain_limit]
 
     fanin, trunc_in = walk("fanin")
     fanout, trunc_out = walk("fanout")
