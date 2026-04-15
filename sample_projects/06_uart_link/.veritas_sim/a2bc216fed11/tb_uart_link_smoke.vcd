@@ -1,0 +1,1049 @@
+$date
+	Wed Apr 15 03:06:20 2026
+$end
+$version
+	Icarus Verilog
+$end
+$timescale
+	1ps
+$end
+$scope module tb_uart_link_smoke $end
+$var wire 1 ! b_tx_done $end
+$var wire 1 " b_tx_busy $end
+$var wire 1 # b_rx_valid $end
+$var wire 8 $ b_rx_data [7:0] $end
+$var wire 1 % b_frame_error $end
+$var wire 1 & a_tx_done $end
+$var wire 1 ' a_tx_busy $end
+$var wire 1 ( a_rx_valid $end
+$var wire 8 ) a_rx_data [7:0] $end
+$var wire 1 * a_frame_error $end
+$var reg 8 + a_data [7:0] $end
+$var reg 1 , a_send $end
+$var reg 8 - b_data [7:0] $end
+$var reg 1 . b_send $end
+$var reg 1 / clk $end
+$var reg 1 0 rst $end
+$scope module dut $end
+$var wire 8 1 a_data [7:0] $end
+$var wire 1 , a_send $end
+$var wire 8 2 b_data [7:0] $end
+$var wire 1 . b_send $end
+$var wire 1 / clk $end
+$var wire 1 0 rst $end
+$var wire 1 3 serial_b_to_a $end
+$var wire 1 4 serial_a_to_b $end
+$var wire 1 ! b_tx_done $end
+$var wire 1 " b_tx_busy $end
+$var wire 1 # b_rx_valid $end
+$var wire 8 5 b_rx_data [7:0] $end
+$var wire 1 6 b_rx_busy $end
+$var wire 1 % b_frame_error $end
+$var wire 1 & a_tx_done $end
+$var wire 1 ' a_tx_busy $end
+$var wire 1 ( a_rx_valid $end
+$var wire 8 7 a_rx_data [7:0] $end
+$var wire 1 8 a_rx_busy $end
+$var wire 1 * a_frame_error $end
+$var parameter 32 9 BAUD_DIVISOR $end
+$scope module u_node_a $end
+$var wire 1 / clk $end
+$var wire 1 0 rst $end
+$var wire 8 : send_data [7:0] $end
+$var wire 1 , send_strobe $end
+$var wire 1 & tx_done $end
+$var wire 1 ' tx_busy $end
+$var wire 1 4 serial_out $end
+$var wire 1 3 serial_in $end
+$var wire 1 ( rx_valid $end
+$var wire 1 * rx_frame_error $end
+$var wire 8 ; rx_data [7:0] $end
+$var wire 1 8 rx_busy $end
+$var wire 1 < baud_tick $end
+$var parameter 32 = BAUD_DIVISOR $end
+$scope module u_baud_gen $end
+$var wire 1 / clk $end
+$var wire 1 0 rst $end
+$var parameter 32 > DIVISOR $end
+$var reg 1 < baud_tick $end
+$var reg 16 ? counter [15:0] $end
+$upscope $end
+$scope module u_uart_rx $end
+$var wire 1 < baud_tick $end
+$var wire 1 / clk $end
+$var wire 1 0 rst $end
+$var wire 1 3 rx $end
+$var parameter 2 @ STATE_DATA $end
+$var parameter 2 A STATE_IDLE $end
+$var parameter 2 B STATE_STOP $end
+$var reg 3 C bit_index [2:0] $end
+$var reg 1 8 busy $end
+$var reg 8 D data_out [7:0] $end
+$var reg 1 ( data_valid $end
+$var reg 1 * frame_error $end
+$var reg 8 E shift_reg [7:0] $end
+$var reg 2 F state [1:0] $end
+$upscope $end
+$scope module u_uart_tx $end
+$var wire 1 < baud_tick $end
+$var wire 1 / clk $end
+$var wire 8 G data_in [7:0] $end
+$var wire 1 0 rst $end
+$var wire 1 , start $end
+$var parameter 2 H STATE_DATA $end
+$var parameter 2 I STATE_IDLE $end
+$var parameter 2 J STATE_START $end
+$var parameter 2 K STATE_STOP $end
+$var reg 3 L bit_index [2:0] $end
+$var reg 1 ' busy $end
+$var reg 1 & done $end
+$var reg 1 M pending $end
+$var reg 8 N shift_reg [7:0] $end
+$var reg 2 O state [1:0] $end
+$var reg 1 4 tx $end
+$upscope $end
+$upscope $end
+$scope module u_node_b $end
+$var wire 1 / clk $end
+$var wire 1 0 rst $end
+$var wire 8 P send_data [7:0] $end
+$var wire 1 . send_strobe $end
+$var wire 1 4 serial_in $end
+$var wire 1 ! tx_done $end
+$var wire 1 " tx_busy $end
+$var wire 1 3 serial_out $end
+$var wire 1 # rx_valid $end
+$var wire 1 % rx_frame_error $end
+$var wire 8 Q rx_data [7:0] $end
+$var wire 1 6 rx_busy $end
+$var wire 1 R baud_tick $end
+$var parameter 32 S BAUD_DIVISOR $end
+$scope module u_baud_gen $end
+$var wire 1 / clk $end
+$var wire 1 0 rst $end
+$var parameter 32 T DIVISOR $end
+$var reg 1 R baud_tick $end
+$var reg 16 U counter [15:0] $end
+$upscope $end
+$scope module u_uart_rx $end
+$var wire 1 R baud_tick $end
+$var wire 1 / clk $end
+$var wire 1 0 rst $end
+$var wire 1 4 rx $end
+$var parameter 2 V STATE_DATA $end
+$var parameter 2 W STATE_IDLE $end
+$var parameter 2 X STATE_STOP $end
+$var reg 3 Y bit_index [2:0] $end
+$var reg 1 6 busy $end
+$var reg 8 Z data_out [7:0] $end
+$var reg 1 # data_valid $end
+$var reg 1 % frame_error $end
+$var reg 8 [ shift_reg [7:0] $end
+$var reg 2 \ state [1:0] $end
+$upscope $end
+$scope module u_uart_tx $end
+$var wire 1 R baud_tick $end
+$var wire 1 / clk $end
+$var wire 8 ] data_in [7:0] $end
+$var wire 1 0 rst $end
+$var wire 1 . start $end
+$var parameter 2 ^ STATE_DATA $end
+$var parameter 2 _ STATE_IDLE $end
+$var parameter 2 ` STATE_START $end
+$var parameter 2 a STATE_STOP $end
+$var reg 3 b bit_index [2:0] $end
+$var reg 1 " busy $end
+$var reg 1 ! done $end
+$var reg 1 c pending $end
+$var reg 8 d shift_reg [7:0] $end
+$var reg 2 e state [1:0] $end
+$var reg 1 3 tx $end
+$upscope $end
+$upscope $end
+$upscope $end
+$scope task expect_at_a $end
+$upscope $end
+$scope task expect_at_b $end
+$upscope $end
+$scope task send_from_a $end
+$upscope $end
+$scope task send_from_b $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+$comment Show the parameter values. $end
+$dumpall
+b11 a
+b1 `
+b0 _
+b10 ^
+b10 X
+b0 W
+b1 V
+b100 T
+b100 S
+b11 K
+b1 J
+b0 I
+b10 H
+b10 B
+b0 A
+b1 @
+b100 >
+b100 =
+b100 9
+$end
+#0
+$dumpvars
+bx e
+bx d
+xc
+bx b
+b0 ]
+bx \
+bx [
+bx Z
+bx Y
+bx U
+xR
+bx Q
+b0 P
+bx O
+bx N
+xM
+bx L
+b0 G
+bx F
+bx E
+bx D
+bx C
+bx ?
+x<
+bx ;
+b0 :
+x8
+bx 7
+x6
+bx 5
+x4
+x3
+b0 2
+b0 1
+10
+0/
+0.
+b0 -
+0,
+b0 +
+x*
+bx )
+x(
+x'
+x&
+x%
+bx $
+x#
+x"
+x!
+$end
+#5000
+0<
+b0 ?
+0&
+0'
+14
+0M
+b0 L
+b0 N
+b0 O
+08
+0*
+0(
+b0 )
+b0 7
+b0 ;
+b0 D
+b0 C
+b0 E
+b0 F
+0R
+b0 U
+0!
+0"
+13
+0c
+b0 b
+b0 d
+b0 e
+06
+0%
+0#
+b0 $
+b0 5
+b0 Q
+b0 Z
+b0 Y
+b0 [
+b0 \
+1/
+#10000
+0/
+#15000
+1/
+#20000
+0/
+#25000
+1/
+#30000
+0/
+#35000
+00
+1/
+#40000
+0/
+#45000
+b1 ?
+b1 U
+1,
+b111100 +
+b111100 1
+b111100 :
+b111100 G
+1/
+#50000
+0/
+#55000
+b10 U
+1M
+b111100 N
+b10 ?
+0,
+1/
+#60000
+0/
+#65000
+b11 ?
+b11 U
+1/
+#70000
+0/
+#75000
+1R
+b0 U
+1<
+b0 ?
+1/
+#80000
+0/
+#85000
+0<
+b1 ?
+04
+1'
+0M
+b1 O
+0R
+b1 U
+1/
+#90000
+0/
+#95000
+b10 U
+b10 ?
+1/
+#100000
+0/
+#105000
+b11 ?
+b11 U
+1/
+#110000
+0/
+#115000
+1R
+b0 U
+1<
+b0 ?
+1/
+#120000
+0/
+#125000
+0<
+b1 ?
+b10 O
+0R
+b1 U
+16
+b1 \
+1/
+#130000
+0/
+#135000
+b10 U
+b10 ?
+1/
+#140000
+0/
+#145000
+b11 ?
+b11 U
+1/
+#150000
+0/
+#155000
+1R
+b0 U
+1<
+b0 ?
+1/
+#160000
+0/
+#165000
+0<
+b1 ?
+b1 L
+0R
+b1 U
+b1 Y
+1/
+#170000
+0/
+#175000
+b10 U
+b10 ?
+1/
+#180000
+0/
+#185000
+b11 ?
+b11 U
+1/
+#190000
+0/
+#195000
+1R
+b0 U
+1<
+b0 ?
+1/
+#200000
+0/
+#205000
+0<
+b1 ?
+14
+b10 L
+0R
+b1 U
+b10 Y
+1/
+#210000
+0/
+#215000
+b10 U
+b10 ?
+1/
+#220000
+0/
+#225000
+b11 ?
+b11 U
+1/
+#230000
+0/
+#235000
+1R
+b0 U
+1<
+b0 ?
+1/
+#240000
+0/
+#245000
+0<
+b1 ?
+b11 L
+0R
+b1 U
+b11 Y
+b100 [
+1/
+#250000
+0/
+#255000
+b10 U
+b10 ?
+1/
+#260000
+0/
+#265000
+b11 ?
+b11 U
+1/
+#270000
+0/
+#275000
+1R
+b0 U
+1<
+b0 ?
+1/
+#280000
+0/
+#285000
+0<
+b1 ?
+b100 L
+0R
+b1 U
+b100 Y
+b1100 [
+1/
+#290000
+0/
+#295000
+b10 U
+b10 ?
+1/
+#300000
+0/
+#305000
+b11 ?
+b11 U
+1/
+#310000
+0/
+#315000
+1R
+b0 U
+1<
+b0 ?
+1/
+#320000
+0/
+#325000
+0<
+b1 ?
+b101 L
+0R
+b1 U
+b101 Y
+b11100 [
+1/
+#330000
+0/
+#335000
+b10 U
+b10 ?
+1/
+#340000
+0/
+#345000
+b11 ?
+b11 U
+1/
+#350000
+0/
+#355000
+1R
+b0 U
+1<
+b0 ?
+1/
+#360000
+0/
+#365000
+0<
+b1 ?
+04
+b110 L
+0R
+b1 U
+b110 Y
+b111100 [
+1/
+#370000
+0/
+#375000
+b10 U
+b10 ?
+1/
+#380000
+0/
+#385000
+b11 ?
+b11 U
+1/
+#390000
+0/
+#395000
+1R
+b0 U
+1<
+b0 ?
+1/
+#400000
+0/
+#405000
+0<
+b1 ?
+b111 L
+0R
+b1 U
+b111 Y
+1/
+#410000
+0/
+#415000
+b10 U
+b10 ?
+1/
+#420000
+0/
+#425000
+b11 ?
+b11 U
+1/
+#430000
+0/
+#435000
+1R
+b0 U
+1<
+b0 ?
+1/
+#440000
+0/
+#445000
+0<
+b1 ?
+14
+b11 O
+0R
+b1 U
+b10 \
+1/
+#450000
+0/
+#455000
+b10 U
+b10 ?
+1/
+#460000
+0/
+#465000
+b11 ?
+b11 U
+1/
+#470000
+0/
+#475000
+1R
+b0 U
+1<
+b0 ?
+1/
+#480000
+0/
+#485000
+0<
+b1 ?
+1&
+0'
+b0 O
+0R
+b1 U
+1#
+b111100 $
+b111100 5
+b111100 Q
+b111100 Z
+06
+b0 \
+1/
+#490000
+0/
+#495000
+0#
+b10 U
+0&
+b10 ?
+1/
+#500000
+0/
+#505000
+b11 ?
+b11 U
+1.
+b10100101 -
+b10100101 2
+b10100101 P
+b10100101 ]
+1/
+#510000
+0/
+#515000
+1c
+b10100101 d
+1R
+b0 U
+1<
+b0 ?
+0.
+1/
+#520000
+0/
+#525000
+0<
+b1 ?
+b0 L
+0R
+b1 U
+03
+1"
+0c
+b1 e
+b0 Y
+1/
+#530000
+0/
+#535000
+b10 U
+b10 ?
+1/
+#540000
+0/
+#545000
+b11 ?
+b11 U
+1/
+#550000
+0/
+#555000
+1R
+b0 U
+1<
+b0 ?
+1/
+#560000
+0/
+#565000
+0<
+b1 ?
+18
+b1 F
+0R
+b1 U
+13
+b10 e
+1/
+#570000
+0/
+#575000
+b10 U
+b10 ?
+1/
+#580000
+0/
+#585000
+b11 ?
+b11 U
+1/
+#590000
+0/
+#595000
+1R
+b0 U
+1<
+b0 ?
+1/
+#600000
+0/
+#605000
+0<
+b1 ?
+b1 C
+b1 E
+0R
+b1 U
+03
+b1 b
+1/
+#610000
+0/
+#615000
+b10 U
+b10 ?
+1/
+#620000
+0/
+#625000
+b11 ?
+b11 U
+1/
+#630000
+0/
+#635000
+1R
+b0 U
+1<
+b0 ?
+1/
+#640000
+0/
+#645000
+0<
+b1 ?
+b10 C
+0R
+b1 U
+13
+b10 b
+1/
+#650000
+0/
+#655000
+b10 U
+b10 ?
+1/
+#660000
+0/
+#665000
+b11 ?
+b11 U
+1/
+#670000
+0/
+#675000
+1R
+b0 U
+1<
+b0 ?
+1/
+#680000
+0/
+#685000
+0<
+b1 ?
+b11 C
+b101 E
+0R
+b1 U
+03
+b11 b
+1/
+#690000
+0/
+#695000
+b10 U
+b10 ?
+1/
+#700000
+0/
+#705000
+b11 ?
+b11 U
+1/
+#710000
+0/
+#715000
+1R
+b0 U
+1<
+b0 ?
+1/
+#720000
+0/
+#725000
+0<
+b1 ?
+b100 C
+0R
+b1 U
+b100 b
+1/
+#730000
+0/
+#735000
+b10 U
+b10 ?
+1/
+#740000
+0/
+#745000
+b11 ?
+b11 U
+1/
+#750000
+0/
+#755000
+1R
+b0 U
+1<
+b0 ?
+1/
+#760000
+0/
+#765000
+0<
+b1 ?
+b101 C
+0R
+b1 U
+13
+b101 b
+1/
+#770000
+0/
+#775000
+b10 U
+b10 ?
+1/
+#780000
+0/
+#785000
+b11 ?
+b11 U
+1/
+#790000
+0/
+#795000
+1R
+b0 U
+1<
+b0 ?
+1/
+#800000
+0/
+#805000
+0<
+b1 ?
+b110 C
+b100101 E
+0R
+b1 U
+03
+b110 b
+1/
+#810000
+0/
+#815000
+b10 U
+b10 ?
+1/
+#820000
+0/
+#825000
+b11 ?
+b11 U
+1/
+#830000
+0/
+#835000
+1R
+b0 U
+1<
+b0 ?
+1/
+#840000
+0/
+#845000
+0<
+b1 ?
+b111 C
+0R
+b1 U
+13
+b111 b
+1/
+#850000
+0/
+#855000
+b10 U
+b10 ?
+1/
+#860000
+0/
+#865000
+b11 ?
+b11 U
+1/
+#870000
+0/
+#875000
+1R
+b0 U
+1<
+b0 ?
+1/
+#880000
+0/
+#885000
+0<
+b1 ?
+b10 F
+b10100101 E
+0R
+b1 U
+b11 e
+1/
+#890000
+0/
+#895000
+b10 U
+b10 ?
+1/
+#900000
+0/
+#905000
+b11 ?
+b11 U
+1/
+#910000
+0/
+#915000
+1R
+b0 U
+1<
+b0 ?
+1/
+#920000
+0/
+#925000
+0<
+b1 ?
+1(
+b10100101 )
+b10100101 7
+b10100101 ;
+b10100101 D
+08
+b0 F
+0R
+b1 U
+1!
+0"
+b0 e
+1/
+#930000
+0/
+#935000
+0!
+b10 U
+0(
+b10 ?
+1/
+#940000
+0/
+#945000
+b11 ?
+b11 U
+1/
+#950000
+0/
+#955000
+1R
+b0 U
+1<
+b0 ?
+1/
