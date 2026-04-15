@@ -6,6 +6,8 @@
 
 ![Current state of the software](docs/images/mvp_ui.png)
 
+![Current state of the simulation screen](docs/images/simulation_screen.png)
+
 ## Current Capabilities
 
 - Recursive `.v` / `.sv` discovery with hidden-file filtering and a few common directory exclusions.

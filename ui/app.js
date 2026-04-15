@@ -452,6 +452,10 @@ function getRenderableGraph(graph) {
 }
 
 function renderTopList() {
+  if (!topList) {
+    return;
+  }
+
   topList.innerHTML = "";
 
   if (!state.tops.length) {
