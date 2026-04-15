@@ -9,3 +9,8 @@ parser.out
 # Generated project artifacts
 *.vcp
 *.vdd
+
+# Simulation outputs
+*.vcd
+*.vvp
+.veritas_sim/
