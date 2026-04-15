@@ -370,6 +370,7 @@ function renderHierarchyTree() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "tree-module-btn";
+    button.dataset.moduleName = moduleName;
     if (moduleName === state.selectedModule) {
       button.classList.add("active");
     }
@@ -423,6 +424,8 @@ function renderHierarchyTree() {
 
         const line = document.createElement("div");
         line.className = "tree-instance-line";
+        if (child.instance) line.dataset.instanceName = child.instance;
+        if (child.module) line.dataset.moduleName = child.module;
         line.innerHTML = `
           <span class="tree-instance-chip"></span>
           <span>${escapeHtml(child.instance || "?")} -> ${escapeHtml(child.module || "?")}</span>
@@ -3646,6 +3649,9 @@ function clearCrossTraceHighlights() {
   document.querySelectorAll(".tree-module-btn.xtrace-highlight").forEach((el) => {
     el.classList.remove("xtrace-highlight");
   });
+  document.querySelectorAll(".tree-instance-line.xtrace-highlight").forEach((el) => {
+    el.classList.remove("xtrace-highlight");
+  });
 }
 
 function applyCrossTraceHighlights(trace) {
@@ -3656,12 +3662,16 @@ function applyCrossTraceHighlights(trace) {
   const allHops = [...(trace.fanin || []), ...(trace.fanout || [])];
   const origin = trace.origin || {};
 
-  // 1. Collect all module names touched by the trace (for tree + instance highlighting).
+  // 1. Collect exact current-scope instance names plus module names touched by the trace.
   const traceModules = new Set();
+  const traceInstances = new Set();
   if (origin.module) traceModules.add(origin.module);
   for (const hop of allHops) {
     if (hop.module) traceModules.add(hop.module);
     if (hop.next_module) traceModules.add(hop.next_module);
+    if (hop.module === currentModule && hop.instance_name) {
+      traceInstances.add(hop.instance_name);
+    }
   }
 
   // 2. Collect signal names that belong to the CURRENT module's scope.
@@ -3698,8 +3708,10 @@ function applyCrossTraceHighlights(trace) {
   state.cy.nodes().forEach((node) => {
     const data = node.data();
 
-    // Instance blocks whose module type is in the trace
-    if (data.kind === "instance" && data.module_name && traceModules.has(data.module_name)) {
+    // Instance blocks must match the specific traced instance name in the
+    // current module, not just the child module type. Otherwise every MUX,
+    // register file, etc. lights up when only one instance is related.
+    if (data.kind === "instance" && data.instance_name && traceInstances.has(data.instance_name)) {
       undim(node);
       return;
     }
@@ -3814,10 +3826,19 @@ function applyCrossTraceHighlights(trace) {
     }
   });
 
-  // 5. Highlight modules in the hierarchy tree.
+  // 5. Highlight exact instances in the hierarchy tree, plus the currently
+  // inspected module button so users keep orientation without lighting up
+  // every repeated module type.
+  document.querySelectorAll(".tree-instance-line").forEach((line) => {
+    const instanceName = line.dataset.instanceName || "";
+    if (instanceName && traceInstances.has(instanceName)) {
+      line.classList.add("xtrace-highlight");
+    }
+  });
+
   document.querySelectorAll(".tree-module-btn").forEach((btn) => {
-    const modName = btn.textContent.trim().replace(/\s*\[.*\]$/, "");
-    if (traceModules.has(modName)) {
+    const modName = btn.dataset.moduleName || btn.textContent.trim().replace(/\s*\[.*\]$/, "");
+    if (modName === currentModule || (origin.module && modName === origin.module)) {
       btn.classList.add("xtrace-highlight");
     }
   });
@@ -4216,6 +4237,7 @@ function renderCrossModuleTracePanel(trace) {
     const headline = formatHopHeadline(group);
     const badges = renderTraceBadges(group);
     const crossIcon = group.crosses === "down" ? " \u2193" : group.crosses === "up" ? " \u2191" : "";
+    const stepLabel = direction === "fanin" ? "Step backward" : "Step forward";
 
     return `
       <div class="xtrace-hop" data-hop-dir="${direction}" data-hop-idx="${index}" data-trace-module="${escapeHtml(group.next_module || group.module)}" data-trace-signal="${escapeHtml(group.next_signal || group.signal)}" style="margin:3px 0;padding:6px 8px;border-left:2.5px solid ${accentColor};background:rgba(255,255,255,0.025);border-radius:0 4px 4px 0;transition:background 0.1s;">
@@ -4230,8 +4252,7 @@ function renderCrossModuleTracePanel(trace) {
             : ""}
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-          <button type="button" class="xtrace-focus-btn" data-trace-module="${escapeHtml(group.next_module || group.module)}" style="background:none;border:1px solid ${accentColor}55;color:${accentColor};cursor:pointer;font-size:10px;padding:2px 7px;border-radius:3px;">Open module</button>
-          <button type="button" class="xtrace-retrace-btn" data-trace-module="${escapeHtml(group.next_module || group.module)}" data-trace-signal="${escapeHtml(group.next_signal || group.signal)}" style="background:none;border:1px solid #3f3f46;color:#e4e4e7;cursor:pointer;font-size:10px;padding:2px 7px;border-radius:3px;">Re-trace here</button>
+          <button type="button" class="xtrace-retrace-btn" data-trace-module="${escapeHtml(group.next_module || group.module)}" data-trace-signal="${escapeHtml(group.next_signal || group.signal)}" style="background:none;border:1px solid ${accentColor}55;color:${accentColor};cursor:pointer;font-size:10px;padding:2px 7px;border-radius:3px;">${stepLabel}</button>
         </div>
       </div>`;
   };
@@ -4281,7 +4302,7 @@ function renderCrossModuleTracePanel(trace) {
       <div style="display:flex;align-items:center;gap:8px;">
         ${backButton}
         ${forwardButton}
-        <span style="font-weight:700;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:#a1a1aa;">Cross-Module Trace</span>
+        <span style="font-weight:700;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:#a1a1aa;">Direct Signal Trace</span>
       </div>
       <button id="closeCrossTracePanel" style="background:none;border:none;color:#71717a;cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;">&times;</button>
     </div>
@@ -4291,10 +4312,10 @@ function renderCrossModuleTracePanel(trace) {
       <div style="padding:8px 10px;border:1.5px solid rgba(34,211,238,0.35);border-radius:5px;margin-bottom:8px;background:rgba(34,211,238,0.07);">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <div style="color:#22d3ee;font-size:9px;font-weight:700;letter-spacing:0.1em;">TRACE SUMMARY</div>
-        <span style="color:#a1a1aa;font-size:9px;text-transform:uppercase;letter-spacing:0.08em;">Scope: Across modules</span>
+        <span style="color:#a1a1aa;font-size:9px;text-transform:uppercase;letter-spacing:0.08em;">Scope: Direct relations only</span>
       </div>
       <div style="font-size:13px;font-weight:600;"><strong style="color:#e4e4e7;">${escapeHtml(origin.module || "")}</strong><span style="color:#71717a;">.</span>${escapeHtml(origin.signal || "")}</div>
-      <div style="color:#71717a;font-size:10px;margin-top:3px;">${totalDrivers} upstream step${totalDrivers === 1 ? "" : "s"} \u2022 ${totalLoads} downstream step${totalLoads === 1 ? "" : "s"}${trace.truncated ? " \u2022 truncated" : ""}</div>
+      <div style="color:#71717a;font-size:10px;margin-top:3px;">${totalDrivers} direct driver${totalDrivers === 1 ? "" : "s"} \u2022 ${totalLoads} direct load${totalLoads === 1 ? "" : "s"}${trace.truncated ? " \u2022 truncated" : ""}</div>
     </div>
 
     ${renderSection(
@@ -4316,9 +4337,9 @@ function renderCrossModuleTracePanel(trace) {
       "fanout"
     )}
 
-    ${trace.truncated ? `<div style="color:#f59e0b;margin-top:8px;font-size:10px;">Trace truncated at max depth — some paths were not fully explored.</div>` : ""}
+    ${trace.truncated ? `<div style="color:#f59e0b;margin-top:8px;font-size:10px;">Only the first set of direct relations is shown.</div>` : ""}
     <div style="color:#52525b;margin-top:10px;font-size:10px;border-top:1px solid #27272a;padding-top:8px;">
-      Use <span style="color:#22d3ee;">Open module</span> to inspect a step without changing the trace origin. Use <span style="color:#e4e4e7;">Re-trace here</span> only when you want to start a new trace from that hop.${crossTraceHistory.length > 0 || crossTraceFuture.length > 0 ? " Back/Forward navigates trace origins." : ""}
+      This panel shows only signals directly related to the current origin. Use <span style="color:#e4e4e7;">Step forward</span> or <span style="color:#e4e4e7;">Step backward</span> to walk one boundary at a time.${crossTraceHistory.length > 0 || crossTraceFuture.length > 0 ? " Back/Forward navigates the walked path." : ""}
     </div>
   `;
 
@@ -4428,19 +4449,6 @@ function renderCrossModuleTracePanel(trace) {
     row.addEventListener("mouseleave", () => { row.style.background = "rgba(255,255,255,0.025)"; });
   });
 
-  panel.querySelectorAll(".xtrace-focus-btn").forEach((btn) => {
-    btn.addEventListener("click", async (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      const mod = ev.currentTarget.getAttribute("data-trace-module");
-      if (!mod) return;
-      if (mod !== state.selectedModule) {
-        await loadGraph(mod);
-      }
-      applyCrossTraceHighlights(trace);
-      setStatus(`Inspecting ${mod} without changing trace origin`, "ok");
-    });
-  });
 }
 
 // ── Signal trace history (step-by-step navigation) ──────────────────────

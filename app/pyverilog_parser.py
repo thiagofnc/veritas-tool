@@ -19,6 +19,7 @@ from pyverilog.vparser.ast import (
     Assign,
     Block,
     BlockingSubstitution,
+    CaseStatement,
     Cond,
     Decl,
     Identifier,
@@ -37,16 +38,37 @@ from pyverilog.vparser.parser import VerilogParser
 
 try:
     from app.models import (
-        AlwaysAssignment, AlwaysBlock, ContinuousAssign, GatePrimitive,
+        AlwaysAssignment, AlwaysBlock, ContinuousAssign, Diagnostic, GatePrimitive,
         Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile,
+        SourceLocation,
     )
     from app.parser_base import VerilogParserBackend
 except ImportError:  # Supports running as: python app/main.py
     from models import (
-        AlwaysAssignment, AlwaysBlock, ContinuousAssign, GatePrimitive,
+        AlwaysAssignment, AlwaysBlock, ContinuousAssign, Diagnostic, GatePrimitive,
         Instance, ModuleDef, PinConnection, Port, Project, Signal, SourceFile,
+        SourceLocation,
     )
     from parser_base import VerilogParserBackend
+
+
+def _loc(file_path: str, node: object) -> SourceLocation | None:
+    """Return a SourceLocation for an AST node if it carries a line number.
+
+    PyVerilog attaches ``.lineno`` to most concrete AST nodes. Column info is
+    not reliably populated, so we leave it 0. Some wrapper nodes (InstanceList)
+    don't carry lineno; callers pass the nearest descendant that does.
+    """
+    line = getattr(node, "lineno", None)
+    if not line:
+        return None
+    try:
+        line = int(line)
+    except (TypeError, ValueError):
+        return None
+    if line <= 0:
+        return None
+    return SourceLocation(file=file_path, line=line)
 
 _IDENT_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_$]*)\b")
 _EXPR_IGNORE = {
@@ -83,7 +105,7 @@ def _expr_to_text(expr: object | None, codegen: ASTCodeGenerator) -> str:
         return str(expr)
 
 
-def _parse_ports(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Port]:
+def _parse_ports(module: PVModuleDef, codegen: ASTCodeGenerator, file_path: str) -> list[Port]:
     ports: list[Port] = []
     if module.portlist is None:
         return ports
@@ -97,6 +119,7 @@ def _parse_ports(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Port]:
                     name=getattr(decl, "name", "unknown"),
                     direction=_direction_from_decl(decl),
                     width=width,
+                    location=_loc(file_path, decl) or _loc(file_path, port_node),
                 )
             )
             continue
@@ -104,12 +127,17 @@ def _parse_ports(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Port]:
         # Fallback for non-ANSI headers where direction info may be elsewhere.
         name = getattr(port_node, "name", None)
         if name:
-            ports.append(Port(name=name, direction="unknown", width=None))
+            ports.append(Port(
+                name=name,
+                direction="unknown",
+                width=None,
+                location=_loc(file_path, port_node),
+            ))
 
     return ports
 
 
-def _parse_signals(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Signal]:
+def _parse_signals(module: PVModuleDef, codegen: ASTCodeGenerator, file_path: str) -> list[Signal]:
     """Extract simple internal declarations (wire/reg/logic-like)."""
     signals: list[Signal] = []
 
@@ -127,12 +155,17 @@ def _parse_signals(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Signa
             if not name:
                 continue
 
-            signals.append(Signal(name=name, width=width, kind=kind))
+            signals.append(Signal(
+                name=name,
+                width=width,
+                kind=kind,
+                location=_loc(file_path, decl) or _loc(file_path, item),
+            ))
 
     return signals
 
 
-def _parse_instances(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Instance]:
+def _parse_instances(module: PVModuleDef, codegen: ASTCodeGenerator, file_path: str) -> list[Instance]:
     instances: list[Instance] = []
 
     for item in module.items or []:
@@ -147,12 +180,17 @@ def _parse_instances(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Ins
             inst_name = inst.name or f"inst_{index}"
             connections: dict[str, str] = {}
             pin_connections: list[PinConnection] = []
+            inst_loc = _loc(file_path, inst) or _loc(file_path, item)
 
             for arg_index, port_arg in enumerate(inst.portlist or []):
                 key = port_arg.portname or f"arg{arg_index}"
                 signal = _expr_to_text(port_arg.argname, codegen)
                 connections[key] = signal
-                pin_connections.append(PinConnection(child_port=key, parent_signal=signal))
+                pin_connections.append(PinConnection(
+                    child_port=key,
+                    parent_signal=signal,
+                    location=_loc(file_path, port_arg) or inst_loc,
+                ))
 
             instances.append(
                 Instance(
@@ -160,6 +198,7 @@ def _parse_instances(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[Ins
                     module_name=child_module_name,
                     connections=connections,
                     pin_connections=pin_connections,
+                    location=inst_loc,
                 )
             )
 
@@ -198,7 +237,9 @@ def _collect_identifiers_from_ast(node: object) -> list[str]:
     return names
 
 
-def _parse_assigns(module: PVModuleDef, codegen: ASTCodeGenerator, known_signals: set[str]) -> list[ContinuousAssign]:
+def _parse_assigns(
+    module: PVModuleDef, codegen: ASTCodeGenerator, known_signals: set[str], file_path: str
+) -> list[ContinuousAssign]:
     """Parse continuous assign statements from the AST."""
     assigns: list[ContinuousAssign] = []
 
@@ -220,7 +261,12 @@ def _parse_assigns(module: PVModuleDef, codegen: ASTCodeGenerator, known_signals
                 seen.add(s)
                 deduped.append(s)
 
-        assigns.append(ContinuousAssign(target=target, expression=expression, source_signals=deduped))
+        assigns.append(ContinuousAssign(
+            target=target,
+            expression=expression,
+            source_signals=deduped,
+            location=_loc(file_path, item),
+        ))
 
     return assigns
 
@@ -229,20 +275,66 @@ def _walk_always_assignments(
     node: object,
     codegen: ASTCodeGenerator,
     known_signals: set[str],
+    file_path: str,
     condition: str = "",
+    condition_signals: list[str] | None = None,
 ) -> list[AlwaysAssignment]:
-    """Recursively walk an always-block AST subtree and extract individual assignments."""
+    """Recursively walk an always-block AST subtree and extract individual assignments.
+
+    ``condition_signals`` accumulates identifiers that appear in enclosing
+    ``if``/``case`` controls. Each extracted assignment records them so the
+    tracer can treat control signals as direct drivers of the target (for
+    example, the select line of a mux or the reset of a register).
+    """
     results: list[AlwaysAssignment] = []
+    ambient_cond_sigs: list[str] = list(condition_signals or [])
+
+    def _merge_sigs(existing: list[str], extra: list[str]) -> list[str]:
+        merged = list(existing)
+        for name in extra:
+            if name and name not in merged:
+                merged.append(name)
+        return merged
 
     if isinstance(node, IfStatement):
         cond_text = _expr_to_text(node.cond, codegen)
-        # true branch
+        new_cond_sigs = [
+            n for n in _collect_identifiers_from_ast(node.cond) if n in known_signals
+        ]
+        combined = _merge_sigs(ambient_cond_sigs, new_cond_sigs)
         if node.true_statement is not None:
-            results.extend(_walk_always_assignments(node.true_statement, codegen, known_signals, cond_text))
-        # false branch
+            results.extend(_walk_always_assignments(
+                node.true_statement, codegen, known_signals, file_path, cond_text, combined,
+            ))
         if node.false_statement is not None:
             neg_cond = f"!({cond_text})"
-            results.extend(_walk_always_assignments(node.false_statement, codegen, known_signals, neg_cond))
+            results.extend(_walk_always_assignments(
+                node.false_statement, codegen, known_signals, file_path, neg_cond, combined,
+            ))
+        return results
+
+    if isinstance(node, CaseStatement):
+        # The case selector is a control dependency on every statement inside
+        # every case arm. Individual case item values (``2'b01:``) are literal
+        # constants; we don't add them as signals, but any signals that appear
+        # in an item guard (``x, y:``) are recorded alongside the selector.
+        comp_text = _expr_to_text(getattr(node, "comp", None), codegen)
+        comp_sigs = [
+            n for n in _collect_identifiers_from_ast(getattr(node, "comp", None))
+            if n in known_signals
+        ]
+        combined = _merge_sigs(ambient_cond_sigs, comp_sigs)
+        for case_item in getattr(node, "caselist", None) or []:
+            item_cond_sigs: list[str] = list(combined)
+            for guard in getattr(case_item, "cond", None) or []:
+                for name in _collect_identifiers_from_ast(guard):
+                    if name in known_signals and name not in item_cond_sigs:
+                        item_cond_sigs.append(name)
+            stmt = getattr(case_item, "statement", None)
+            if stmt is not None:
+                results.extend(_walk_always_assignments(
+                    stmt, codegen, known_signals, file_path, comp_text, item_cond_sigs,
+                ))
         return results
 
     if isinstance(node, (BlockingSubstitution, NonblockingSubstitution)):
@@ -262,12 +354,16 @@ def _walk_always_assignments(
                     condition=condition,
                     blocking=isinstance(node, BlockingSubstitution),
                     source_signals=deduped,
+                    condition_signals=list(ambient_cond_sigs),
+                    location=_loc(file_path, node),
                 ))
         return results
 
-    # Recurse into child nodes (Block, etc.)
+    # Recurse into child nodes (Block, etc.) preserving the ambient condition.
     for child in getattr(node, "children", lambda: [])():
-        results.extend(_walk_always_assignments(child, codegen, known_signals, condition))
+        results.extend(_walk_always_assignments(
+            child, codegen, known_signals, file_path, condition, ambient_cond_sigs,
+        ))
 
     return results
 
@@ -360,7 +456,9 @@ def _collect_always_read_signals(
     return read
 
 
-def _parse_always_blocks(module: PVModuleDef, codegen: ASTCodeGenerator, known_signals: set[str]) -> list[AlwaysBlock]:
+def _parse_always_blocks(
+    module: PVModuleDef, codegen: ASTCodeGenerator, known_signals: set[str], file_path: str,
+) -> list[AlwaysBlock]:
     """Parse always blocks from the AST."""
     blocks: list[AlwaysBlock] = []
     counter = 0
@@ -396,7 +494,7 @@ def _parse_always_blocks(module: PVModuleDef, codegen: ASTCodeGenerator, known_s
 
         _walk_for_written(item)
 
-        assignments = _walk_always_assignments(item, codegen, known_signals)
+        assignments = _walk_always_assignments(item, codegen, known_signals, file_path)
         control_summary = _summarize_always_controls(item, codegen)
         read = _collect_always_read_signals(assignments, control_summary, known_signals)
         summary_lines: list[str] = []
@@ -424,13 +522,14 @@ def _parse_always_blocks(module: PVModuleDef, codegen: ASTCodeGenerator, known_s
             assignments=assignments,
             control_summary=control_summary,
             summary_lines=summary_lines,
+            location=_loc(file_path, item),
         ))
         counter += 1
 
     return blocks
 
 
-def _parse_gates(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[GatePrimitive]:
+def _parse_gates(module: PVModuleDef, codegen: ASTCodeGenerator, file_path: str) -> list[GatePrimitive]:
     """Parse gate primitives from the AST.
 
     PyVerilog represents gate primitives as InstanceList nodes whose module name
@@ -457,7 +556,13 @@ def _parse_gates(module: PVModuleDef, codegen: ASTCodeGenerator) -> list[GatePri
             if len(args) < 2:
                 continue
 
-            gates.append(GatePrimitive(name=name, gate_type=gate_type, output=args[0], inputs=args[1:]))
+            gates.append(GatePrimitive(
+                name=name,
+                gate_type=gate_type,
+                output=args[0],
+                inputs=args[1:],
+                location=_loc(file_path, inst) or _loc(file_path, item),
+            ))
 
     return gates
 
@@ -470,14 +575,15 @@ def _parse_modules_from_file(
     source_text = Path(file_path).read_text(encoding="utf-8", errors="ignore")
     ast = parser.parse(source_text)
 
+    resolved = str(Path(file_path).resolve())
     modules: list[ModuleDef] = []
     for definition in ast.description.definitions:
         if not isinstance(definition, PVModuleDef):
             continue
 
-        ports = _parse_ports(definition, codegen)
-        signals = _parse_signals(definition, codegen)
-        instances = _parse_instances(definition, codegen)
+        ports = _parse_ports(definition, codegen, resolved)
+        signals = _parse_signals(definition, codegen, resolved)
+        instances = _parse_instances(definition, codegen, resolved)
         known_signals = {p.name for p in ports} | {s.name for s in signals}
 
         modules.append(
@@ -486,10 +592,11 @@ def _parse_modules_from_file(
                 ports=ports,
                 signals=signals,
                 instances=instances,
-                gates=_parse_gates(definition, codegen),
-                assigns=_parse_assigns(definition, codegen, known_signals),
-                always_blocks=_parse_always_blocks(definition, codegen, known_signals),
-                source_file=str(Path(file_path).resolve()),
+                gates=_parse_gates(definition, codegen, resolved),
+                assigns=_parse_assigns(definition, codegen, known_signals, resolved),
+                always_blocks=_parse_always_blocks(definition, codegen, known_signals, resolved),
+                source_file=resolved,
+                location=_loc(resolved, definition),
             )
         )
 
@@ -513,6 +620,7 @@ class PyVerilogParser(VerilogParserBackend):
         total = len(eligible)
 
         modules: list[ModuleDef] = []
+        diagnostics: list[Diagnostic] = []
         for index, file_path in enumerate(eligible):
             if progress_callback is not None:
                 try:
@@ -522,9 +630,27 @@ class PyVerilogParser(VerilogParserBackend):
 
             try:
                 modules.extend(_parse_modules_from_file(parser, codegen, file_path))
-            except Exception:
-                # Keep parsing robust: unsupported syntax in one file should not
-                # block extraction from the rest of the project.
+            except Exception as exc:
+                # Do NOT silently drop the failure: record it so callers can show
+                # the user exactly which files couldn't be parsed and why. The
+                # rest of the project still gets a best-effort extraction.
+                msg = str(exc).strip() or type(exc).__name__
+                line_match = re.search(r"line:(\d+)", msg)
+                diagnostics.append(Diagnostic(
+                    severity="error",
+                    kind="parse_failure",
+                    message=f"Failed to parse {Path(file_path).name}: {msg}",
+                    file=str(Path(file_path).resolve()),
+                    line=int(line_match.group(1)) if line_match else None,
+                    detail=type(exc).__name__,
+                ))
+                # Reset the parser between files: a prior parse error can leave
+                # PyVerilog's PLY state poisoned, causing every subsequent file
+                # to fail. Rebuilding is cheap compared to the parse itself.
+                try:
+                    parser = VerilogParser(outputdir=tempfile.gettempdir(), debug=False)
+                except Exception:
+                    pass
                 continue
 
         if progress_callback is not None and total > 0:
@@ -534,6 +660,11 @@ class PyVerilogParser(VerilogParserBackend):
                 pass
 
         root_path = os.path.commonpath([str(Path(path).parent) for path in resolved_paths]) if resolved_paths else ""
-        return Project(root_path=root_path, source_files=source_files, modules=modules)
+        return Project(
+            root_path=root_path,
+            source_files=source_files,
+            modules=modules,
+            diagnostics=diagnostics,
+        )
 
 

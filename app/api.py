@@ -123,6 +123,17 @@ def _run_load_in_background(folder: str, parser_backend: str) -> None:
         update(stage="finalizing", current_file="")
         tops = local_service.get_top_candidates()
 
+        diagnostics = [
+            {
+                "severity": d.severity,
+                "kind": d.kind,
+                "message": d.message,
+                "file": d.file,
+                "line": d.line,
+                "detail": d.detail,
+            }
+            for d in project.diagnostics
+        ]
         summary = {
             "loaded_folder": folder,
             "parser_backend": parser_backend,
@@ -130,6 +141,12 @@ def _run_load_in_background(folder: str, parser_backend: str) -> None:
             "file_count": len(project.source_files),
             "module_count": len(project.modules),
             "top_candidates": tops,
+            "diagnostics": diagnostics,
+            "diagnostic_counts": {
+                "error": sum(1 for d in project.diagnostics if d.severity == "error"),
+                "warning": sum(1 for d in project.diagnostics if d.severity == "warning"),
+                "info": sum(1 for d in project.diagnostics if d.severity == "info"),
+            },
         }
 
         with state_lock:

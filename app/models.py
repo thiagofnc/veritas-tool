@@ -7,6 +7,40 @@ import re
 _WIDTH_RANGE_RE = re.compile(r"\[\s*([^:\]]+)\s*:\s*([^\]]+)\s*\]")
 
 
+@dataclass
+class SourceLocation:
+    """Exact source position for a parsed construct.
+
+    ``file`` is the absolute path of the source file. ``line`` is 1-based.
+    ``column`` is 1-based when available, 0 when unknown (PyVerilog does not
+    surface reliable columns for every node).
+    """
+
+    file: str
+    line: int
+    column: int = 0
+    end_line: int | None = None
+    end_column: int | None = None
+
+
+@dataclass
+class Diagnostic:
+    """A parser or tracer observation worth surfacing to the user.
+
+    ``severity`` is one of "error", "warning", "info". ``kind`` is a short
+    machine-readable category (e.g. ``parse_failure``, ``read_failure``,
+    ``unresolved_module``). ``detail`` is free text. ``file`` and ``line`` are
+    optional context.
+    """
+
+    severity: str
+    kind: str
+    message: str
+    file: str = ""
+    line: int | None = None
+    detail: str = ""
+
+
 def _parse_simple_int(token: str) -> int | None:
     text = token.strip().replace("_", "")
     if re.fullmatch(r"\d+", text):
@@ -42,6 +76,7 @@ class Port:
     width: str | None = None
     bit_width: int | None = None
     is_bus: bool = False
+    location: SourceLocation | None = None
 
     def __post_init__(self) -> None:
         inferred_width, inferred_is_bus = _infer_bus_metadata(self.width)
@@ -61,6 +96,7 @@ class Signal:
     kind: str = "wire"
     bit_width: int | None = None
     is_bus: bool = False
+    location: SourceLocation | None = None
 
     def __post_init__(self) -> None:
         inferred_width, inferred_is_bus = _infer_bus_metadata(self.width)
@@ -77,6 +113,7 @@ class Signal:
 class PinConnection:
     child_port: str
     parent_signal: str
+    location: SourceLocation | None = None
 
 
 @dataclass
@@ -85,6 +122,7 @@ class Instance:
     module_name: str
     connections: dict[str, str] = field(default_factory=dict)
     pin_connections: list[PinConnection] = field(default_factory=list)
+    location: SourceLocation | None = None
 
 
 @dataclass
@@ -94,6 +132,7 @@ class GatePrimitive:
     gate_type: str  # and, or, not, xor, nand, nor, xnor, buf, etc.
     output: str
     inputs: list[str] = field(default_factory=list)
+    location: SourceLocation | None = None
 
 
 @dataclass
@@ -103,16 +142,26 @@ class ContinuousAssign:
     expression: str
     # Signal names referenced on the RHS, extracted by the parser.
     source_signals: list[str] = field(default_factory=list)
+    location: SourceLocation | None = None
 
 
 @dataclass
 class AlwaysAssignment:
-    """One assignment statement inside an always block."""
+    """One assignment statement inside an always block.
+
+    ``source_signals`` holds RHS (data) dependencies. ``condition_signals``
+    holds identifiers that appear in the enclosing ``if``/``case`` condition(s)
+    — i.e. control dependencies that directly influence whether this
+    assignment fires. The tracer treats both as drivers of ``target`` so a
+    fanin trace of ``target`` surfaces both mux-data and mux-select signals.
+    """
     target: str                 # LHS signal name
     expression: str             # RHS expression text
     condition: str = ""         # enclosing if-condition context, e.g. "rst", "!rst"
     blocking: bool = False      # True for '=', False for '<='
     source_signals: list[str] = field(default_factory=list)
+    condition_signals: list[str] = field(default_factory=list)
+    location: SourceLocation | None = None
 
 
 @dataclass
@@ -131,6 +180,7 @@ class AlwaysBlock:
     assignments: list[AlwaysAssignment] = field(default_factory=list)
     control_summary: list[str] = field(default_factory=list)
     summary_lines: list[str] = field(default_factory=list)
+    location: SourceLocation | None = None
 
 
 @dataclass
@@ -143,6 +193,7 @@ class ModuleDef:
     assigns: list[ContinuousAssign] = field(default_factory=list)
     always_blocks: list[AlwaysBlock] = field(default_factory=list)
     source_file: str = ""
+    location: SourceLocation | None = None
 
 
 @dataclass
@@ -150,3 +201,4 @@ class Project:
     root_path: str
     source_files: list[SourceFile] = field(default_factory=list)
     modules: list[ModuleDef] = field(default_factory=list)
+    diagnostics: list[Diagnostic] = field(default_factory=list)
