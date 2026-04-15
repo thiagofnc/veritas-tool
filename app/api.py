@@ -17,6 +17,8 @@ try:
     from app.project_service import ProjectService
     from app.schematic_layout import build_schematic_connectivity_graph
     from app.signal_tracer import trace_signal
+    from app import simulation_service
+    from app.vcd_parser import parse_vcd
 except ImportError:  # Supports running as: python app/main.py
     from git_service import GitError, GitService
     from graph_builder import build_hierarchy_graph, build_module_connectivity_graph
@@ -25,6 +27,8 @@ except ImportError:  # Supports running as: python app/main.py
     from project_service import ProjectService
     from schematic_layout import build_schematic_connectivity_graph
     from signal_tracer import trace_signal
+    import simulation_service
+    from vcd_parser import parse_vcd
 
 
 class LoadProjectRequest(BaseModel):
@@ -75,6 +79,21 @@ class CommitAndPushRequest(BaseModel):
 class LoadCommitRequest(BaseModel):
     commit: str = Field(..., description="Commit SHA, tag, or ref to open in read-only mode")
     folder: str | None = Field(default=None, description="Folder inside the target repository")
+
+
+class TestbenchCreateRequest(BaseModel):
+    name: str = Field(..., description="File name for a new managed testbench (written under testbenches/)")
+    content: str | None = Field(default=None, description="Optional initial content; a default scaffold is used when omitted")
+
+
+class TestbenchSaveRequest(BaseModel):
+    content: str = Field(..., description="Full testbench source text")
+
+
+class RunSimulationRequest(BaseModel):
+    path: str = Field(..., description="Absolute path to the testbench file (must live inside the loaded project)")
+    top_module: str | None = Field(default=None, description="Optional override for the -s top-module passed to iverilog")
+    timeout_sec: float = Field(default=30.0, ge=1.0, le=300.0, description="Per-phase timeout in seconds")
 
 
 @dataclass
@@ -866,6 +885,117 @@ def trace_signal_endpoint(payload: TraceSignalRequest) -> dict[str, object]:
         raise _bad_request(str(exc)) from exc
     except RuntimeError as exc:
         raise _bad_request(str(exc)) from exc
+
+
+def _require_loaded_project() -> str:
+    with state_lock:
+        folder = state.loaded_folder
+    if not folder:
+        raise _bad_request("No project is currently loaded.")
+    return folder
+
+
+@app.get("/api/sim/tools")
+def sim_tool_status() -> dict[str, object]:
+    """Report whether Icarus Verilog is installed and where the binaries live."""
+    return simulation_service.check_tools()
+
+
+@app.get("/api/sim/testbenches")
+def sim_list_testbenches() -> dict[str, object]:
+    folder = _require_loaded_project()
+    simulation_service.ensure_dirs(folder)
+    return {
+        "project_root": folder,
+        "testbench_dir": str(Path(folder) / simulation_service.TESTBENCH_SUBDIR),
+        "testbenches": simulation_service.list_testbenches(folder),
+    }
+
+
+@app.post("/api/sim/testbenches")
+def sim_create_testbench(payload: TestbenchCreateRequest) -> dict[str, object]:
+    """Create a new managed testbench under the project's testbenches/ folder."""
+    folder = _require_loaded_project()
+    try:
+        _ensure_project_writable()
+        return simulation_service.create_managed_testbench(folder, payload.name, payload.content)
+    except simulation_service.SimulationError as exc:
+        raise _bad_request(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to write testbench: {exc}") from exc
+
+
+@app.get("/api/sim/testbench")
+def sim_read_testbench(path: str = Query(..., description="Absolute path to the testbench file")) -> dict[str, object]:
+    folder = _require_loaded_project()
+    try:
+        return simulation_service.read_testbench_by_path(folder, path)
+    except simulation_service.SimulationError as exc:
+        raise _bad_request(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read testbench: {exc}") from exc
+
+
+@app.put("/api/sim/testbench")
+def sim_save_testbench(
+    payload: TestbenchSaveRequest,
+    path: str = Query(..., description="Absolute path to the testbench file"),
+) -> dict[str, object]:
+    folder = _require_loaded_project()
+    try:
+        _ensure_project_writable()
+        return simulation_service.write_testbench_by_path(folder, path, payload.content)
+    except simulation_service.SimulationError as exc:
+        raise _bad_request(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save testbench: {exc}") from exc
+
+
+@app.delete("/api/sim/testbench")
+def sim_delete_testbench(path: str = Query(..., description="Absolute path to the testbench file")) -> dict[str, object]:
+    folder = _require_loaded_project()
+    try:
+        _ensure_project_writable()
+        simulation_service.delete_testbench_by_path(folder, path)
+        return {"deleted": True, "path": path}
+    except simulation_service.SimulationError as exc:
+        raise _bad_request(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to delete testbench: {exc}") from exc
+
+
+@app.post("/api/sim/run")
+def sim_run(payload: RunSimulationRequest) -> dict[str, object]:
+    folder = _require_loaded_project()
+    try:
+        _ensure_project_writable()
+        result = simulation_service.run_simulation(
+            folder,
+            payload.path,
+            top_module=payload.top_module,
+            timeout_sec=payload.timeout_sec,
+        )
+        simulation_service.prune_old_runs(folder, keep=10)
+        return simulation_service.result_to_dict(result)
+    except simulation_service.SimulationError as exc:
+        raise _bad_request(str(exc)) from exc
+
+
+@app.get("/api/sim/waveform")
+def sim_waveform(path: str = Query(..., description="Absolute path to a VCD file produced by a sim run")) -> dict[str, object]:
+    folder = _require_loaded_project()
+    try:
+        requested = Path(path).resolve()
+        sim_root = (Path(folder) / simulation_service.SIM_OUT_SUBDIR).resolve()
+        requested.relative_to(sim_root)  # sandbox guard
+    except ValueError as exc:
+        raise _bad_request("VCD path is outside the current project's simulation sandbox.") from exc
+    try:
+        return parse_vcd(str(requested))
+    except FileNotFoundError as exc:
+        raise _bad_request(f"VCD file not found: {requested}") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read VCD: {exc}") from exc
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent

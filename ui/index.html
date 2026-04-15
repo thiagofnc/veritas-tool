@@ -19,6 +19,7 @@
     <script src="https://unpkg.com/elkjs@0.9.3/lib/elk.bundled.js"></script>
     <script src="https://unpkg.com/cytoscape-elk@2.2.0/dist/cytoscape-elk.js"></script>
     <script src="/ui/app.js" defer></script>
+    <script src="/ui/simulation.js" defer></script>
   </head>
   <body>
     <div class="app-shell">
@@ -42,6 +43,12 @@
 
           <button id="loadBtn" type="button">Load</button>
           <button id="refreshBtn" type="button">Refresh</button>
+          <button id="openSimBtn" type="button" class="sim-open-btn" title="Open simulation workspace">
+            <svg class="sim-open-icon sim-open-icon-wave" viewBox="0 0 16 16" aria-hidden="true"><polyline points="1,9 4,9 5,4 8,13 10,7 12,10 15,10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg class="sim-open-icon sim-open-icon-home" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7 L8 2 L14 7 L14 14 L10 14 L10 10 L6 10 L6 14 L2 14 Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            <span class="sim-open-label-sim">Simulate</span>
+            <span class="sim-open-label-home">Home</span>
+          </button>
 
           <span id="statusBadge" class="status idle">Idle</span>
         </div>
@@ -197,6 +204,131 @@
           </section>
         </aside>
       </main>
+
+      <section id="simScreen" class="sim-screen hidden" aria-label="Simulation workspace">
+        <div class="sim-shell">
+          <header class="sim-header">
+            <div class="sim-brand">
+              <svg class="sim-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="1,13 5,13 7,6 11,20 14,10 17,14 23,14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <div>
+                <h2>Simulation</h2>
+                <p id="simProjectPath" class="sim-project-path"></p>
+              </div>
+            </div>
+            <div class="sim-header-actions">
+              <span id="simToolStatus" class="sim-tool-status">
+                <span class="sim-tool-dot"></span>
+                <span class="sim-tool-label">Checking Icarus Verilog...</span>
+              </span>
+              <button id="simRunBtn" type="button" class="sim-run-btn" disabled>
+                <svg viewBox="0 0 16 16" aria-hidden="true"><polygon points="4,3 13,8 4,13" fill="currentColor"/></svg>
+                Run
+              </button>
+            </div>
+          </header>
+
+          <div class="sim-body">
+            <aside class="sim-sidebar">
+              <div class="sim-sidebar-section">
+                <div class="sim-section-head">
+                  <h3>Testbenches</h3>
+                  <button id="simRefreshTbBtn" type="button" class="sim-icon-btn" title="Rescan project">&#x21bb;</button>
+                  <button id="simNewTbBtn" type="button" class="sim-icon-btn" title="New testbench">+</button>
+                </div>
+                <ul id="simTbList" class="sim-tb-list"></ul>
+              </div>
+              <div class="sim-sidebar-section sim-sidebar-signals">
+                <div class="sim-section-head">
+                  <h3>Signals</h3>
+                  <input id="simSignalFilter" type="text" placeholder="filter..." spellcheck="false" />
+                </div>
+                <div id="simSignalTree" class="sim-signal-tree">
+                  <p class="sim-empty-hint">Run a simulation to populate signals.</p>
+                </div>
+              </div>
+            </aside>
+
+            <section class="sim-main">
+              <div class="sim-editor-wrap">
+                <div class="sim-editor-header">
+                  <span id="simActiveTbName" class="sim-active-tb-name">No testbench selected</span>
+                  <span id="simActiveTbBadge" class="sim-active-tb-badge hidden"></span>
+                  <span id="simEditorDirty" class="sim-dirty-badge hidden">unsaved</span>
+                  <div class="sim-editor-actions">
+                    <button id="simSaveTbBtn" type="button" disabled>Save</button>
+                    <button id="simDeleteTbBtn" type="button" class="sim-subtle-btn" disabled>Delete</button>
+                  </div>
+                </div>
+                <div id="simEditorBody" class="sim-editor-body">
+                  <textarea id="simEditorTextarea"></textarea>
+                  <div id="simEditorPlaceholder" class="sim-editor-placeholder">
+                    Select a testbench on the left, or click <strong>+</strong> to create one.
+                  </div>
+                </div>
+              </div>
+
+              <div class="sim-bottom">
+                <div class="sim-tabs" role="tablist">
+                  <button class="sim-tab active" data-tab="waveform" type="button" role="tab">Waveform</button>
+                  <button class="sim-tab" data-tab="console" type="button" role="tab">Console</button>
+                  <button class="sim-tab" data-tab="messages" type="button" role="tab">
+                    Messages
+                    <span id="simMsgBadge" class="sim-msg-badge hidden">0</span>
+                  </button>
+                </div>
+                <div class="sim-tab-panels">
+                  <div class="sim-tab-panel active" data-tab="waveform">
+                    <div class="sim-wave-toolbar">
+                      <button id="simWaveZoomOut" type="button" class="sim-icon-btn" title="Zoom out">&minus;</button>
+                      <button id="simWaveZoomFit" type="button" class="sim-icon-btn" title="Fit">fit</button>
+                      <button id="simWaveZoomIn" type="button" class="sim-icon-btn" title="Zoom in">+</button>
+                      <span class="sim-wave-sep"></span>
+                      <label class="sim-wave-radix">
+                        radix
+                        <select id="simWaveRadix">
+                          <option value="hex">hex</option>
+                          <option value="bin">bin</option>
+                          <option value="dec">dec</option>
+                          <option value="sdec">signed</option>
+                        </select>
+                      </label>
+                      <span class="sim-wave-sep"></span>
+                      <span id="simWaveCursor" class="sim-wave-cursor-readout">cursor: &mdash;</span>
+                      <span class="sim-wave-sep"></span>
+                      <span id="simWaveRange" class="sim-wave-range-readout"></span>
+                      <span class="sim-wave-flex"></span>
+                      <button id="simWaveClearAll" type="button" class="sim-subtle-btn">Clear</button>
+                    </div>
+                    <div id="simWaveStage" class="sim-wave-stage">
+                      <div id="simWaveEmpty" class="sim-wave-empty">
+                        <svg viewBox="0 0 120 40" class="sim-wave-empty-art" aria-hidden="true">
+                          <polyline points="0,30 15,30 15,10 30,10 30,30 60,30 60,10 75,10 75,30 120,30" fill="none" stroke="currentColor" stroke-width="1.5" />
+                        </svg>
+                        <p>No waveform loaded.</p>
+                        <p class="sim-wave-empty-sub">Add signals from the left after running a simulation.</p>
+                      </div>
+                      <div id="simWaveSurface" class="sim-wave-surface hidden">
+                        <div id="simWaveNames" class="sim-wave-names"></div>
+                        <div id="simWaveCanvasWrap" class="sim-wave-canvas-wrap">
+                          <canvas id="simWaveCanvas" class="sim-wave-canvas"></canvas>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="sim-tab-panel" data-tab="console">
+                    <pre id="simConsoleOut" class="sim-console-out"><span class="sim-console-hint">Simulator output will appear here after you click Run.</span></pre>
+                  </div>
+                  <div class="sim-tab-panel" data-tab="messages">
+                    <ul id="simMessagesList" class="sim-messages-list">
+                      <li class="sim-empty-hint">No messages yet.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
     </div>
     <div class="app-version-tag" aria-hidden="true">0.38</div>
 
@@ -284,6 +416,25 @@
         <div class="modal-footer">
           <button id="instantiateCancel" type="button">Cancel</button>
           <button id="instantiateConfirm" type="button" class="primary">Instantiate</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="simNewTbOverlay" class="modal-overlay sim-modal-overlay hidden">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h3>New Testbench</h3>
+          <button id="simNewTbClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label for="simNewTbName">Testbench file name</label>
+          <input id="simNewTbName" type="text" placeholder="tb_my_module" autocomplete="off" spellcheck="false" />
+          <p class="modal-hint">A <code>.sv</code> extension will be added automatically. The file is created under <code>&lt;project&gt;/testbenches/</code>.</p>
+          <span id="simNewTbError" class="modal-error"></span>
+        </div>
+        <div class="modal-footer">
+          <button id="simNewTbCancel" type="button">Cancel</button>
+          <button id="simNewTbConfirm" type="button" class="primary">Create</button>
         </div>
       </div>
     </div>
