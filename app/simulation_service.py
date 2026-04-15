@@ -423,6 +423,7 @@ def run_simulation(
     if not tb_path.exists():
         raise SimulationError(f"Testbench not found: {tb_path.name}")
 
+    testbench_name = tb_path.name
     resolved_top = (top_module or "").strip() or tb_path.stem
 
     sim_id = uuid.uuid4().hex[:12]
