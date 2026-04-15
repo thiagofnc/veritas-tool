@@ -170,18 +170,6 @@ body {
   min-width: 200px;
 }
 
-#cloneRepoBtn,
-#gitHistoryBtn,
-#gitCommitBtn {
-  border-color: rgba(34, 211, 238, 0.24);
-}
-
-#gitCommitBtn:disabled,
-#gitHistoryBtn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .controls button,
 .canvas-actions button {
   background: var(--surface-2);
@@ -409,6 +397,75 @@ body {
 
 .side-tab-panel.active {
   display: flex;
+}
+
+.git-sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.git-history-section {
+  flex: 1;
+  min-height: 0;
+  padding-top: 8px;
+}
+
+.git-sidebar-summary {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+}
+
+.git-branch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.git-branch-pill strong {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.git-branch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-branch-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.git-sidebar-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.subtle-action-btn {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-subtle);
+}
+
+.subtle-action-btn:hover:not(:disabled) {
+  border-color: var(--border-emphasis);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* Ã¢â€â‚¬Ã¢â€â‚¬ Panel sections Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
@@ -1943,46 +2000,76 @@ body {
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+}
+
+.git-sidebar-history {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
 }
 
 .git-history-empty {
-  padding: 14px 12px;
-  border: 1px dashed var(--border-subtle);
-  border-radius: 4px;
+  padding: 18px 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
   color: var(--text-secondary);
   font-size: 11px;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .git-history-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 12px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
+  padding: 14px 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.git-history-copy {
+  min-width: 0;
 }
 
 .git-history-subject {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 8px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .git-history-meta {
   font-size: 10px;
   color: var(--text-secondary);
-  line-height: 1.5;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.git-history-author {
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .git-history-actions {
   display: flex;
-  align-items: center;
+  align-items: stretch;
+  justify-content: stretch;
 }
 
 .git-history-actions button {
+  width: 100%;
   font-family: inherit;
   font-size: 10px;
   text-transform: uppercase;
@@ -1998,6 +2085,12 @@ body {
 .git-history-actions button:hover {
   border-color: var(--probe);
   background: rgba(34, 211, 238, 0.16);
+}
+
+.git-history-actions button:disabled,
+.git-sidebar-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .repo-note {

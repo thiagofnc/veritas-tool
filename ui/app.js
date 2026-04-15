@@ -77,7 +77,6 @@ const parserSelect = document.getElementById("parserSelect");
 const loadBtn = document.getElementById("loadBtn");
 const refreshBtn = document.getElementById("refreshBtn");
 const cloneRepoBtn = document.getElementById("cloneRepoBtn");
-const gitHistoryBtn = document.getElementById("gitHistoryBtn");
 const gitCommitBtn = document.getElementById("gitCommitBtn");
 const fitBtn = document.getElementById("fitBtn");
 const showUnknownToggle = document.getElementById("showUnknownToggle");
@@ -88,8 +87,10 @@ const hierarchyTree = document.getElementById("hierarchyTree");
 const sourceFileList = document.getElementById("sourceFileList");
 const leftTabModules = document.getElementById("leftTabModules");
 const leftTabFiles = document.getElementById("leftTabFiles");
+const leftTabGit = document.getElementById("leftTabGit");
 const leftTabPanelModules = document.getElementById("leftTabPanelModules");
 const leftTabPanelFiles = document.getElementById("leftTabPanelFiles");
+const leftTabPanelGit = document.getElementById("leftTabPanelGit");
 const breadcrumbBar = document.getElementById("breadcrumbBar");
 const graphTag = document.getElementById("graphTag");
 const graphCanvas = document.getElementById("graphCanvas");
@@ -142,6 +143,13 @@ function formatIsoDate(text) {
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) return text;
   return date.toLocaleString();
+}
+
+function truncateText(text, maxLength = 72) {
+  const value = String(text || "").trim();
+  if (!value) return "";
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
 function escapeHtml(text) {
@@ -221,6 +229,8 @@ function isReadOnlyProject() {
 function syncProjectInteractionState() {
   const createBtn = document.getElementById("createModuleBtn");
   const saveBtn = document.getElementById("codeEditorSave");
+  const historyRefreshBtn = document.getElementById("gitHistoryRefresh");
+  const reloadLiveBtn = document.getElementById("gitReloadLiveBtn");
   const commitDisabled = !state.projectContext.repo_root || isReadOnlyProject();
   const historyDisabled = !state.projectContext.repo_root;
 
@@ -238,9 +248,15 @@ function syncProjectInteractionState() {
       ? "Commit and push are disabled while viewing a historical commit snapshot."
       : (!state.projectContext.repo_root ? "Load a Git repository first." : "");
   }
-  if (gitHistoryBtn) {
-    gitHistoryBtn.disabled = historyDisabled;
-    gitHistoryBtn.title = historyDisabled ? "Load a Git repository first." : "";
+  if (historyRefreshBtn) {
+    historyRefreshBtn.disabled = historyDisabled;
+    historyRefreshBtn.title = historyDisabled ? "Load a Git repository first." : "";
+  }
+  if (reloadLiveBtn) {
+    reloadLiveBtn.disabled = !isReadOnlyProject() || !state.projectContext.repo_root;
+    reloadLiveBtn.title = isReadOnlyProject()
+      ? "Reload the live working tree from the repository root."
+      : "Available only while viewing a historical commit snapshot.";
   }
 }
 
@@ -642,16 +658,22 @@ function renderSourceFileList() {
 }
 
 function setLeftSidebarTab(tabName) {
-  state.leftSidebarTab = tabName === "files" ? "files" : "modules";
+  state.leftSidebarTab = ["files", "git"].includes(tabName) ? tabName : "modules";
   const modulesActive = state.leftSidebarTab === "modules";
+  const filesActive = state.leftSidebarTab === "files";
+  const gitActive = state.leftSidebarTab === "git";
   leftTabModules?.classList.toggle("active", modulesActive);
   leftTabModules?.setAttribute("aria-selected", String(modulesActive));
-  leftTabFiles?.classList.toggle("active", !modulesActive);
-  leftTabFiles?.setAttribute("aria-selected", String(!modulesActive));
+  leftTabFiles?.classList.toggle("active", filesActive);
+  leftTabFiles?.setAttribute("aria-selected", String(filesActive));
+  leftTabGit?.classList.toggle("active", gitActive);
+  leftTabGit?.setAttribute("aria-selected", String(gitActive));
   leftTabPanelModules?.classList.toggle("active", modulesActive);
-  leftTabPanelFiles?.classList.toggle("active", !modulesActive);
+  leftTabPanelFiles?.classList.toggle("active", filesActive);
+  leftTabPanelGit?.classList.toggle("active", gitActive);
   if (leftTabPanelModules) leftTabPanelModules.hidden = !modulesActive;
-  if (leftTabPanelFiles) leftTabPanelFiles.hidden = modulesActive;
+  if (leftTabPanelFiles) leftTabPanelFiles.hidden = !filesActive;
+  if (leftTabPanelGit) leftTabPanelGit.hidden = !gitActive;
 }
 
 function ensureCytoscape() {
@@ -5329,6 +5351,8 @@ async function refreshProject() {
     renderBreadcrumb();
     renderGraph(null);
     renderInspector();
+    renderGitSidebar();
+    syncProjectInteractionState();
     return;
   }
 
@@ -5349,6 +5373,7 @@ async function refreshProject() {
     retainedModule,
     retainedBreadcrumb.length ? retainedBreadcrumb : [retainedModule],
   );
+  renderGitSidebar();
   syncProjectInteractionState();
 }
 
@@ -5721,6 +5746,10 @@ searchPrevBtn?.addEventListener("click", searchPrev);
 searchCloseBtn?.addEventListener("click", closeSearch);
 leftTabModules?.addEventListener("click", () => setLeftSidebarTab("modules"));
 leftTabFiles?.addEventListener("click", () => setLeftSidebarTab("files"));
+leftTabGit?.addEventListener("click", async () => {
+  setLeftSidebarTab("git");
+  await refreshGitSidebar();
+});
 
 // Ctrl+F / Cmd+F to open search when graph canvas is present
 document.addEventListener("keydown", (e) => {
@@ -5755,6 +5784,7 @@ renderBreadcrumb();
 renderHierarchyTree();
 renderSourceFileList();
 renderInspector();
+renderGitSidebar();
 
 (async function init() {
   try {
@@ -5766,43 +5796,41 @@ renderInspector();
     setStatus("API unavailable", "error");
   }
   await refreshProjectContext();
+  renderGitSidebar();
   syncProjectInteractionState();
 })();
 
 // ═══════════════════════════════════════════════════════════════════
 // Git UI
 // ═══════════════════════════════════════════════════════════════════
-function setModalHidden(id, hidden) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.classList.toggle("hidden", hidden);
-}
-
 function escapeAttrValue(text) {
   return escapeHtml(text).replaceAll("`", "&#96;");
 }
 
-function renderGitHistoryModal() {
-  const summaryEl = document.getElementById("gitHistorySummary");
+function renderGitSidebar() {
+  const summaryEl = document.getElementById("gitSidebarSummary");
   const listEl = document.getElementById("gitHistoryList");
-  const errorEl = document.getElementById("gitHistoryError");
+  const errorEl = document.getElementById("gitSidebarError");
   if (!summaryEl || !listEl || !errorEl) return;
 
-  errorEl.textContent = "";
+  if (!errorEl.textContent) {
+    errorEl.textContent = "";
+  }
   const repo = state.git.repo;
-  const status = state.git.status;
-
   if (!repo) {
-    summaryEl.innerHTML = "";
-    listEl.innerHTML = '<div class="git-history-empty">Load a Git repository first.</div>';
+    summaryEl.innerHTML = `
+      <div class="git-branch-hint">Load a repository or clone one to browse commit history.</div>
+    `;
+    listEl.innerHTML = '<div class="git-history-empty">No repository loaded.</div>';
     return;
   }
 
+  const branchLabel = `${repo.branch || "(unknown)"}${repo.detached ? " (detached)" : ""}`;
   summaryEl.innerHTML = `
-    <div class="git-history-summary-item"><strong>Repo</strong><br>${escapeHtml(summarizePath(repo.repo_root || ""))}</div>
-    <div class="git-history-summary-item"><strong>Branch</strong><br>${escapeHtml(repo.branch || "(unknown)")}${repo.detached ? " (detached)" : ""}</div>
-    <div class="git-history-summary-item"><strong>Working tree</strong><br>${status ? (status.dirty ? "modified" : "clean") : "(unknown)"}</div>
-    <div class="git-history-summary-item"><strong>Mode</strong><br>${isReadOnlyProject() ? "read-only snapshot" : "live repo"}</div>
+    <div class="git-branch-pill" title="${escapeAttrValue(branchLabel)}">
+      <strong>Branch</strong>
+      <span class="git-branch-name">${escapeHtml(branchLabel)}</span>
+    </div>
   `;
 
   if (!state.git.history.length) {
@@ -5812,11 +5840,20 @@ function renderGitHistoryModal() {
 
   listEl.innerHTML = state.git.history.map((commit) => `
     <div class="git-history-row">
-      <div>
-        <div class="git-history-subject">${escapeHtml(commit.subject || "(no subject)")}</div>
+      <div class="git-history-copy">
+        <div
+          class="git-history-subject"
+          title="${escapeAttrValue(commit.subject || "(no subject)")}"
+        >
+          ${escapeHtml(truncateText(commit.subject || "(no subject)", 42))}
+        </div>
         <div class="git-history-meta">
-          <div><strong>${escapeHtml(commit.short_commit || "")}</strong> ${escapeHtml(commit.commit || "")}</div>
-          <div>${escapeHtml(commit.author_name || "")} &lt;${escapeHtml(commit.author_email || "")}&gt;</div>
+          <div
+            class="git-history-author"
+            title="${escapeAttrValue(commit.author_name || "Unknown author")}"
+          >
+            ${escapeHtml(truncateText(commit.author_name || "Unknown author", 24))}
+          </div>
           <div>${escapeHtml(formatIsoDate(commit.authored_at))}</div>
         </div>
       </div>
@@ -5851,7 +5888,7 @@ function renderGitHistoryModal() {
         });
         await refreshProject();
         setStatus(`Loaded ${commit.slice(0, 7)} read-only`, "ok");
-        renderGitHistoryModal();
+        renderGitSidebar();
         renderInspector();
       } catch (error) {
         errorEl.textContent = error.message || "Failed to load commit.";
@@ -5863,16 +5900,15 @@ function renderGitHistoryModal() {
   });
 }
 
-async function openGitHistoryModal() {
-  setModalHidden("gitHistoryOverlay", false);
+async function refreshGitSidebar() {
   const listEl = document.getElementById("gitHistoryList");
-  const errorEl = document.getElementById("gitHistoryError");
+  const errorEl = document.getElementById("gitSidebarError");
   if (listEl) listEl.innerHTML = '<div class="git-history-empty">Loading commit history...</div>';
   if (errorEl) errorEl.textContent = "";
 
   try {
     await refreshGitState();
-    renderGitHistoryModal();
+    renderGitSidebar();
   } catch (error) {
     if (errorEl) errorEl.textContent = error.message || "Failed to load git history.";
   }
@@ -5938,6 +5974,8 @@ async function openGitHistoryModal() {
       syncFolderControls();
       hide();
       await handleLoad();
+      setLeftSidebarTab("git");
+      await refreshGitSidebar();
       setStatus("Repository cloned and loaded", "ok");
     } catch (error) {
       if (errorEl) errorEl.textContent = error.message || "Clone failed.";
@@ -5956,26 +5994,6 @@ async function openGitHistoryModal() {
   confirmBtn?.addEventListener("click", cloneRepo);
   branchInput?.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter") cloneRepo();
-  });
-})();
-
-(function setupGitHistoryDialog() {
-  const overlay = document.getElementById("gitHistoryOverlay");
-  const closeBtn = document.getElementById("gitHistoryClose");
-  const dismissBtn = document.getElementById("gitHistoryDismiss");
-  const refreshBtnEl = document.getElementById("gitHistoryRefresh");
-  if (!overlay) return;
-
-  function hide() {
-    overlay.classList.add("hidden");
-  }
-
-  gitHistoryBtn?.addEventListener("click", openGitHistoryModal);
-  closeBtn?.addEventListener("click", hide);
-  dismissBtn?.addEventListener("click", hide);
-  refreshBtnEl?.addEventListener("click", openGitHistoryModal);
-  overlay.addEventListener("click", (ev) => {
-    if (ev.target === overlay) hide();
   });
 })();
 
@@ -6033,6 +6051,7 @@ async function openGitHistoryModal() {
       hide();
       messageInput.value = "";
       await refreshGitState();
+      renderGitSidebar();
       renderInspector();
       setStatus(push ? "Commit pushed" : "Commit created", "ok");
     } catch (error) {
@@ -6052,6 +6071,37 @@ async function openGitHistoryModal() {
   confirmBtn?.addEventListener("click", commitChanges);
   branchInput?.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter") commitChanges();
+  });
+})();
+
+(function setupGitSidebarActions() {
+  const refreshBtnEl = document.getElementById("gitHistoryRefresh");
+  const reloadLiveBtn = document.getElementById("gitReloadLiveBtn");
+  const errorEl = document.getElementById("gitSidebarError");
+
+  refreshBtnEl?.addEventListener("click", async () => {
+    await refreshGitSidebar();
+  });
+
+  reloadLiveBtn?.addEventListener("click", async () => {
+    const repoRoot = state.projectContext.repo_root;
+    if (!repoRoot) return;
+    if (errorEl) errorEl.textContent = "";
+    reloadLiveBtn.disabled = true;
+    try {
+      state.folderPreset = CUSTOM_PROJECT_VALUE;
+      state.customFolder = repoRoot;
+      state.folder = repoRoot;
+      syncFolderControls();
+      await handleLoad();
+      await refreshGitSidebar();
+      setStatus("Live repository reloaded", "ok");
+    } catch (error) {
+      if (errorEl) errorEl.textContent = error.message || "Failed to reload live repository.";
+      setStatus("Reload failed", "error");
+    } finally {
+      syncProjectInteractionState();
+    }
   });
 })();
 
