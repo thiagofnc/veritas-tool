@@ -1,39 +1,39 @@
-﻿/* Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-   RTL Architecture Visualizer Ã¢â‚¬â€ Instrument-grade dark interface
-   Palette derived from oscilloscope/logic analyzer world:
-   matte charcoal enclosures, phosphor cyan traces, amber cursors
-   Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â */
+/* RTL Architecture Visualizer
+   Instrument-grade dark interface.
+   Palette derived from oscilloscope and logic-analyzer hardware:
+   matte charcoal enclosures, phosphor cyan traces, amber cursors.
+*/
 
 :root {
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ Surface elevation (same hue, lightness shifts only) Ã¢â€â‚¬Ã¢â€â‚¬ */
-  --surface-0: #111113;          /* deepest Ã¢â‚¬â€ page bg, inset fields */
-  --surface-1: #18181b;          /* base panels */
-  --surface-2: #1c1c20;          /* raised Ã¢â‚¬â€ toolbar, header */
-  --surface-3: #222228;          /* highest Ã¢â‚¬â€ dropdowns, overlays */
+  /* Surface elevation (same hue, lightness shifts only) */
+  --surface-0: #111113;          /* deepest: page bg, inset fields */
+  --surface-1: #18181b;          /*  base panels  */
+  --surface-2: #1c1c20;          /* raised: toolbar, header */
+  --surface-3: #222228;          /* highest: dropdowns, overlays */
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ Border progression Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* Border progression */
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-default: rgba(255, 255, 255, 0.10);
   --border-emphasis: rgba(255, 255, 255, 0.16);
   --border-focus: #22d3ee;
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ Text hierarchy Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* Text hierarchy */
   --text-primary: #e4e4e7;
   --text-secondary: #a1a1aa;
   --text-tertiary: #71717a;
   --text-muted: #52525b;
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ Accent: oscilloscope probe cyan Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* Accent: oscilloscope probe cyan */
   --probe: #22d3ee;
   --probe-dim: rgba(34, 211, 238, 0.15);
   --probe-glow: rgba(34, 211, 238, 0.25);
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ Semantic Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* Semantic */
   --ok: #4ade80;
   --warn: #f59e0b;
   --danger: #ef4444;
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ Schematic domain colors (unchanged for viewer compatibility) Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* Schematic domain colors (unchanged for viewer compatibility) */
   --module: #3ea6ff;
   --instance: #ffb347;
   --instance-port: #ffd38a;
@@ -44,12 +44,12 @@
   --bus-edge: #4fb6ff;
   --wire-edge: #42d392;
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ Control tokens Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* Control tokens */
   --control-bg: var(--surface-0);
   --control-border: var(--border-default);
   --control-text: var(--text-primary);
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ Spacing scale (6px base) Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* Spacing scale (6px base) */
   --sp-1: 3px;
   --sp-2: 6px;
   --sp-3: 12px;
@@ -57,14 +57,14 @@
   --sp-5: 24px;
   --sp-6: 36px;
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ Radius scale Ã¢â‚¬â€ sharp/technical Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* Radius scale: sharp/technical */
   --radius-sm: 3px;
   --radius-md: 4px;
   --radius-lg: 6px;
   --radius-pill: 999px;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Reset Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Reset */
 
 * {
   box-sizing: border-box;
@@ -83,7 +83,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ App shell Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* App shell */
 
 .app-shell {
   height: 100%;
@@ -92,7 +92,7 @@ body {
   overflow: hidden;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Topbar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Topbar */
 
 .topbar {
   display: flex;
@@ -259,7 +259,7 @@ body {
 .workspace.left-collapsed > .panel-left,
 .workspace.right-collapsed > .panel-right {
   /* Keep the element in its pinned grid track but make it invisible and
-     non-interactive Ã¢â‚¬â€ its track width is 0 so it consumes no space. */
+     non-interactive: its track width is 0 so it consumes no space. */
   visibility: hidden;
   pointer-events: none;
   overflow: hidden;
@@ -464,7 +464,7 @@ body {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Panel sections Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Panel sections */
 
 .panel-section {
   padding: var(--sp-3);
@@ -480,7 +480,7 @@ body {
   color: var(--text-muted);
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Item list (top candidates) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Item list (top candidates) */
 
 .item-list {
   margin: 0;
@@ -531,7 +531,7 @@ body {
   box-shadow: inset 2px 0 0 #f59e0b;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Hierarchy tree Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Hierarchy tree */
 
 .tree-section {
   flex: 1;
@@ -654,7 +654,7 @@ body {
   letter-spacing: 0.04em;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Center panel Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Center panel */
 
 .panel-center {
   display: grid;
@@ -737,7 +737,7 @@ body {
   font-size: 10px;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Breadcrumb Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Breadcrumb */
 
 .breadcrumb {
   display: flex;
@@ -768,9 +768,9 @@ body {
   color: var(--module);
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Stats toggle Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Stats toggle */
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Graph canvas Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Graph canvas */
 
 .graph-canvas {
   margin: 0;
@@ -836,7 +836,7 @@ body {
   display: none;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Schematic search bar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Schematic search bar */
 
 .schematic-search {
   position: absolute;
@@ -920,7 +920,7 @@ body {
   color: var(--text-primary);
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Hover tooltip Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Hover tooltip */
 
 .hover-tooltip {
   position: absolute;
@@ -942,7 +942,7 @@ body {
   color: var(--text-tertiary);
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Graph preview (JSON) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Graph preview (JSON) */
 
 .graph-preview {
   margin: 0;
@@ -958,7 +958,7 @@ body {
   overflow: auto;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Inspector Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Inspector */
 
 .inspector {
   padding: var(--sp-3);
@@ -973,7 +973,7 @@ body {
   font-weight: 500;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Legend Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Legend */
 
 .legend {
   border-top: 1px solid var(--border-subtle);
@@ -1053,7 +1053,7 @@ body {
   line-height: 1.45;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Responsive Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Responsive */
 
 @media (max-width: 1250px) {
   .workspace {
@@ -1079,9 +1079,9 @@ body {
   }
 }
 
-/* Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
-   Schematic layer Ã¢â‚¬â€ UNTOUCHED internal rendering
-   Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â */
+/* Schematic layer: untouched internal rendering */
+
+
 
 .schematic-layer {
   position: absolute;
@@ -1236,7 +1236,7 @@ body {
   padding: var(--sp-2) var(--sp-3) 0;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Always block detail overlay Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Always block detail overlay */
 
 .always-detail-overlay {
   position: absolute;
@@ -1370,7 +1370,7 @@ body {
   color: var(--net);
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Scrollbar styling Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Scrollbar styling */
 
 ::-webkit-scrollbar {
   width: 6px;
@@ -1390,7 +1390,7 @@ body {
   background: rgba(255, 255, 255, 0.14);
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Code editor overlay Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Code editor overlay */
 .code-editor-overlay {
   position: fixed;
   inset: 0;
@@ -1526,7 +1526,7 @@ body {
   background: rgba(34, 211, 238, 0.25) !important;
 }
 
-/* â”€â”€ Syntax linter markers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Syntax linter markers */
 .CodeMirror .cm-lint-error-line {
   background: rgba(239, 68, 68, 0.18) !important;
 }
@@ -1559,7 +1559,7 @@ body {
   font-weight: 600;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Project load progress (modal popup) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Project load progress (modal popup) */
 .load-progress {
   position: fixed;
   inset: 0;
@@ -1630,7 +1630,7 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ CodeMirror Verilog syntax overrides Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+/* CodeMirror Verilog syntax overrides */
    The stock material-darker theme renders Verilog with only two
    or three hues because the verilog mode emits a coarse set of
    token classes. These overrides give each class its own color
@@ -1673,29 +1673,29 @@ body {
   text-decoration: underline;
 }
 
-/* Comments Ã¢â‚¬â€ desaturated gray-green so they recede */
+/* Comments - desaturated gray-green so they recede */
 .CodeMirror.cm-s-material-darker .cm-comment {
   color: #6b7a85 !important;
   font-style: italic;
 }
 
-/* Keywords Ã¢â‚¬â€ control flow / module / always / begin / end ... */
+/* Keywords - control flow / module / always / begin / end ... */
 .CodeMirror.cm-s-material-darker .cm-keyword {
   color: #c084fc !important;       /* purple */
   font-weight: 600;
 }
 
-/* Types Ã¢â‚¬â€ wire, reg, logic, integer, input, output, inout ... */
+/* Types - wire, reg, logic, integer, input, output, inout ... */
 .CodeMirror.cm-s-material-darker .cm-variable-2,
 .CodeMirror.cm-s-material-darker .cm-builtin {
   color: #38bdf8 !important;       /* sky blue */
 }
 .CodeMirror.cm-s-material-darker .cm-def {
-  color: #fbbf24 !important;       /* amber Ã¢â‚¬â€ module/function names at definition */
+  color: #fbbf24 !important;       /* amber - module/function names at definition */
   font-weight: 600;
 }
 
-/* Identifiers Ã¢â‚¬â€ plain signal / variable / instance names. The bundled
+/* Identifiers: plain signal / variable / instance names. The bundled */
    material-darker theme colors cm-variable salmon-red, which dominates
    Verilog files (every wire, every signal, every instance name). Recolor
    to a soft light cyan so identifiers are warm and readable, leaving the
@@ -1711,11 +1711,11 @@ body {
 .CodeMirror.cm-s-material-darker .cm-variable-3,
 .cm-s-material-darker span.cm-type,
 .CodeMirror.cm-s-material-darker .cm-type {
-  color: #fcd34d !important;       /* gold Ã¢â‚¬â€ module / type names */
+  color: #fcd34d !important;       /* gold - module / type names */
   font-weight: 600;
 }
 
-/* Named port connections Ã¢â‚¬â€ `.opcode`, `.rs1`, `.clock` etc. The bundled
+/* Named port connections: `.opcode`, `.rs1`, `.clock` etc. The bundled */
    theme styles cm-property purple, which clashes with the keyword color.
    Recolor to mint so port labels read distinctly from both keywords and
    the (now ice-blue) identifiers passed into them. */
@@ -1725,7 +1725,7 @@ body {
   font-weight: 600;
 }
 
-/* Tag-class tokens Ã¢â‚¬â€ used by some verilog mode forks for module names
+/* Tag-class tokens: used by some verilog mode forks for module names */
    at instantiation. Bundled theme colors these bright red; recolor to
    match the cm-type rule above for visual consistency. */
 .cm-s-material-darker span.cm-tag,
@@ -1738,23 +1738,23 @@ body {
    Harmless if unused; give it a warm sand color when present. */
 .cm-s-material-darker span.cm-qualifier,
 .CodeMirror.cm-s-material-darker .cm-qualifier {
-  color: #fde68a !important;       /* warm sand */
+  color: #fde68a !important;       /*  warm sand  */
 }
 
-/* Numbers Ã¢â‚¬â€ decimal, hex, sized literals like 4'b0000 */
+/* Numbers: decimal, hex, sized literals like 4'b0000 */
 .CodeMirror.cm-s-material-darker .cm-number {
-  color: #fb923c !important;       /* orange */
+  color: #fb923c !important;       /*  orange  */
 }
 
 /* Strings */
 .CodeMirror.cm-s-material-darker .cm-string,
 .CodeMirror.cm-s-material-darker .cm-string-2 {
-  color: #86efac !important;       /* mint */
+  color: #86efac !important;       /*  mint  */
 }
 
-/* Operators Ã¢â‚¬â€ &, |, =, <=, ?:, etc. */
+/* Operators: &, |, =, <=, ?:, etc. */
 .CodeMirror.cm-s-material-darker .cm-operator {
-  color: #f472b6 !important;       /* pink */
+  color: #f472b6 !important;       /*  pink  */
 }
 
 /* Brackets and punctuation */
@@ -1763,48 +1763,48 @@ body {
   color: #cbd5e1 !important;
 }
 
-/* Preprocessor / macros Ã¢â‚¬â€ `define, `include, `ifdef ... */
+/* Preprocessor / macros: `define, `include, `ifdef ... */
 .CodeMirror.cm-s-material-darker .cm-meta {
-  color: #facc15 !important;       /* yellow */
+  color: #facc15 !important;       /*  yellow  */
   font-weight: 600;
 }
 
 /* Attributes / labels (rare in Verilog but emitted occasionally) */
 .CodeMirror.cm-s-material-darker .cm-attribute {
-  color: #67e8f9 !important;       /* cyan */
+  color: #67e8f9 !important;       /*  cyan  */
 }
 
-/* Atoms Ã¢â‚¬â€ true/false-like tokens */
+/* Atoms: true/false-like tokens */
 .CodeMirror.cm-s-material-darker .cm-atom {
-  color: #fb7185 !important;       /* coral */
+  color: #fb7185 !important;       /*  coral  */
 }
 
-/* (cm-tag is styled in the identifier section above Ã¢â‚¬â€ gold for module
+/* (cm-tag is styled in the identifier section above: gold for module
    instantiation heads.) */
 
-/* Errors Ã¢â‚¬â€ keep red but distinguishable from operators */
+/* Errors - keep red but distinguishable from operators */
 .CodeMirror.cm-s-material-darker .cm-error {
   color: #fff;
   background: rgba(239, 68, 68, 0.35);
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Veritas overlay tokens (see veritasVerilogOverlay in app.js) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* Veritas overlay tokens (see veritasVerilogOverlay in app.js) */
 
-/* Module type names at instantiation Ã¢â‚¬â€ `Register` in `Register PC (...)` */
+/* Module type names at instantiation - `Register` in `Register PC (...)` */
 .cm-s-material-darker span.cm-vt-module,
 .CodeMirror.cm-s-material-darker .cm-vt-module {
-  color: #f59e0b !important;       /* amber-orange for instantiated module types */
+  color: #f59e0b !important;       /*  amber-orange for instantiated module types  */
   font-weight: 700;
 }
 
-/* Connection arguments Ã¢â‚¬â€ the identifiers inside `.port(<here>)` */
+/* Connection arguments - the identifiers inside `.port(<here>)` */
 .cm-s-material-darker span.cm-vt-arg,
 .CodeMirror.cm-s-material-darker .cm-vt-arg {
-  color: #facc15 !important;       /* warm yellow */
+  color: #facc15 !important;       /*  warm yellow  */
 }
 
 
-/* Editor color overrides: keep these last so they win over theme defaults. */
+/*  Editor color overrides: keep these last so they win over theme defaults.  */
 .cm-s-material-darker span.cm-variable,
 .CodeMirror.cm-s-material-darker .cm-variable {
   color: #93c5fd !important;
@@ -1832,7 +1832,7 @@ body {
   font-weight: 700;
 }
 
-/* ── Action buttons in panels ── */
+/* Action buttons in panels */
 .action-btn {
   width: 100%;
   padding: 6px 10px;
@@ -1859,7 +1859,7 @@ body {
   cursor: default;
 }
 
-/* ── Modal overlays (create module, instantiate) ── */
+/* Modal overlays (create module, instantiate) */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -2117,7 +2117,7 @@ body {
   cursor: not-allowed;
 }
 
-/* ── Unused module badge in hierarchy tree ── */
+/* Unused module badge in hierarchy tree */
 .tree-module-btn.unused {
   border-color: var(--danger);
   color: #ef4444;
@@ -2130,7 +2130,7 @@ body {
   opacity: 0.7;
 }
 
-/* ── Orphan modules section in hierarchy tree ── */
+/* Orphan modules section in hierarchy tree */
 .orphan-heading {
   margin: 12px 0 6px;
   padding: 4px 0;
@@ -2147,7 +2147,7 @@ body {
   color: var(--warn);
 }
 
-/* ── Context action link inside tree ── */
+/* Context action link inside tree */
 .tree-action-link {
   font-size: 9px;
   font-family: inherit;
