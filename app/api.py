@@ -1002,6 +1002,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 UI_DIR = ROOT_DIR / "ui"
 
 ICONS_DIR = ROOT_DIR / "docs" / "icons"
+IMAGES_DIR = ROOT_DIR / "docs" / "images"
 
 if UI_DIR.exists():
     app.mount("/ui", StaticFiles(directory=str(UI_DIR)), name="ui")
@@ -1009,12 +1010,14 @@ if UI_DIR.exists():
 if ICONS_DIR.exists():
     app.mount("/icons", StaticFiles(directory=str(ICONS_DIR)), name="icons")
 
+if IMAGES_DIR.exists():
+    app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
+
 
 @app.get("/", include_in_schema=False)
 def ui_index() -> FileResponse:
     if not UI_DIR.exists():
         raise HTTPException(status_code=404, detail="UI directory not found")
     return FileResponse(UI_DIR / "index.html")
-
 
 
