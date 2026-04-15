@@ -35,7 +35,7 @@ endmodule
                 encoding="utf-8",
             )
 
-            service = ProjectService(parser_backend="simple")
+            service = ProjectService()
             project = service.load_project(str(root))
 
             self.assertEqual(len(project.source_files), 2)
@@ -73,7 +73,7 @@ endmodule
                 service.get_module_connectivity_graph("missing_module")
 
     def test_requires_project_to_be_loaded(self) -> None:
-        service = ProjectService(parser_backend="simple")
+        service = ProjectService()
 
         with self.assertRaises(RuntimeError):
             service.get_top_candidates()
@@ -98,12 +98,12 @@ endmodule
                 encoding="utf-8",
             )
 
-            service = ProjectService(parser_backend="simple")
+            service = ProjectService()
 
-            import app.simple_parser as simple_parser
+            import app.pyverilog_parser as pyverilog_parser
 
-            real_parse_file = simple_parser._parse_modules_from_file
-            with patch("app.simple_parser._parse_modules_from_file") as parse_file:
+            real_parse_file = pyverilog_parser._parse_modules_from_file
+            with patch("app.pyverilog_parser._parse_modules_from_file") as parse_file:
                 parse_file.side_effect = real_parse_file
                 first = service.load_project(str(root))
                 second = service.load_project(str(root))

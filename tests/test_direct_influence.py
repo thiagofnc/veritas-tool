@@ -28,7 +28,7 @@ module mux(input sel, input a, input b, output reg out);
   end
 endmodule
 """)
-            project = ProjectService(parser_backend="simple").load_project(str(root))
+            project = ProjectService().load_project(str(root))
             result = trace_signal(project, "mux", "out")
 
             always_hops = [h for h in result["fanin"] if h["kind"] == "always"]
@@ -55,7 +55,7 @@ module mux(input sel, input a, input b, output reg out);
   end
 endmodule
 """)
-            project = ProjectService(parser_backend="simple").load_project(str(root))
+            project = ProjectService().load_project(str(root))
             result = trace_signal(project, "mux", "sel")
 
             control_hops = [
@@ -77,7 +77,7 @@ module ff(input clk, input rst_n, input d, output reg q);
   end
 endmodule
 """)
-            project = ProjectService(parser_backend="simple").load_project(str(root))
+            project = ProjectService().load_project(str(root))
             result = trace_signal(project, "ff", "q")
 
             always_hops = [h for h in result["fanin"] if h["kind"] == "always"]
@@ -105,7 +105,7 @@ module slicer(input clk, input a, input b, output reg [3:0] q);
   end
 endmodule
 """)
-            project = ProjectService(parser_backend="simple").load_project(str(root))
+            project = ProjectService().load_project(str(root))
             result = trace_signal(project, "slicer", "q")
 
             always_hops = [h for h in result["fanin"] if h["kind"] == "always"]
@@ -123,7 +123,7 @@ module slicer(input a, input b, output wire [1:0] q);
   assign q[1] = b;
 endmodule
 """)
-            project = ProjectService(parser_backend="simple").load_project(str(root))
+            project = ProjectService().load_project(str(root))
             result = trace_signal(project, "slicer", "q")
 
             assign_hops = [h for h in result["fanin"] if h["kind"] == "assign"]
@@ -141,7 +141,7 @@ module chain(input a, output c);
   assign c = b;
 endmodule
 """)
-            project = ProjectService(parser_backend="simple").load_project(str(root))
+            project = ProjectService().load_project(str(root))
             result = trace_signal(project, "chain", "c")
 
             fanin = result["fanin"]

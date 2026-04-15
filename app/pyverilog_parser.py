@@ -6,7 +6,9 @@ It is still intentionally focused on module/port/instance extraction.
 
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Lock
 
 import re
 
@@ -570,10 +572,12 @@ def _parse_gates(module: PVModuleDef, codegen: ASTCodeGenerator, file_path: str)
 
 
 def _parse_modules_from_file(
-    parser: VerilogParser,
-    codegen: ASTCodeGenerator,
     file_path: str,
+    parser: VerilogParser | None = None,
+    codegen: ASTCodeGenerator | None = None,
 ) -> list[ModuleDef]:
+    parser = parser or VerilogParser(outputdir=tempfile.gettempdir(), debug=False)
+    codegen = codegen or ASTCodeGenerator()
     source_text = Path(file_path).read_text(encoding="utf-8", errors="ignore")
     ast = parser.parse(source_text)
 
@@ -605,6 +609,91 @@ def _parse_modules_from_file(
     return modules
 
 
+def _parse_file_batch(
+    batch: list[tuple[int, str]],
+    on_file_done=None,
+) -> list[tuple[int, list[ModuleDef], list[Diagnostic]]]:
+    parser: VerilogParser | None = None
+    codegen: ASTCodeGenerator | None = None
+    results: list[tuple[int, list[ModuleDef], list[Diagnostic]]] = []
+
+    for index, file_path in batch:
+        try:
+            signature = build_file_signature(file_path)
+            cached = get_cached_parse("pyverilog", signature)
+            if cached is not None:
+                results.append((index, cached.modules, cached.diagnostics))
+                continue
+        except OSError as exc:
+            diagnostic = Diagnostic(
+                severity="error",
+                kind="read_failure",
+                message=f"Could not read {Path(file_path).name}: {exc}",
+                file=str(Path(file_path).resolve()),
+                detail=type(exc).__name__,
+            )
+            results.append((index, [], [diagnostic]))
+            if on_file_done is not None:
+                on_file_done(file_path)
+            continue
+
+        try:
+            if parser is None or codegen is None:
+                parser = VerilogParser(outputdir=tempfile.gettempdir(), debug=False)
+                codegen = ASTCodeGenerator()
+            parsed_modules = _parse_modules_from_file(file_path, parser=parser, codegen=codegen)
+            store_cached_parse(
+                "pyverilog",
+                signature,
+                modules=parsed_modules,
+                diagnostics=[],
+            )
+            results.append((index, parsed_modules, []))
+            if on_file_done is not None:
+                on_file_done(file_path)
+        except OSError as exc:
+            diagnostic = Diagnostic(
+                severity="error",
+                kind="read_failure",
+                message=f"Could not read {Path(file_path).name}: {exc}",
+                file=str(Path(file_path).resolve()),
+                detail=type(exc).__name__,
+            )
+            store_cached_parse(
+                "pyverilog",
+                signature,
+                modules=[],
+                diagnostics=[diagnostic],
+            )
+            results.append((index, [], [diagnostic]))
+            if on_file_done is not None:
+                on_file_done(file_path)
+        except Exception as exc:
+            msg = str(exc).strip() or type(exc).__name__
+            line_match = re.search(r"line:(\d+)", msg)
+            diagnostic = Diagnostic(
+                severity="error",
+                kind="parse_failure",
+                message=f"Failed to parse {Path(file_path).name}: {msg}",
+                file=str(Path(file_path).resolve()),
+                line=int(line_match.group(1)) if line_match else None,
+                detail=type(exc).__name__,
+            )
+            store_cached_parse(
+                "pyverilog",
+                signature,
+                modules=[],
+                diagnostics=[diagnostic],
+            )
+            results.append((index, [], [diagnostic]))
+            parser = None
+            codegen = None
+            if on_file_done is not None:
+                on_file_done(file_path)
+
+    return results
+
+
 class PyVerilogParser(VerilogParserBackend):
     """Parser backend backed by the PyVerilog AST parser."""
 
@@ -612,74 +701,53 @@ class PyVerilogParser(VerilogParserBackend):
         resolved_paths = [str(Path(path).resolve()) for path in file_paths]
         source_files = [SourceFile(path=path) for path in resolved_paths]
 
-        # Send parser table artifacts to temp space instead of project root.
-        parser = VerilogParser(outputdir=tempfile.gettempdir(), debug=False)
-        codegen = ASTCodeGenerator()
-
         # Total reflects only files we will actually attempt to parse, so the
         # progress bar fills predictably.
         eligible = [p for p in resolved_paths if Path(p).suffix.lower() in {".v", ".sv"}]
         total = len(eligible)
 
+        parsed_by_index: dict[int, tuple[list[ModuleDef], list[Diagnostic]]] = {}
         modules: list[ModuleDef] = []
         diagnostics: list[Diagnostic] = []
-        for index, file_path in enumerate(eligible):
+
+        if total:
             if progress_callback is not None:
                 try:
-                    progress_callback(index, total, file_path)
+                    progress_callback(0, total, eligible[0])
                 except Exception:
                     pass
 
-            try:
-                signature = build_file_signature(file_path)
-                cached = get_cached_parse("pyverilog", signature)
-                if cached is not None:
-                    modules.extend(cached.modules)
-                    diagnostics.extend(cached.diagnostics)
-                    continue
+            max_workers = min(total, max(1, min(2, (os.cpu_count() or 1))))
+            batch_size = max(1, (total + max_workers - 1) // max_workers)
+            batches = [
+                [(index, eligible[index]) for index in range(start, min(start + batch_size, total))]
+                for start in range(0, total, batch_size)
+            ]
+            completed = 0
+            completed_lock = Lock()
 
-                parsed_modules = _parse_modules_from_file(parser, codegen, file_path)
-                modules.extend(parsed_modules)
-                store_cached_parse(
-                    "pyverilog",
-                    signature,
-                    modules=parsed_modules,
-                    diagnostics=[],
-                )
-            except Exception as exc:
-                # Do NOT silently drop the failure: record it so callers can show
-                # the user exactly which files couldn't be parsed and why. The
-                # rest of the project still gets a best-effort extraction.
-                msg = str(exc).strip() or type(exc).__name__
-                line_match = re.search(r"line:(\d+)", msg)
-                diagnostic = Diagnostic(
-                    severity="error",
-                    kind="parse_failure",
-                    message=f"Failed to parse {Path(file_path).name}: {msg}",
-                    file=str(Path(file_path).resolve()),
-                    line=int(line_match.group(1)) if line_match else None,
-                    detail=type(exc).__name__,
-                )
-                diagnostics.append(diagnostic)
+            def on_file_done(file_path: str) -> None:
+                nonlocal completed
+                if progress_callback is None:
+                    return
+                with completed_lock:
+                    completed += 1
+                    current = completed
                 try:
-                    signature = build_file_signature(file_path)
-                except OSError:
-                    signature = None
-                if signature is not None:
-                    store_cached_parse(
-                        "pyverilog",
-                        signature,
-                        modules=[],
-                        diagnostics=[diagnostic],
-                    )
-                # Reset the parser between files: a prior parse error can leave
-                # PyVerilog's PLY state poisoned, causing every subsequent file
-                # to fail. Rebuilding is cheap compared to the parse itself.
-                try:
-                    parser = VerilogParser(outputdir=tempfile.gettempdir(), debug=False)
+                    progress_callback(current, total, file_path)
                 except Exception:
                     pass
-                continue
+
+            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="pyverilog-parse") as executor:
+                futures = [executor.submit(_parse_file_batch, batch, on_file_done) for batch in batches]
+                for future in as_completed(futures):
+                    for index, file_modules, file_diagnostics in future.result():
+                        parsed_by_index[index] = (file_modules, file_diagnostics)
+
+            for index in range(total):
+                file_modules, file_diagnostics = parsed_by_index[index]
+                modules.extend(file_modules)
+                diagnostics.extend(file_diagnostics)
 
         if progress_callback is not None and total > 0:
             try:
@@ -694,4 +762,3 @@ class PyVerilogParser(VerilogParserBackend):
             modules=modules,
             diagnostics=diagnostics,
         )
-

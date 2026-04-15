@@ -35,7 +35,6 @@ const state = {
   folder: "",
   folderPreset: CUSTOM_PROJECT_VALUE,
   customFolder: "",
-  parser: "pyverilog",
   projectContext: {
     loaded_folder: null,
     repo_root: null,
@@ -73,7 +72,6 @@ const state = {
 
 const folderInput = document.getElementById("folderInput");
 const folderPathInput = document.getElementById("folderPathInput");
-const parserSelect = document.getElementById("parserSelect");
 const loadBtn = document.getElementById("loadBtn");
 const refreshBtn = document.getElementById("refreshBtn");
 const cloneRepoBtn = document.getElementById("cloneRepoBtn");
@@ -5092,7 +5090,7 @@ function renderInspector() {
     : "";
 
   inspector.innerHTML = `
-    <div><span class="k">Parser:</span> ${escapeHtml(summary.parser_backend || "-")}</div>
+    <div><span class="k">Parser:</span> ${escapeHtml(summary.parser_backend || "pyverilog")}</div>
     <div><span class="k">Files:</span> ${summary.file_count ?? 0}</div>
     <div><span class="k">Modules:</span> ${summary.module_count ?? 0}</div>
     <div><span class="k">Top candidates:</span> ${escapeHtml((summary.top_candidates || []).join(", ") || "(none)")}</div>
@@ -5322,7 +5320,7 @@ async function refreshProject() {
   state.unusedModules = unusedPayload.unused_modules || [];
   state.summary = {
     ...(state.summary || {}),
-    parser_backend: state.summary?.parser_backend || state.parser,
+    parser_backend: state.summary?.parser_backend || "pyverilog",
     file_count: state.sourceFiles.length,
     module_count: state.modules.length,
     top_candidates: [...state.tops],
@@ -5495,13 +5493,13 @@ async function runBackgroundLoad(startPath, payload, options = {}) {
   try {
     await refreshProject();
     renderInspector();
-    setStatus(successStatus || `Project loaded (${state.summary?.parser_backend || state.parser})`, "ok");
+    setStatus(successStatus || `Project loaded (${state.summary?.parser_backend || "pyverilog"})`, "ok");
   } catch (error) {
     setStatus("Project loaded, refresh failed", "error");
     if (errorTarget) {
       errorTarget.innerHTML = `
         <p>${escapeHtml(error.message)}</p>
-        <p>Project parsing succeeded with parser: <strong>${escapeHtml(state.summary?.parser_backend || state.parser)}</strong></p>
+        <p>Project parsing succeeded with parser: <strong>${escapeHtml(state.summary?.parser_backend || "pyverilog")}</strong></p>
       `;
     }
     renderGraph(null);
@@ -5525,10 +5523,9 @@ async function handleLoad() {
   if (state.folderPreset === CUSTOM_PROJECT_VALUE) {
     state.customFolder = folder;
   }
-  state.parser = parserSelect ? parserSelect.value : state.parser;
   await runBackgroundLoad(
     "/api/project/load",
-    { folder: state.folder, parser_backend: state.parser },
+    { folder: state.folder },
     {
       busyStatus: "Loading...",
       failureStatus: "Project load failed",
@@ -5901,7 +5898,6 @@ function renderGitSidebar() {
           {
             folder: getActiveRepoFolder(),
             commit,
-            parser_backend: state.parser,
           },
           {
             busyStatus: "Loading commit...",

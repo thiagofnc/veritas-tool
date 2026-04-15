@@ -7,21 +7,20 @@ try:
     from app.hierarchy import build_hierarchy_tree
     from app.json_exporter import save_project_json
     from app.models import ModuleDef
-    from app.project_service import PARSER_CHOICES, ProjectService
+    from app.project_service import ProjectService
 except ImportError:  # Supports running as: python app/main.py
     from hierarchy import build_hierarchy_tree
     from json_exporter import save_project_json
     from models import ModuleDef
-    from project_service import PARSER_CHOICES, ProjectService
+    from project_service import ProjectService
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rtl_arch_visualizer",
-        description="Simple backend MVP for Verilog/SystemVerilog project scanning.",
+        description="Backend CLI for Verilog/SystemVerilog project scanning.",
     )
 
-    # Subcommands keep room for future actions (parse/export/visualize).
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     scan_parser = subparsers.add_parser("scan", help="Scan and parse Verilog files")
@@ -30,13 +29,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=".",
         help="Root directory to scan (default: current directory).",
-    )
-    scan_parser.add_argument(
-        "--parser",
-        dest="parser_backend",
-        choices=PARSER_CHOICES,
-        default="pyverilog",
-        help="Parser backend to use: pyverilog (real parser) or simple (regex).",
     )
     scan_parser.add_argument(
         "--out",
@@ -48,7 +40,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--graph",
         dest="print_graph",
         action="store_true",
-        help="Print simple hierarchy graph JSON when a single top module is inferred.",
+        help="Print hierarchy graph JSON when a single top module is inferred.",
     )
 
     return parser
@@ -56,7 +48,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def _print_module_details(module: ModuleDef) -> None:
     print(f"  - {module.name}")
-
     if not module.instances:
         print("      instances: (none)")
         return
@@ -68,33 +59,29 @@ def _print_module_details(module: ModuleDef) -> None:
 
 def _print_possible_tops(top_modules: list[str]) -> None:
     print("Possible top modules (testbench-filtered):")
-
     if not top_modules:
         print("  (none)")
         return
-
     for module_name in top_modules:
         print(f"  - {module_name}")
 
 
 def run_scan(
     root_path: str,
-    parser_backend: str = "pyverilog",
     output_path: str | None = None,
     print_graph: bool = False,
 ) -> int:
     """Scan files, parse project, and print a readable summary."""
-    service = ProjectService(parser_backend=parser_backend)
+    service = ProjectService()
 
     try:
         project = service.load_project(root_path)
     except Exception as exc:
-        print(f"Failed to load project with backend '{parser_backend}': {exc}")
-        print("Tip: install dependencies for pyverilog or use --parser simple")
+        print(f"Failed to load project: {exc}")
         return 2
 
     print("Scan Summary")
-    print(f"Parser backend: {parser_backend}")
+    print("Parser backend: pyverilog")
     print(f"Files found: {len(project.source_files)}")
     print(f"Modules found: {len(project.modules)}")
     print("Modules:")
@@ -130,16 +117,12 @@ def run_scan(
 
 def main() -> int:
     args = build_arg_parser().parse_args()
-
-    # Dispatch to the selected subcommand.
     if args.command == "scan":
         return run_scan(
             root_path=args.root_path,
-            parser_backend=args.parser_backend,
             output_path=args.output_path,
             print_graph=args.print_graph,
         )
-
     return 1
 
 

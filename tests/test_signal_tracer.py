@@ -46,7 +46,7 @@ endmodule
                 encoding="utf-8",
             )
 
-            service = ProjectService(parser_backend="simple")
+            service = ProjectService()
             project = service.load_project(str(root))
 
             result = trace_signal(project, "top", "branch")

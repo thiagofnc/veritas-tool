@@ -474,8 +474,7 @@ def trace_signal(
         source_file = module_obj.source_file if module_obj is not None else ""
         # Prefer the construct's own location (assign/always-assignment/gate/
         # instance). Fall back to the owning module's location so every hop is
-        # still jumpable even when the construct doesn't carry one (e.g. the
-        # simple parser's port-from-header fallback).
+        # still jumpable even when the construct doesn't carry one.
         hop_loc = hop.get("location")
         if hop_loc is None and module_obj is not None:
             hop_loc = module_obj.location

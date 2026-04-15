@@ -7,7 +7,7 @@ from app.project_service import ProjectService
 class TestSchematicLayout(unittest.TestCase):
     def setUp(self) -> None:
         self.sample_root = Path(__file__).resolve().parent.parent / "sample_projects" / "03_sensor_hub"
-        self.service = ProjectService(parser_backend="simple")
+        self.service = ProjectService()
         self.service.load_project(str(self.sample_root))
 
     def test_builds_schematic_layout_for_sensor_hub(self) -> None:

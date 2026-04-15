@@ -14,7 +14,7 @@ try:
     from app.graph_builder import build_hierarchy_graph, build_module_connectivity_graph
     from app.hierarchy import build_hierarchy_tree
     from app.json_exporter import project_to_dict
-    from app.project_service import PARSER_CHOICES, ProjectService
+    from app.project_service import ProjectService
     from app.schematic_layout import build_schematic_connectivity_graph
     from app.signal_tracer import trace_signal
 except ImportError:  # Supports running as: python app/main.py
@@ -22,14 +22,13 @@ except ImportError:  # Supports running as: python app/main.py
     from graph_builder import build_hierarchy_graph, build_module_connectivity_graph
     from hierarchy import build_hierarchy_tree
     from json_exporter import project_to_dict
-    from project_service import PARSER_CHOICES, ProjectService
+    from project_service import ProjectService
     from schematic_layout import build_schematic_connectivity_graph
     from signal_tracer import trace_signal
 
 
 class LoadProjectRequest(BaseModel):
     folder: str = Field(..., description="Root folder to scan")
-    parser_backend: str = Field(default="pyverilog", description="pyverilog or simple")
 
 
 class TraceSignalRequest(BaseModel):
@@ -76,7 +75,6 @@ class CommitAndPushRequest(BaseModel):
 class LoadCommitRequest(BaseModel):
     commit: str = Field(..., description="Commit SHA, tag, or ref to open in read-only mode")
     folder: str | None = Field(default=None, description="Folder inside the target repository")
-    parser_backend: str = Field(default="pyverilog", description="pyverilog or simple")
 
 
 @dataclass
@@ -88,14 +86,14 @@ class _LoadProgress:
     total: int = 0
     current_file: str = ""
     folder: str = ""
-    parser_backend: str = ""
+    parser_backend: str = "pyverilog"
     error: str | None = None
     summary: dict | None = None   # populated on success — same shape as load_project response
 
 
 class _AppState:
     def __init__(self) -> None:
-        self.service = ProjectService(parser_backend="pyverilog")
+        self.service = ProjectService()
         self.git = GitService()
         self.loaded_folder: str | None = None
         self.loaded_repo_root: str | None = None
@@ -159,7 +157,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def _run_load_in_background(folder: str, parser_backend: str) -> None:
+def _run_load_in_background(folder: str) -> None:
     """Worker thread: parse the project locally, then publish under state_lock.
 
     Notes on locking:
@@ -180,7 +178,6 @@ def _run_load_in_background(folder: str, parser_backend: str) -> None:
     try:
         _load_project_into_state(
             folder=folder,
-            parser_backend=parser_backend,
             update_progress=update,
             on_file=on_file,
             loaded_folder=folder,
@@ -197,7 +194,6 @@ def _run_load_in_background(folder: str, parser_backend: str) -> None:
 def _load_project_into_state(
     *,
     folder: str,
-    parser_backend: str,
     update_progress,
     on_file,
     loaded_folder: str,
@@ -206,7 +202,7 @@ def _load_project_into_state(
     read_only: bool,
 ) -> None:
     update_progress(stage="scanning", current=0, total=0, current_file="")
-    local_service = ProjectService(parser_backend=parser_backend)
+    local_service = ProjectService()
     project = local_service.load_project(folder, progress_callback=on_file)
 
     update_progress(stage="finalizing", current_file="")
@@ -225,7 +221,7 @@ def _load_project_into_state(
     ]
     summary = {
         "loaded_folder": loaded_folder,
-        "parser_backend": parser_backend,
+        "parser_backend": "pyverilog",
         "root_path": project.root_path,
         "file_count": len(project.source_files),
         "module_count": len(project.modules),
@@ -250,7 +246,7 @@ def _load_project_into_state(
     update_progress(stage="done", active=False, done=True, summary=summary, error=None)
 
 
-def _run_commit_load_in_background(repo_folder: str, commit: str, parser_backend: str) -> None:
+def _run_commit_load_in_background(repo_folder: str, commit: str) -> None:
     def update(**fields) -> None:
         with progress_lock:
             for key, value in fields.items():
@@ -264,7 +260,6 @@ def _run_commit_load_in_background(repo_folder: str, commit: str, parser_backend
         snapshot = state.git.materialize_commit_snapshot(repo_folder, commit)
         _load_project_into_state(
             folder=snapshot["snapshot_path"],
-            parser_backend=parser_backend,
             update_progress=update,
             on_file=on_file,
             loaded_folder=snapshot["snapshot_path"],
@@ -278,7 +273,7 @@ def _run_commit_load_in_background(repo_folder: str, commit: str, parser_backend
         update(stage="error", active=False, done=True, error=f"Failed to load commit: {exc}")
 
 
-def _start_background_load(*, folder: str, parser_backend: str, worker_target, worker_args: tuple, current_file: str = "") -> dict[str, object]:
+def _start_background_load(*, folder: str, worker_target, worker_args: tuple, current_file: str = "") -> dict[str, object]:
     with progress_lock:
         if state.load_progress.active:
             raise _bad_request("A project load is already in progress.")
@@ -290,7 +285,7 @@ def _start_background_load(*, folder: str, parser_backend: str, worker_target, w
             total=0,
             current_file=current_file,
             folder=folder,
-            parser_backend=parser_backend,
+            parser_backend="pyverilog",
             error=None,
             summary=None,
         )
@@ -302,21 +297,15 @@ def _start_background_load(*, folder: str, parser_backend: str, worker_target, w
         name="project-load-worker",
     )
     worker.start()
-    return {"started": True, "folder": folder, "parser_backend": parser_backend}
+    return {"started": True, "folder": folder, "parser_backend": "pyverilog"}
 
 
 @app.post("/api/project/load")
 def load_project(payload: LoadProjectRequest) -> dict[str, object]:
-    if payload.parser_backend not in PARSER_CHOICES:
-        raise _bad_request(
-            f"Unsupported parser backend '{payload.parser_backend}'. "
-            f"Use one of: {', '.join(PARSER_CHOICES)}"
-        )
     return _start_background_load(
         folder=payload.folder,
-        parser_backend=payload.parser_backend,
         worker_target=_run_load_in_background,
-        worker_args=(payload.folder, payload.parser_backend),
+        worker_args=(payload.folder,),
     )
 
 
@@ -670,8 +659,7 @@ def lint_verilog(payload: LintRequest) -> dict[str, object]:
     editor can highlight problems without having to save the file first.
     Pyverilog raises ``ParseError`` strings of the form
     ``"<filename> line:42: before: \"foo\""`` — we extract the line/token
-    out of that and pass it through. If pyverilog isn't installed we fall
-    back to the simple delimiter/keyword balance check.
+    out of that and pass it through.
     """
     import re
     import tempfile
@@ -694,9 +682,7 @@ def lint_verilog(payload: LintRequest) -> dict[str, object]:
         except Exception as exc:  # noqa: BLE001 — preprocessor or lexer errors
             errors.append({"line": 1, "token": None, "message": str(exc)})
     except ImportError:
-        # Fallback: pyverilog isn't available — do nothing server-side and let
-        # the client's local linter be the only signal.
-        return {"errors": [], "backend": "none"}
+        raise HTTPException(status_code=500, detail="PyVerilog is not installed") from None
 
     return {"errors": errors, "backend": "pyverilog"}
 
@@ -769,19 +755,12 @@ def commit_and_push(payload: CommitAndPushRequest) -> dict[str, object]:
 
 @app.post("/api/git/load-commit")
 def load_commit_snapshot(payload: LoadCommitRequest) -> dict[str, object]:
-    if payload.parser_backend not in PARSER_CHOICES:
-        raise _bad_request(
-            f"Unsupported parser backend '{payload.parser_backend}'. "
-            f"Use one of: {', '.join(PARSER_CHOICES)}"
-        )
-
     try:
         target = _resolve_repo_folder(payload.folder)
         return _start_background_load(
             folder=target,
-            parser_backend=payload.parser_backend,
             worker_target=_run_commit_load_in_background,
-            worker_args=(target, payload.commit, payload.parser_backend),
+            worker_args=(target, payload.commit),
             current_file=f"Preparing commit {payload.commit}",
         )
     except (FileNotFoundError, NotADirectoryError, ValueError, RuntimeError, GitError) as exc:

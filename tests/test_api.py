@@ -20,7 +20,7 @@ class TestApi(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
         with state_lock:
-            state.service = ProjectService(parser_backend="simple")
+            state.service = ProjectService()
             state.git = GitService()
             state.loaded_folder = None
             state.loaded_repo_root = None
@@ -61,7 +61,7 @@ endmodule
             )
 
             with state_lock:
-                state.service = ProjectService(parser_backend="simple")
+                state.service = ProjectService()
                 project = state.service.load_project(str(root))
                 state.loaded_folder = str(root)
 
@@ -141,7 +141,7 @@ endmodule
             )
 
             with state_lock:
-                state.service = ProjectService(parser_backend="simple")
+                state.service = ProjectService()
                 state.service.load_project(str(root))
                 state.loaded_folder = str(root)
 
@@ -192,7 +192,7 @@ endmodule
             )
 
             with state_lock:
-                state.service = ProjectService(parser_backend="simple")
+                state.service = ProjectService()
                 state.service.load_project(str(root))
                 state.loaded_folder = str(root)
 
@@ -238,7 +238,7 @@ endmodule
             (root / "top.v").write_text(source_text, encoding="utf-8")
 
             with state_lock:
-                state.service = ProjectService(parser_backend="simple")
+                state.service = ProjectService()
                 state.service.load_project(str(root))
                 state.loaded_folder = str(root)
 
@@ -312,7 +312,7 @@ endmodule
             )
 
             with state_lock:
-                state.service = ProjectService(parser_backend="simple")
+                state.service = ProjectService()
                 state.service.load_project(str(root))
                 state.loaded_folder = str(root)
 
@@ -388,7 +388,6 @@ endmodule
                 json={
                     "folder": temp_dir,
                     "commit": first_commit,
-                    "parser_backend": "simple",
                 },
             )
             self.assertEqual(response.status_code, 200)
@@ -480,7 +479,6 @@ endmodule
                 "/api/project/load",
                 json={
                     "folder": str(project_dir),
-                    "parser_backend": "simple",
                 },
             )
             self.assertEqual(response.status_code, 200)
