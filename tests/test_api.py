@@ -432,6 +432,78 @@ endmodule
             self.assertEqual(save_response.status_code, 400)
             self.assertIn("read-only", save_response.json()["detail"].lower())
 
+    def test_loading_subfolder_inside_repo_does_not_expose_git_context(self) -> None:
+        import os
+        import subprocess
+        import time
+
+        def git(args: list[str], cwd: str, env: dict[str, str] | None = None) -> str:
+            merged_env = os.environ.copy()
+            if env:
+                merged_env.update(env)
+            proc = subprocess.run(
+                ["git", *args],
+                cwd=cwd,
+                check=True,
+                capture_output=True,
+                text=True,
+                env=merged_env,
+            )
+            return proc.stdout.strip()
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_dir = root / "nested_project"
+            project_dir.mkdir()
+
+            author_env = {
+                "GIT_AUTHOR_NAME": "Test User",
+                "GIT_AUTHOR_EMAIL": "test@example.com",
+                "GIT_COMMITTER_NAME": "Test User",
+                "GIT_COMMITTER_EMAIL": "test@example.com",
+            }
+
+            git(["init", "-b", "main"], cwd=temp_dir)
+            (project_dir / "top.v").write_text(
+                """
+module top(input a, output y);
+  assign y = a;
+endmodule
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            git(["add", "-A"], cwd=temp_dir)
+            git(["commit", "-m", "initial"], cwd=temp_dir, env=author_env)
+
+            response = self.client.post(
+                "/api/project/load",
+                json={
+                    "folder": str(project_dir),
+                    "parser_backend": "simple",
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+
+            progress = None
+            for _ in range(80):
+                progress_response = self.client.get("/api/project/load/progress")
+                self.assertEqual(progress_response.status_code, 200)
+                progress = progress_response.json()
+                if progress["done"]:
+                    break
+                time.sleep(0.02)
+
+            self.assertIsNotNone(progress)
+            self.assertTrue(progress["done"])
+            self.assertIsNone(progress["error"])
+
+            context_response = self.client.get("/api/project/context")
+            self.assertEqual(context_response.status_code, 200)
+            context = context_response.json()
+            self.assertIsNone(context["repo_root"])
+            self.assertFalse(context["read_only"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -132,12 +132,17 @@ def _resolve_repo_folder(folder: str | None) -> str:
 
 
 def _update_loaded_repo_context(folder: str) -> None:
+    target = str(Path(folder).resolve())
     try:
         info = state.git.get_repo_info(folder)
     except GitError:
         state.loaded_repo_root = None
         return
-    state.loaded_repo_root = info.root
+    # Only treat a normal project load as "repo-backed" when the loaded folder
+    # itself is the repository root. This avoids showing Git history for
+    # arbitrary subfolders that merely live somewhere inside another repo
+    # (for example, sample projects under this tool's own workspace repo).
+    state.loaded_repo_root = info.root if str(Path(info.root).resolve()) == target else None
 
 
 def _ensure_project_writable() -> None:
