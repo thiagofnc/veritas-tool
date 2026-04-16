@@ -6,3 +6,4 @@ These folders are small test designs for `rtl_arch_visualizer`.
 - `02_serial_subsystem`: a small communications subsystem with UART, SPI, I2C, a baud generator, and a register bank.
 - `03_sensor_hub`: a slightly more complex design with deeper hierarchy and multiple data paths.
 - `06_uart_link`: two UART endpoints connected back-to-back, with managed simulation testbenches included.
+- `07_i2c_link`: a small I2C write path with one master, one slave, and a shared two-wire bus.
