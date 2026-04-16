@@ -1547,4 +1547,14 @@
     bindOpenButton();
     bindSidebar();
   });
+
+  // Expose key functions for agent integration
+  window._veritasSim = {
+    enterMode,
+    exitMode,
+    refreshTestbenches,
+    selectTestbench,
+    get activeTb() { return sim.activeTb; },
+    get opened() { return sim.opened; },
+  };
 })();

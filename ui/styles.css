@@ -3479,3 +3479,77 @@ body.sim-mode #loadProgress { display: none !important; }
   overflow: auto;
 }
 
+/* Navigation event */
+.agent-ev-tag-nav { background: rgba(34, 211, 238, 0.10); color: var(--probe); }
+.agent-ev-tag-warn { background: rgba(245, 158, 11, 0.12); color: var(--warn); }
+
+/* Approval prompt */
+.agent-event-approval {
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--sp-2);
+  margin: var(--sp-1) 0;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.06);
+}
+.agent-approval-preview {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  background: var(--surface-0);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2);
+  margin: var(--sp-1) 0;
+  max-height: 100px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.agent-approval-actions {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+.agent-approve-btn {
+  padding: 3px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--ok);
+  color: var(--surface-0);
+  cursor: pointer;
+}
+.agent-approve-btn:hover { filter: brightness(1.1); }
+.agent-deny-btn {
+  padding: 3px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+}
+.agent-deny-btn:hover { background: rgba(239, 68, 68, 0.12); }
+.agent-approval-resolved {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* Auto-approve checkbox in controls row */
+.agent-mini-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.agent-mini-check input { margin: 0; }
+

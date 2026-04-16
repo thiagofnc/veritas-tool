@@ -38,6 +38,8 @@ module i2c_link_top #(
         .ack_error(ack_error)
     );
 
+    // The slave needs to sample SCL/SDA edges. In this simple model, use the same
+    // simulation clock as the master to ensure edges are observed.
     i2c_slave_device #(
         .ADDRESS(SLAVE_ADDRESS)
     ) u_slave (

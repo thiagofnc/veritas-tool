@@ -102,12 +102,23 @@ class RunSimulationRequest(BaseModel):
 class AgentRunRequest(BaseModel):
     goal: str = Field(..., description="Plain-language description of the task the agent should accomplish")
     max_iterations: int = Field(default=15, ge=1, le=50)
-    model: str | None = Field(default=None, description="Optional Anthropic model ID override")
+    model: str | None = Field(default=None, description="Optional model ID override")
+    provider: str | None = Field(default=None, description="Optional provider override")
+    auto_approve: bool = Field(default=False, description="Skip approval prompts for file writes")
 
 
 class AgentSettingsRequest(BaseModel):
-    anthropic_api_key: str | None = Field(default=None, description="Key to persist to the local settings file. Pass null/empty to leave unchanged.")
-    model: str | None = Field(default=None, description="Default model ID to use for future sessions")
+    api_key: str | None = Field(default=None, description="API key to persist (leave blank to keep current)")
+    clear_api_key: bool = Field(default=False, description="Delete the saved API key from settings.json")
+    provider: str | None = Field(default=None, description="Provider preset: openai, anthropic, ollama, together, groq, custom")
+    base_url: str | None = Field(default=None, description="Custom API base URL")
+    model: str | None = Field(default=None, description="Default model ID")
+    format: str | None = Field(default=None, description="API format: openai or anthropic")
+    auto_approve: bool | None = Field(default=None, description="Default auto-approve setting")
+
+
+class AgentApprovalRequest(BaseModel):
+    approved: bool = Field(..., description="Whether the user approves the pending write operation")
 
 
 @dataclass
@@ -1025,10 +1036,20 @@ def agent_get_settings() -> dict[str, object]:
 @app.post("/api/agent/settings")
 def agent_put_settings(payload: AgentSettingsRequest) -> dict[str, object]:
     updates: dict[str, object] = {}
-    if payload.anthropic_api_key is not None and payload.anthropic_api_key.strip():
-        updates["anthropic_api_key"] = payload.anthropic_api_key.strip()
+    if payload.api_key is not None and payload.api_key.strip():
+        updates["api_key"] = payload.api_key.strip()
+    if payload.clear_api_key:
+        updates["api_key"] = ""
+    if payload.provider is not None and payload.provider.strip():
+        updates["provider"] = payload.provider.strip()
+    if payload.base_url is not None and payload.base_url.strip():
+        updates["base_url"] = payload.base_url.strip()
     if payload.model is not None and payload.model.strip():
         updates["model"] = payload.model.strip()
+    if payload.format is not None and payload.format.strip():
+        updates["format"] = payload.format.strip()
+    if payload.auto_approve is not None:
+        updates["auto_approve"] = payload.auto_approve
     if updates:
         agent_service.save_settings(updates)
     return agent_service.get_settings_status()
@@ -1046,6 +1067,8 @@ def agent_start_session(payload: AgentRunRequest) -> dict[str, object]:
                 simulation_service_mod=simulation_service,
                 max_iterations=payload.max_iterations,
                 model=payload.model,
+                provider=payload.provider,
+                auto_approve=payload.auto_approve,
             )
         return {
             "id": session.id,
@@ -1079,6 +1102,14 @@ def agent_stop_session(session_id: str) -> dict[str, object]:
         raise _bad_request(str(exc)) from exc
 
 
+@app.post("/api/agent/sessions/{session_id}/approve")
+def agent_approve(session_id: str, payload: AgentApprovalRequest) -> dict[str, object]:
+    try:
+        return agent_service.resolve_approval(session_id, payload.approved)
+    except agent_service.AgentError as exc:
+        raise _bad_request(str(exc)) from exc
+
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 UI_DIR = ROOT_DIR / "ui"
 
@@ -1100,5 +1131,4 @@ def ui_index() -> FileResponse:
     if not UI_DIR.exists():
         raise HTTPException(status_code=404, detail="UI directory not found")
     return FileResponse(UI_DIR / "index.html")
-
 

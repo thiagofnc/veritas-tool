@@ -1,50 +1,89 @@
-"""LLM agent runner: edit modules, run simulations, iterate toward a goal.
+"""LLM agent runner: design modules, run simulations, iterate toward a goal.
 
-The agent drives a standard tool-use loop against Anthropic's Messages API.
-It is intentionally sandboxed to the loaded project folder — every tool
-either reads or writes files through the same guards the rest of the API
-already enforces (see ``simulation_service._resolve_sandboxed_path`` and the
-project-tracked file set).
+Supports any LLM API that speaks the OpenAI chat-completions format (OpenAI,
+Ollama, Together, Groq, Mistral, LM Studio, …) plus the native Anthropic
+Messages API. The provider is selected in settings; raw HTTP is used so there
+are zero SDK dependencies.
 
 Sessions are held in-process. Clients create a session with ``start_session``,
 poll ``get_session_snapshot`` for new events, and optionally call
-``stop_session`` to interrupt the loop between iterations.
+``stop_session`` to interrupt the loop between iterations. Write operations
+emit an ``approval_request`` event and block until the user approves or
+denies via ``resolve_approval``.
 
-API key handling: the key is read from the ``ANTHROPIC_API_KEY`` env var, or
-(if absent) from a ``settings.json`` stored in the user's home directory at
-``~/.veritas/settings.json``. The UI exposes a small endpoint to write that
-file so users can paste their key without editing files manually.
+Settings (API key, provider, base_url, model) live in
+``~/.veritas/settings.json`` and are writable via ``POST /api/agent/settings``.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 SETTINGS_DIR = Path.home() / ".veritas"
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 
-DEFAULT_MODEL = "claude-sonnet-4-5"
 DEFAULT_MAX_ITERATIONS = 15
-MAX_TOOL_RESULT_CHARS = 8000   # cap tool-result payloads so a log dump
-                               # doesn't blow the agent's context budget
+MAX_TOOL_RESULT_CHARS = 6000
+
+PROVIDER_PRESETS: dict[str, dict] = {
+    "openai": {
+        "label": "OpenAI",
+        "base_url": "https://api.openai.com/v1",
+        "default_model": "gpt-4o",
+        "format": "openai",
+    },
+    "anthropic": {
+        "label": "Anthropic",
+        "base_url": "https://api.anthropic.com",
+        "default_model": "claude-sonnet-4-5-20250514",
+        "format": "anthropic",
+    },
+    "ollama": {
+        "label": "Ollama (local)",
+        "base_url": "http://localhost:11434/v1",
+        "default_model": "llama3",
+        "format": "openai",
+    },
+    "together": {
+        "label": "Together AI",
+        "base_url": "https://api.together.xyz/v1",
+        "default_model": "meta-llama/Llama-3-70b-chat-hf",
+        "format": "openai",
+    },
+    "groq": {
+        "label": "Groq",
+        "base_url": "https://api.groq.com/openai/v1",
+        "default_model": "llama3-70b-8192",
+        "format": "openai",
+    },
+    "custom": {
+        "label": "Custom (OpenAI-compatible)",
+        "base_url": "",
+        "default_model": "",
+        "format": "openai",
+    },
+}
 
 
 class AgentError(RuntimeError):
     pass
 
 
-# -----------------------------------------------------------------------------
-# Settings (API key storage)
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
 
 def load_settings() -> dict:
     if not SETTINGS_FILE.exists():
@@ -67,39 +106,53 @@ def save_settings(updates: dict) -> dict:
     return current
 
 
-def resolve_api_key() -> str | None:
-    env = os.environ.get("ANTHROPIC_API_KEY")
-    if env:
-        return env.strip() or None
+def _resolve_key_info() -> tuple[str, str | None]:
     settings = load_settings()
-    key = settings.get("anthropic_api_key")
-    return key.strip() if isinstance(key, str) and key.strip() else None
+    key = settings.get("api_key", "")
+    if isinstance(key, str) and key.strip():
+        return key.strip(), "settings"
+    for env_name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LLM_API_KEY"):
+        val = os.environ.get(env_name, "").strip()
+        if val:
+            return val, env_name
+    return "", None
+
+
+def _resolve_key() -> str:
+    key, _source = _resolve_key_info()
+    return key
 
 
 def get_settings_status() -> dict:
-    key = resolve_api_key()
-    source = None
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        source = "env"
-    elif key:
-        source = "file"
+    s = load_settings()
+    key, key_source = _resolve_key_info()
+    provider = s.get("provider", "openai")
+    preset = PROVIDER_PRESETS.get(provider, PROVIDER_PRESETS["custom"])
     return {
         "has_api_key": bool(key),
-        "source": source,
-        "model": load_settings().get("model", DEFAULT_MODEL),
+        "key_source": key_source,
+        "has_saved_api_key": bool(isinstance(s.get("api_key"), str) and s.get("api_key", "").strip()),
+        "provider": provider,
+        "provider_label": preset["label"],
+        "base_url": s.get("base_url") or preset.get("base_url", ""),
+        "model": s.get("model") or preset.get("default_model", ""),
+        "format": s.get("format") or preset.get("format", "openai"),
+        "auto_approve": s.get("auto_approve", False),
+        "providers": {k: {"label": v["label"], "default_model": v["default_model"]} for k, v in PROVIDER_PRESETS.items()},
         "settings_path": str(SETTINGS_FILE),
     }
 
 
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Session state
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 @dataclass
 class AgentEvent:
     seq: int
     ts: float
-    kind: str                    # "status" | "message" | "tool_call" | "tool_result" | "error" | "done"
+    kind: str   # status | message | tool_call | tool_result | error | done
+                # navigate | approval_request | approval_resolved
     data: dict
 
 
@@ -110,6 +163,7 @@ class AgentSession:
     project_root: str
     model: str
     max_iterations: int
+    auto_approve: bool = False
     status: str = "pending"      # pending | running | completed | failed | stopped
     iterations: int = 0
     final_text: str = ""
@@ -117,6 +171,10 @@ class AgentSession:
     stop_requested: bool = False
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _seq: int = 0
+    # Approval mechanism
+    _approval_event: threading.Event = field(default_factory=threading.Event)
+    _approval_granted: bool | None = field(default=None, repr=False)
+    _pending_approval: dict | None = field(default=None, repr=False)
 
     def emit(self, kind: str, data: dict) -> None:
         with self._lock:
@@ -134,12 +192,38 @@ class AgentSession:
                 "max_iterations": self.max_iterations,
                 "model": self.model,
                 "final_text": self.final_text,
+                "auto_approve": self.auto_approve,
+                "pending_approval": self._pending_approval,
                 "events": [
                     {"seq": e.seq, "ts": e.ts, "kind": e.kind, "data": e.data}
                     for e in new
                 ],
                 "last_seq": self._seq,
             }
+
+    def request_approval(self, action: str, path: str, preview: str) -> bool:
+        if self.auto_approve:
+            self.emit("approval_resolved", {"path": path, "action": action, "approved": True, "auto": True})
+            return True
+        req = {"action": action, "path": path, "preview": preview[:2000]}
+        with self._lock:
+            self._pending_approval = req
+            self._approval_event.clear()
+            self._approval_granted = None
+        self.emit("approval_request", req)
+        self._approval_event.wait(timeout=300)
+        with self._lock:
+            self._pending_approval = None
+            granted = self._approval_granted
+        if granted is None:
+            return False
+        return granted
+
+    def resolve_approval(self, approved: bool) -> None:
+        with self._lock:
+            self._approval_granted = approved
+        self.emit("approval_resolved", {"approved": approved})
+        self._approval_event.set()
 
 
 _sessions: dict[str, AgentSession] = {}
@@ -148,179 +232,177 @@ _sessions_lock = threading.Lock()
 
 def get_session(session_id: str) -> AgentSession:
     with _sessions_lock:
-        session = _sessions.get(session_id)
-    if not session:
+        s = _sessions.get(session_id)
+    if not s:
         raise AgentError(f"Unknown agent session: {session_id}")
-    return session
+    return s
 
 
 def list_sessions() -> list[dict]:
     with _sessions_lock:
         return [
-            {
-                "id": s.id,
-                "goal": s.goal[:200],
-                "status": s.status,
-                "iterations": s.iterations,
-                "model": s.model,
-            }
+            {"id": s.id, "goal": s.goal[:200], "status": s.status,
+             "iterations": s.iterations, "model": s.model}
             for s in _sessions.values()
         ]
 
 
 def stop_session(session_id: str) -> dict:
-    session = get_session(session_id)
-    session.stop_requested = True
-    session.emit("status", {"message": "Stop requested — finishing current iteration."})
-    return {"id": session.id, "stop_requested": True}
+    s = get_session(session_id)
+    s.stop_requested = True
+    s.emit("status", {"message": "Stop requested."})
+    s._approval_event.set()
+    return {"id": s.id, "stop_requested": True}
 
 
-# -----------------------------------------------------------------------------
-# Tool schema + dispatcher
-# -----------------------------------------------------------------------------
-#
-# The schemas below are what the model sees. Keep them tight: every field the
-# model doesn't need is a chance for it to guess wrong. Every write path is
-# routed through the existing services (ProjectService / simulation_service)
-# so the agent inherits their sandboxing and reparse logic for free.
+def resolve_approval(session_id: str, approved: bool) -> dict:
+    s = get_session(session_id)
+    s.resolve_approval(approved)
+    return {"id": s.id, "approved": approved}
 
-TOOL_DEFINITIONS: list[dict] = [
+
+# ---------------------------------------------------------------------------
+# Tool definitions (neutral schema — converted per-format before sending)
+# ---------------------------------------------------------------------------
+
+_TOOLS: list[dict] = [
     {
         "name": "list_modules",
-        "description": "List every Verilog module name defined in the loaded project.",
-        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "description": "List all Verilog module names in the project.",
+        "parameters": {"type": "object", "properties": {}},
     },
     {
-        "name": "read_module",
-        "description": (
-            "Read the full source of a module by name. Use this before editing "
-            "a module so you see its current ports, parameters, and body."
-        ),
-        "input_schema": {
+        "name": "read_file",
+        "description": "Read any file inside the project folder. Returns its text content.",
+        "parameters": {
             "type": "object",
-            "properties": {"name": {"type": "string", "description": "Module name, e.g. 'uart_rx'."}},
-            "required": ["name"],
-            "additionalProperties": False,
+            "properties": {
+                "path": {"type": "string", "description": "Absolute path to the file."},
+            },
+            "required": ["path"],
         },
     },
     {
-        "name": "write_module",
+        "name": "create_file",
         "description": (
-            "Overwrite the source file of an existing module with new full content. "
-            "The file is re-parsed immediately; returns a pass/fail status plus any "
-            "parse errors so you can correct them."
+            "Create a new .v or .sv file inside the project folder. "
+            "Requires user approval. The project is reloaded afterwards so "
+            "new modules appear in the hierarchy."
         ),
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {
-                "name": {"type": "string"},
-                "content": {"type": "string", "description": "Full new text of the module's source file."},
+                "path": {"type": "string", "description": "Absolute path for the new file (must be inside the project and end in .v or .sv)."},
+                "content": {"type": "string"},
             },
-            "required": ["name", "content"],
-            "additionalProperties": False,
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "edit_file",
+        "description": (
+            "Overwrite an existing file inside the project with new content. "
+            "Requires user approval. If the file contains modules the project "
+            "is re-parsed automatically."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string", "description": "Full new content of the file."},
+            },
+            "required": ["path", "content"],
         },
     },
     {
         "name": "list_testbenches",
         "description": "List testbench files known to the project (managed and discovered).",
-        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "parameters": {"type": "object", "properties": {}},
     },
     {
-        "name": "read_testbench",
-        "description": "Read the contents of a testbench by its absolute path.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"path": {"type": "string"}},
-            "required": ["path"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "write_testbench",
-        "description": (
-            "Write a testbench by absolute path. Creates it if missing (path must be "
-            "inside the project). Use this for both new and existing testbenches."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "content": {"type": "string"},
-            },
-            "required": ["path", "content"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "create_managed_testbench",
+        "name": "create_testbench",
         "description": (
             "Create a new testbench under <project>/testbenches/ by file name. "
-            "Returns the absolute path. Use this when you need a fresh testbench "
-            "and don't have a path yet."
+            "Returns the absolute path."
         ),
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "File name, e.g. 'tb_uart_rx'."},
                 "content": {"type": "string"},
             },
             "required": ["name", "content"],
-            "additionalProperties": False,
         },
     },
     {
         "name": "run_simulation",
         "description": (
-            "Compile the whole project plus the given testbench using Icarus Verilog "
-            "and run it. Returns verdict (pass/fail/unknown), counters, stdout/stderr "
-            "excerpts, parsed test events, and any compile/runtime messages. "
-            "ALWAYS run this to check your work — the verdict is the ground truth."
+            "Compile the project with a testbench using Icarus Verilog and run it. "
+            "Returns verdict (pass/fail/unknown), counters, stdout/stderr excerpts. "
+            "ALWAYS run this to check your work."
         ),
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {
                 "testbench_path": {"type": "string"},
-                "top_module": {"type": "string", "description": "Optional override for the -s top module. Defaults to the testbench file stem."},
-                "timeout_sec": {"type": "number", "default": 30, "minimum": 1, "maximum": 600},
+                "top_module": {"type": "string", "description": "Optional top-module override."},
+                "timeout_sec": {"type": "number", "description": "Timeout in seconds (default 30)."},
             },
             "required": ["testbench_path"],
-            "additionalProperties": False,
         },
     },
     {
         "name": "finish",
-        "description": (
-            "Call this when the goal is met (or cannot be met) to end the session "
-            "with a clear final summary. After calling this, do not emit more tools."
-        ),
-        "input_schema": {
+        "description": "End the session with a summary. Call when the goal is met or impossible.",
+        "parameters": {
             "type": "object",
             "properties": {
-                "summary": {"type": "string", "description": "Short human-readable summary of what was done and the final verdict."},
+                "summary": {"type": "string"},
                 "success": {"type": "boolean"},
             },
             "required": ["summary", "success"],
-            "additionalProperties": False,
         },
     },
 ]
 
 
+def _tools_openai() -> list[dict]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["parameters"],
+            },
+        }
+        for t in _TOOLS
+    ]
+
+
+def _tools_anthropic() -> list[dict]:
+    return [
+        {
+            "name": t["name"],
+            "description": t["description"],
+            "input_schema": t["parameters"],
+        }
+        for t in _TOOLS
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Tool dispatcher
+# ---------------------------------------------------------------------------
+
 def _truncate(text: str, limit: int = MAX_TOOL_RESULT_CHARS) -> str:
     if len(text) <= limit:
         return text
-    head = text[: limit // 2]
-    tail = text[-limit // 2 :]
-    return f"{head}\n...[{len(text) - limit} chars truncated]...\n{tail}"
+    half = limit // 2
+    return f"{text[:half]}\n…[{len(text) - limit} chars truncated]…\n{text[-half:]}"
 
 
-def _summarize_sim_result(result: dict) -> dict:
-    """Shrink a full simulation result into something the model can digest.
-
-    A full result can include 100KB of stdout and a huge message list. The
-    agent cares about verdict, counters, a handful of events, and the tail of
-    stderr/stdout — feeding back the whole thing bloats context fast.
-    """
+def _summarize_sim(result: dict) -> dict:
     events = result.get("test_events") or []
     messages = result.get("messages") or []
     return {
@@ -331,327 +413,469 @@ def _summarize_sim_result(result: dict) -> dict:
         "fail_count": result.get("fail_count"),
         "error_count": result.get("error_count"),
         "fatal_count": result.get("fatal_count"),
-        "assertion_count": result.get("assertion_count"),
         "warning_count": result.get("warning_count"),
         "exit_code": result.get("exit_code"),
         "timed_out": result.get("timed_out"),
-        "expected_matched": result.get("expected_matched"),
-        "diff": _truncate(result.get("diff") or "", 2000),
         "compile_stderr": _truncate(result.get("compile_stderr") or "", 2000),
-        "run_stdout": _truncate(result.get("run_stdout") or "", 2500),
-        "run_stderr": _truncate(result.get("run_stderr") or "", 1500),
-        "test_events": events[:40],
-        "messages": messages[:40],
+        "run_stdout": _truncate(result.get("run_stdout") or "", 2000),
+        "run_stderr": _truncate(result.get("run_stderr") or "", 1000),
+        "test_events": events[:30],
+        "messages": messages[:30],
     }
 
 
-class _ToolContext:
-    """Bundles the services each tool needs.
+def _sandbox_path(project_root: str, path: str) -> Path:
+    root = Path(project_root).resolve()
+    candidate = Path(path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise AgentError(f"Path is outside the project: {path}") from exc
+    return candidate
 
-    Built fresh per session so the tools see the currently-loaded project;
-    passed by reference into ``dispatch_tool``.
-    """
-    def __init__(self, project_root: str, state, state_lock, simulation_service_mod):
+
+class _Ctx:
+    def __init__(self, project_root, state, state_lock, sim_mod):
         self.project_root = project_root
         self.state = state
         self.state_lock = state_lock
-        self.simulation_service = simulation_service_mod
+        self.sim = sim_mod
 
 
-def dispatch_tool(ctx: _ToolContext, name: str, args: dict) -> dict:
+def _dispatch(ctx: _Ctx, session: AgentSession, name: str, args: dict) -> tuple[dict, str | None]:
+    """Returns (result_dict, navigate_target_or_None)."""
+    nav = None
     try:
         if name == "list_modules":
             with ctx.state_lock:
-                return {"modules": ctx.state.service.get_module_names()}
+                mods = ctx.state.service.get_module_names()
+            nav = "modules"
+            return {"modules": mods}, nav
 
-        if name == "read_module":
-            module_name = str(args.get("name", "")).strip()
+        if name == "read_file":
+            p = _sandbox_path(ctx.project_root, str(args.get("path", "")))
+            if not p.exists():
+                return {"error": f"File not found: {p}"}, None
+            content = p.read_text(encoding="utf-8", errors="replace")
+            # Try to figure out if it's a module source and navigate there
+            stem = p.stem
             with ctx.state_lock:
-                module = ctx.state.service.get_module(module_name)
-                src_path = module.source_file
-            if not src_path:
-                return {"error": f"Module '{module_name}' has no associated source file."}
-            content = Path(src_path).read_text(encoding="utf-8", errors="replace")
-            return {"name": module_name, "path": src_path, "content": content}
-
-        if name == "write_module":
-            module_name = str(args.get("name", "")).strip()
-            content = args.get("content") or ""
-            with ctx.state_lock:
-                module = ctx.state.service.get_module(module_name)
-                src_path = module.source_file
-                if not src_path:
-                    return {"error": f"Module '{module_name}' has no associated source file."}
-                path = Path(src_path)
-                path.write_text(content, encoding="utf-8")
                 try:
-                    report = ctx.state.service.reparse_file(str(path))
-                except Exception as exc:  # noqa: BLE001
-                    return {
-                        "saved": True,
-                        "path": str(path),
-                        "parse_ok": False,
-                        "error": f"Saved but failed to parse: {exc}",
-                    }
-                if report.get("requires_full_reparse") and ctx.state.loaded_folder:
-                    try:
+                    ctx.state.service.get_module(stem)
+                    nav = f"module:{stem}"
+                except (RuntimeError, ValueError):
+                    pass
+            return {"path": str(p), "content": content}, nav
+
+        if name == "create_file":
+            p = _sandbox_path(ctx.project_root, str(args.get("path", "")))
+            if p.suffix.lower() not in (".v", ".sv"):
+                return {"error": "Only .v and .sv files can be created."}, None
+            if p.exists():
+                return {"error": f"File already exists: {p}. Use edit_file instead."}, None
+            content = args.get("content") or ""
+            preview = _truncate(content, 600)
+            if not session.request_approval("create_file", str(p), preview):
+                return {"error": "User denied file creation."}, None
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+            # Reload project to pick up new modules
+            with ctx.state_lock:
+                if ctx.state.loaded_folder:
+                    ctx.state.service.load_project(ctx.state.loaded_folder)
+            nav = "refresh"
+            return {"created": True, "path": str(p)}, nav
+
+        if name == "edit_file":
+            p = _sandbox_path(ctx.project_root, str(args.get("path", "")))
+            if not p.exists():
+                return {"error": f"File not found: {p}. Use create_file for new files."}, None
+            content = args.get("content") or ""
+            preview = _truncate(content, 600)
+            if not session.request_approval("edit_file", str(p), preview):
+                return {"error": "User denied file edit."}, None
+            p.write_text(content, encoding="utf-8")
+            # Trigger reparse if it's a known source
+            with ctx.state_lock:
+                try:
+                    report = ctx.state.service.reparse_file(str(p))
+                    if report.get("requires_full_reparse") and ctx.state.loaded_folder:
                         ctx.state.service.load_project(ctx.state.loaded_folder)
-                    except Exception:
-                        pass
-                return {"saved": True, "path": str(path), "parse_ok": True, "reparse": report}
+                except Exception:
+                    if ctx.state.loaded_folder:
+                        try:
+                            ctx.state.service.load_project(ctx.state.loaded_folder)
+                        except Exception:
+                            pass
+            # Navigate to the module if we can identify it
+            stem = p.stem
+            with ctx.state_lock:
+                try:
+                    ctx.state.service.get_module(stem)
+                    nav = f"editor:{stem}"
+                except (RuntimeError, ValueError):
+                    nav = "refresh"
+            return {"saved": True, "path": str(p)}, nav
 
         if name == "list_testbenches":
-            return {"testbenches": ctx.simulation_service.list_testbenches(ctx.project_root)}
+            return {"testbenches": ctx.sim.list_testbenches(ctx.project_root)}, None
 
-        if name == "read_testbench":
-            path = str(args.get("path", "")).strip()
-            return ctx.simulation_service.read_testbench_by_path(ctx.project_root, path)
-
-        if name == "write_testbench":
-            path = str(args.get("path", "")).strip()
-            content = args.get("content") or ""
-            info = ctx.simulation_service.write_testbench_by_path(ctx.project_root, path, content)
-            return {"saved": True, **info}
-
-        if name == "create_managed_testbench":
+        if name == "create_testbench":
             tb_name = str(args.get("name", "")).strip()
             content = args.get("content")
-            info = ctx.simulation_service.create_managed_testbench(ctx.project_root, tb_name, content)
-            return {"created": True, **info}
+            info = ctx.sim.create_managed_testbench(ctx.project_root, tb_name, content)
+            nav = f"testbench:{info.get('path', '')}"
+            return {"created": True, **info}, nav
 
         if name == "run_simulation":
             tb_path = str(args.get("testbench_path", "")).strip()
             top_module = args.get("top_module") or None
             timeout_sec = float(args.get("timeout_sec") or 30.0)
-            result = ctx.simulation_service.run_simulation(
-                ctx.project_root,
-                tb_path,
-                top_module=top_module,
-                timeout_sec=timeout_sec,
+            nav = f"simulate:{tb_path}"
+            result = ctx.sim.run_simulation(
+                ctx.project_root, tb_path,
+                top_module=top_module, timeout_sec=timeout_sec,
             )
-            ctx.simulation_service.prune_old_runs(ctx.project_root, keep=10)
-            full = ctx.simulation_service.result_to_dict(result)
-            return _summarize_sim_result(full)
+            ctx.sim.prune_old_runs(ctx.project_root, keep=10)
+            full = ctx.sim.result_to_dict(result)
+            return _summarize_sim(full), nav
 
         if name == "finish":
-            return {"acknowledged": True}
+            return {"acknowledged": True}, None
 
-        return {"error": f"Unknown tool: {name}"}
+        return {"error": f"Unknown tool: {name}"}, None
 
-    except Exception as exc:  # noqa: BLE001 — every tool error must come back as data
-        return {"error": f"{type(exc).__name__}: {exc}"}
-
-
-# -----------------------------------------------------------------------------
-# Agent loop
-# -----------------------------------------------------------------------------
-
-SYSTEM_PROMPT_TEMPLATE = """You are a Verilog design agent working inside a user's RTL project.
-
-Your job: accomplish the user's goal by reading modules, editing them, writing
-testbenches, running simulations via Icarus Verilog, and iterating on the
-results until the verdict is 'pass' (or you can prove the goal is impossible).
-
-Project root: {project_root}
-
-Workflow rules:
-- Always start by listing modules or testbenches to orient yourself.
-- Read the full source of a module before editing it. Preserve formatting and
-  unrelated code; only change what the goal requires.
-- When writing Verilog, prefer clean synthesizable RTL. Testbenches should emit
-  PASS / FAIL lines using the project convention:
-    $display("PASS [t=%0t] <name>")  or  $display("FAIL [t=%0t] <detail>").
-- After every meaningful edit, call run_simulation. The verdict is the ground
-  truth; do not claim success without a passing simulation.
-- On compile/runtime failure, read the returned messages carefully and fix the
-  root cause rather than hiding the error.
-- Call the 'finish' tool when the goal is achieved or you're blocked and need
-  to stop.
-
-Stay concise in your assistant turns — let the tools do the talking.
-"""
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}, None
 
 
-def _build_tool_result_block(tool_use_id: str, result: Any) -> dict:
-    if isinstance(result, (dict, list)):
-        payload = json.dumps(result, default=str)
-    else:
-        payload = str(result)
-    is_error = isinstance(result, dict) and bool(result.get("error"))
-    return {
-        "type": "tool_result",
-        "tool_use_id": tool_use_id,
-        "content": _truncate(payload),
-        "is_error": is_error,
-    }
-
-
-def _run_agent_loop(
-    session: AgentSession,
-    ctx: _ToolContext,
-    api_key: str,
-) -> None:
-    try:
-        try:
-            import anthropic  # type: ignore
-        except ImportError:
-            session.status = "failed"
-            session.emit("error", {"message": "The 'anthropic' Python package is not installed. Run: pip install anthropic"})
-            session.emit("done", {"status": session.status})
-            return
-
-        client = anthropic.Anthropic(api_key=api_key)
-        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(project_root=session.project_root)
-        messages: list[dict] = [
-            {"role": "user", "content": f"Goal: {session.goal}\n\nBegin when ready."},
-        ]
-
-        session.status = "running"
-        session.emit("status", {"message": f"Agent started with model {session.model}."})
-
-        finished_via_tool = False
-
-        while session.iterations < session.max_iterations:
-            if session.stop_requested:
-                session.status = "stopped"
-                session.emit("status", {"message": "Stopped by user before next iteration."})
-                break
-
-            session.iterations += 1
-            session.emit("status", {"iteration": session.iterations, "message": f"Iteration {session.iterations} — calling model."})
-
-            try:
-                response = client.messages.create(
-                    model=session.model,
-                    max_tokens=4096,
-                    system=system_prompt,
-                    tools=TOOL_DEFINITIONS,
-                    messages=messages,
-                )
-            except Exception as exc:  # noqa: BLE001 — surface API errors as events
-                session.status = "failed"
-                session.emit("error", {"message": f"Anthropic API error: {exc}"})
-                break
-
-            # Emit any assistant text blocks for UI display, and capture the
-            # full assistant content back into the conversation history.
-            assistant_content_blocks: list[dict] = []
-            tool_uses: list[Any] = []
-            for block in response.content:
-                if block.type == "text":
-                    session.emit("message", {"role": "assistant", "text": block.text})
-                    assistant_content_blocks.append({"type": "text", "text": block.text})
-                elif block.type == "tool_use":
-                    tool_uses.append(block)
-                    assistant_content_blocks.append({
-                        "type": "tool_use",
-                        "id": block.id,
-                        "name": block.name,
-                        "input": block.input,
-                    })
-
-            messages.append({"role": "assistant", "content": assistant_content_blocks})
-
-            if not tool_uses:
-                # No tools requested — treat as a natural stop (model is done talking).
-                session.final_text = "\n\n".join(
-                    b["text"] for b in assistant_content_blocks if b.get("type") == "text"
-                )
-                session.status = "completed"
-                break
-
-            tool_results: list[dict] = []
-            for tu in tool_uses:
-                session.emit("tool_call", {"id": tu.id, "name": tu.name, "input": tu.input})
-                result = dispatch_tool(ctx, tu.name, dict(tu.input or {}))
-                session.emit("tool_result", {
-                    "id": tu.id,
-                    "name": tu.name,
-                    "summary": _short_summary(tu.name, result),
-                    "is_error": isinstance(result, dict) and bool(result.get("error")),
-                })
-                tool_results.append(_build_tool_result_block(tu.id, result))
-                if tu.name == "finish":
-                    finished_via_tool = True
-                    inp = dict(tu.input or {})
-                    session.final_text = str(inp.get("summary", ""))
-                    session.status = "completed" if inp.get("success") else "failed"
-
-            messages.append({"role": "user", "content": tool_results})
-
-            if finished_via_tool:
-                break
-
-        else:
-            # Loop exited because we hit max_iterations without a break.
-            session.status = "failed"
-            session.emit("status", {"message": f"Max iterations ({session.max_iterations}) reached without finishing."})
-
-        session.emit("done", {"status": session.status, "final_text": session.final_text})
-
-    except Exception as exc:  # noqa: BLE001 — never let the worker thread die silently
-        session.status = "failed"
-        session.emit("error", {"message": f"Agent crashed: {exc}", "traceback": traceback.format_exc()})
-        session.emit("done", {"status": session.status})
-
-
-def _short_summary(tool_name: str, result: Any) -> str:
-    if not isinstance(result, dict):
-        return str(result)[:200]
+def _short_summary(name: str, result: dict) -> str:
     if result.get("error"):
         return f"error: {str(result['error'])[:200]}"
-    if tool_name == "run_simulation":
+    if name == "run_simulation":
         return (
             f"verdict={result.get('verdict')} "
             f"pass={result.get('pass_count')} fail={result.get('fail_count')} "
             f"errors={result.get('error_count')} status={result.get('status')}"
         )
-    if tool_name == "list_modules":
-        mods = result.get("modules") or []
-        return f"{len(mods)} modules"
-    if tool_name == "list_testbenches":
-        tbs = result.get("testbenches") or []
-        return f"{len(tbs)} testbenches"
-    if tool_name in ("read_module", "read_testbench"):
-        content = result.get("content") or ""
-        return f"read {result.get('path', '')[:120]} ({len(content)} chars)"
-    if tool_name in ("write_module", "write_testbench", "create_managed_testbench"):
+    if name == "list_modules":
+        return f"{len(result.get('modules', []))} modules"
+    if name == "list_testbenches":
+        return f"{len(result.get('testbenches', []))} testbenches"
+    if name in ("read_file",):
+        return f"read {result.get('path', '')[:120]} ({len(result.get('content', ''))} chars)"
+    if name in ("edit_file", "create_file", "create_testbench"):
         return f"wrote {result.get('path', '')[:120]}"
-    if tool_name == "finish":
-        return "finish acknowledged"
+    if name == "finish":
+        return "finish"
     return json.dumps(result, default=str)[:200]
 
 
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# LLM HTTP client (stdlib only — zero SDK dependencies)
+# ---------------------------------------------------------------------------
+
+_MAX_RETRIES = 3
+_RETRY_DELAYS = [2, 5, 15]   # seconds, one per retry
+
+
+def _http_json(url: str, *, headers: dict, body: dict, timeout: float = 120) -> dict:
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 429:
+                delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+                last_exc = RuntimeError(f"Rate limited (429). Retrying in {delay}s… {raw[:300]}")
+                time.sleep(delay)
+                continue
+            raise RuntimeError(f"HTTP {exc.code}: {raw[:600]}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"Connection error: {exc.reason}") from exc
+    raise last_exc or RuntimeError("Max retries exceeded.")
+
+
+def _call_openai(
+    *, base_url: str, api_key: str, model: str,
+    system: str, messages: list[dict], tools: list[dict],
+) -> tuple[str | None, list[dict]]:
+    """Returns (text_or_None, tool_calls_list).
+
+    Each tool_call is {"id": str, "name": str, "arguments": dict}.
+    """
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    body: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "system", "content": system}] + messages,
+        "max_completion_tokens": 4096,
+    }
+    if tools:
+        body["tools"] = tools
+        body["tool_choice"] = "auto"
+    resp = _http_json(url, headers=headers, body=body)
+    choice = resp.get("choices", [{}])[0]
+    msg = choice.get("message", {})
+    text = msg.get("content")
+    raw_calls = msg.get("tool_calls") or []
+    calls = []
+    for tc in raw_calls:
+        fn = tc.get("function", {})
+        try:
+            parsed_args = json.loads(fn.get("arguments") or "{}")
+        except json.JSONDecodeError:
+            parsed_args = {}
+        calls.append({"id": tc.get("id", uuid.uuid4().hex[:8]), "name": fn.get("name", ""), "arguments": parsed_args})
+    return text, calls
+
+
+def _openai_tool_results(tool_calls: list[dict], results: list[dict]) -> list[dict]:
+    msgs = []
+    for tc, res in zip(tool_calls, results):
+        msgs.append({
+            "role": "tool",
+            "tool_call_id": tc["id"],
+            "content": res["content"],
+        })
+    return msgs
+
+
+def _call_anthropic(
+    *, base_url: str, api_key: str, model: str,
+    system: str, messages: list[dict], tools: list[dict],
+) -> tuple[str | None, list[dict]]:
+    url = f"{base_url.rstrip('/')}/v1/messages"
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }
+    body: dict[str, Any] = {
+        "model": model,
+        "system": system,
+        "messages": messages,
+        "max_tokens": 4096,
+    }
+    if tools:
+        body["tools"] = tools
+    resp = _http_json(url, headers=headers, body=body)
+    text_parts = []
+    calls = []
+    for block in resp.get("content", []):
+        if block.get("type") == "text":
+            text_parts.append(block["text"])
+        elif block.get("type") == "tool_use":
+            calls.append({
+                "id": block["id"],
+                "name": block["name"],
+                "arguments": block.get("input") or {},
+            })
+    text = "\n\n".join(text_parts) if text_parts else None
+    return text, calls
+
+
+# ---------------------------------------------------------------------------
+# System prompt
+# ---------------------------------------------------------------------------
+
+SYSTEM_PROMPT = """You are a Verilog/SystemVerilog design agent inside a user's RTL project.
+
+You can: create new modules, edit existing files, write testbenches, compile
+and run simulations (Icarus Verilog), and iterate until all tests pass.
+
+Rules:
+1. Orient first — call list_modules or list_testbenches.
+2. Read before editing — call read_file to see current source.
+3. Write clean, synthesizable RTL. Testbenches should emit:
+     $display("PASS [t=%0t] <label>")  or  $display("FAIL [t=%0t] <detail>").
+4. After edits, run_simulation. The verdict is ground truth.
+5. On failure, read errors carefully and fix the root cause.
+6. Call finish when done or blocked.
+
+File write operations (create_file, edit_file) require user approval.
+Do NOT ask the user for approval in normal assistant text.
+If you need to change a file, call create_file or edit_file directly.
+The system will pause and show an approval_request event automatically.
+After approval, continue with the edit and then run_simulation.
+If approval is denied, explain the blockage briefly and then call finish.
+Keep messages concise — let tools do the work."""
+
+
+# ---------------------------------------------------------------------------
+# Agent loop
+# ---------------------------------------------------------------------------
+
+def _run_loop(session: AgentSession, ctx: _Ctx, api_key: str,
+              base_url: str, api_format: str) -> None:
+    try:
+        is_anthropic = api_format == "anthropic"
+        tools = _tools_anthropic() if is_anthropic else _tools_openai()
+        call_fn = _call_anthropic if is_anthropic else _call_openai
+
+        if is_anthropic:
+            messages: list[dict] = [
+                {"role": "user", "content": f"Goal: {session.goal}\n\nProject root: {session.project_root}\n\nBegin."},
+            ]
+        else:
+            messages = [
+                {"role": "user", "content": f"Goal: {session.goal}\n\nProject root: {session.project_root}\n\nBegin."},
+            ]
+
+        session.status = "running"
+        session.emit("status", {"message": f"Agent started · {session.model} via {api_format}."})
+
+        finished = False
+
+        while session.iterations < session.max_iterations and not finished:
+            if session.stop_requested:
+                session.status = "stopped"
+                session.emit("status", {"message": "Stopped by user."})
+                break
+
+            session.iterations += 1
+            session.emit("status", {"iteration": session.iterations, "message": f"Iteration {session.iterations}"})
+
+            try:
+                text, tool_calls = call_fn(
+                    base_url=base_url, api_key=api_key, model=session.model,
+                    system=SYSTEM_PROMPT, messages=messages, tools=tools,
+                )
+            except Exception as exc:
+                session.status = "failed"
+                session.emit("error", {"message": f"LLM API error: {exc}"})
+                break
+
+            if text:
+                session.emit("message", {"role": "assistant", "text": text})
+
+            # Build the assistant message for conversation history
+            if is_anthropic:
+                acontent: list[dict] = []
+                if text:
+                    acontent.append({"type": "text", "text": text})
+                for tc in tool_calls:
+                    acontent.append({"type": "tool_use", "id": tc["id"], "name": tc["name"], "input": tc["arguments"]})
+                messages.append({"role": "assistant", "content": acontent})
+            else:
+                amsg: dict[str, Any] = {"role": "assistant"}
+                if text:
+                    amsg["content"] = text
+                else:
+                    amsg["content"] = None
+                if tool_calls:
+                    amsg["tool_calls"] = [
+                        {
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])},
+                        }
+                        for tc in tool_calls
+                    ]
+                messages.append(amsg)
+
+            if not tool_calls:
+                session.final_text = text or ""
+                session.status = "completed"
+                break
+
+            # Execute tools
+            results_for_history: list[dict] = []
+            for tc in tool_calls:
+                if session.stop_requested:
+                    break
+
+                session.emit("tool_call", {"id": tc["id"], "name": tc["name"], "input": tc["arguments"]})
+                result, nav = _dispatch(ctx, session, tc["name"], tc["arguments"])
+                summary = _short_summary(tc["name"], result)
+                session.emit("tool_result", {
+                    "id": tc["id"], "name": tc["name"],
+                    "summary": summary,
+                    "is_error": bool(result.get("error")),
+                })
+                if nav:
+                    session.emit("navigate", {"target": nav})
+
+                payload = _truncate(json.dumps(result, default=str))
+                is_err = bool(result.get("error"))
+
+                if is_anthropic:
+                    results_for_history.append({
+                        "type": "tool_result",
+                        "tool_use_id": tc["id"],
+                        "content": payload,
+                        "is_error": is_err,
+                    })
+                else:
+                    results_for_history.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": payload,
+                    })
+
+                if tc["name"] == "finish":
+                    finished = True
+                    inp = tc["arguments"]
+                    session.final_text = str(inp.get("summary", ""))
+                    session.status = "completed" if inp.get("success") else "failed"
+
+            if is_anthropic:
+                messages.append({"role": "user", "content": results_for_history})
+            else:
+                messages.extend(results_for_history)
+
+        else:
+            if not finished and session.status == "running":
+                session.status = "failed"
+                session.emit("status", {"message": f"Max iterations ({session.max_iterations}) reached."})
+
+        session.emit("done", {"status": session.status, "final_text": session.final_text})
+
+    except Exception as exc:
+        session.status = "failed"
+        session.emit("error", {"message": f"Agent crashed: {exc}", "traceback": traceback.format_exc()})
+        session.emit("done", {"status": session.status})
+
+
+# ---------------------------------------------------------------------------
 # Public API
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 
 def start_session(
-    *,
-    goal: str,
-    state,
-    state_lock,
-    simulation_service_mod,
+    *, goal: str, state, state_lock, simulation_service_mod,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     model: str | None = None,
+    provider: str | None = None,
+    auto_approve: bool = False,
 ) -> AgentSession:
-    api_key = resolve_api_key()
-    if not api_key:
-        raise AgentError(
-            "Anthropic API key not configured. Set ANTHROPIC_API_KEY or save one via "
-            "POST /api/agent/settings."
-        )
+    api_key = _resolve_key()
+    s = load_settings()
+    prov = provider or s.get("provider", "openai")
+    preset = PROVIDER_PRESETS.get(prov, PROVIDER_PRESETS["custom"])
+    base_url = s.get("base_url") or preset.get("base_url", "")
+    api_format = s.get("format") or preset.get("format", "openai")
+    chosen_model = (model or s.get("model") or preset.get("default_model", "")).strip()
+
+    if not base_url:
+        raise AgentError("No API base URL configured. Set one in Agent settings.")
+    if prov not in ("ollama",) and not api_key:
+        raise AgentError("No API key configured. Set one in Agent settings or via environment variable.")
+    if not chosen_model:
+        raise AgentError("No model configured.")
 
     project_root = state.loaded_folder
     if not project_root:
         raise AgentError("No project is currently loaded.")
     if state.read_only:
-        raise AgentError("Project is in read-only commit view; the agent cannot edit files in this mode.")
-
+        raise AgentError("Project is in read-only commit view.")
     if not goal or not goal.strip():
         raise AgentError("Goal cannot be empty.")
-
-    chosen_model = (model or load_settings().get("model") or DEFAULT_MODEL).strip() or DEFAULT_MODEL
 
     session = AgentSession(
         id=uuid.uuid4().hex[:12],
@@ -659,23 +883,18 @@ def start_session(
         project_root=project_root,
         model=chosen_model,
         max_iterations=max(1, min(int(max_iterations or DEFAULT_MAX_ITERATIONS), 50)),
+        auto_approve=auto_approve,
     )
 
-    ctx = _ToolContext(
-        project_root=project_root,
-        state=state,
-        state_lock=state_lock,
-        simulation_service_mod=simulation_service_mod,
-    )
+    ctx = _Ctx(project_root, state, state_lock, simulation_service_mod)
 
     with _sessions_lock:
         _sessions[session.id] = session
 
-    worker = threading.Thread(
-        target=_run_agent_loop,
-        args=(session, ctx, api_key),
+    threading.Thread(
+        target=_run_loop,
+        args=(session, ctx, api_key, base_url, api_format),
         daemon=True,
         name=f"agent-{session.id}",
-    )
-    worker.start()
+    ).start()
     return session
