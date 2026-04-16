@@ -3218,3 +3218,264 @@ body.sim-mode #loadProgress { display: none !important; }
 }
 .sim-test-row.sim-test-fail .sim-test-name { color: var(--danger); }
 
+/* ================================================================
+   AI Agent panel
+   ================================================================ */
+
+.agent-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--probe);
+  border-radius: var(--radius-sm);
+  background: var(--probe-dim);
+  color: var(--probe);
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.agent-open-btn:hover { background: var(--probe-glow); box-shadow: 0 0 8px var(--probe-dim); }
+.agent-open-btn svg { width: 14px; height: 14px; }
+
+/* Panel: fixed right-hand drawer on top of the sim workspace */
+.agent-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 420px;
+  max-width: 100vw;
+  height: 100vh;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border-left: 1px solid var(--border-emphasis);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.agent-panel.hidden { display: none; }
+
+.agent-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+.agent-panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.agent-panel-title svg { width: 16px; height: 16px; color: var(--probe); }
+.agent-panel-title h2 { font-size: 14px; margin: 0; color: var(--text-primary); }
+.agent-panel-head-actions { display: flex; align-items: center; gap: var(--sp-2); }
+
+.agent-icon-btn {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 3px 7px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.agent-icon-btn:hover { color: var(--text-primary); border-color: var(--border-default); }
+.agent-icon-btn svg { width: 14px; height: 14px; }
+
+.agent-panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--sp-3);
+  gap: var(--sp-3);
+}
+
+/* Goal input area */
+.agent-goal-section label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--sp-1);
+}
+.agent-goal-section textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 56px;
+  max-height: 160px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: var(--sp-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-0);
+  color: var(--text-primary);
+}
+.agent-goal-section textarea:focus { border-color: var(--probe); outline: none; }
+
+.agent-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  flex-wrap: wrap;
+}
+.agent-controls-spacer { flex: 1; }
+
+.agent-mini-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.agent-mini-field input[type="number"] {
+  width: 44px;
+  padding: 2px 4px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-0);
+  color: var(--text-primary);
+  text-align: center;
+}
+.agent-iter-count {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--text-secondary);
+}
+
+.agent-start-btn {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--probe);
+  color: var(--surface-0);
+  cursor: pointer;
+}
+.agent-start-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.agent-start-btn:not(:disabled):hover { filter: brightness(1.1); }
+
+.agent-stop-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+}
+.agent-stop-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.agent-stop-btn:not(:disabled):hover { background: rgba(239, 68, 68, 0.12); }
+
+.agent-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin: var(--sp-1) 0 0;
+}
+.agent-hint-warn { color: var(--warn); }
+
+/* Status badge */
+.agent-status-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  color: var(--text-tertiary);
+  background: var(--surface-0);
+}
+.agent-status-run  { color: var(--probe); border-color: var(--probe); }
+.agent-status-ok   { color: var(--ok);    border-color: var(--ok); }
+.agent-status-err  { color: var(--danger); border-color: var(--danger); }
+.agent-status-warn { color: var(--warn);  border-color: var(--warn); }
+
+/* Log / activity stream */
+.agent-log-section { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.agent-log-section h3 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin: 0 0 var(--sp-2);
+}
+.agent-log {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--surface-0);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+/* Event rows */
+.agent-event {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.agent-event:last-child { border-bottom: none; }
+.agent-ev-time {
+  flex-shrink: 0;
+  width: 58px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.agent-ev-tag {
+  flex-shrink: 0;
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.agent-ev-tag-msg  { background: rgba(34, 211, 238, 0.10); color: var(--probe); }
+.agent-ev-tag-tool { background: rgba(255, 179, 71, 0.12); color: var(--instance); }
+.agent-ev-tag-ok   { background: rgba(74, 222, 128, 0.12); color: var(--ok); }
+.agent-ev-tag-err  { background: rgba(239, 68, 68, 0.12);  color: var(--danger); }
+
+.agent-ev-body {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+.agent-ev-msg { color: var(--text-primary); white-space: pre-wrap; }
+.agent-ev-code {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  display: block;
+  white-space: pre-wrap;
+  max-height: 80px;
+  overflow: auto;
+}
+

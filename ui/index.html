@@ -21,6 +21,7 @@
     <script src="https://unpkg.com/cytoscape-elk@2.2.0/dist/cytoscape-elk.js"></script>
     <script src="/ui/app.js" defer></script>
     <script src="/ui/simulation.js" defer></script>
+    <script src="/ui/agent.js" defer></script>
   </head>
   <body>
     <div class="app-shell">
@@ -225,6 +226,10 @@
               <button id="simRunBtn" type="button" class="sim-run-btn" disabled>
                 <svg viewBox="0 0 16 16" aria-hidden="true"><polygon points="4,3 13,8 4,13" fill="currentColor"/></svg>
                 Run
+              </button>
+              <button id="agentOpenBtn" type="button" class="agent-open-btn" title="Open AI Agent">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 L9.7 6 L14 7 L10.8 10 L11.5 14.5 L8 12.3 L4.5 14.5 L5.2 10 L2 7 L6.3 6 Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+                Agent
               </button>
             </div>
           </header>
@@ -449,6 +454,69 @@
         <div class="modal-footer">
           <button id="simNewTbCancel" type="button">Cancel</button>
           <button id="simNewTbConfirm" type="button" class="primary">Create</button>
+        </div>
+      </div>
+    </div>
+
+    <aside id="agentPanel" class="agent-panel hidden" aria-label="AI agent panel">
+      <header class="agent-panel-header">
+        <div class="agent-panel-title">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 L9.7 6 L14 7 L10.8 10 L11.5 14.5 L8 12.3 L4.5 14.5 L5.2 10 L2 7 L6.3 6 Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+          <h2>AI Agent</h2>
+          <span id="agentStatusBadge" class="agent-status-badge">idle</span>
+        </div>
+        <div class="agent-panel-head-actions">
+          <button id="agentSettingsBtn" type="button" class="agent-icon-btn" title="Agent settings (API key)">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.5" cy="9.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8.5 7 L13 2.5 L13.5 3 L14 3.5 L9.5 8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+          </button>
+          <button id="agentCloseBtn" type="button" class="agent-icon-btn" aria-label="Close agent panel">&times;</button>
+        </div>
+      </header>
+
+      <div class="agent-panel-body">
+        <section class="agent-goal-section">
+          <label for="agentGoalInput">Goal</label>
+          <textarea id="agentGoalInput" rows="4" placeholder="e.g. Fix the failing tests in tb_uart_rx.sv so the UART receiver correctly handles start/stop bits."></textarea>
+          <div class="agent-controls">
+            <label class="agent-mini-field" for="agentMaxIter">
+              <span>max iter</span>
+              <input id="agentMaxIter" type="number" min="1" max="50" value="15" />
+            </label>
+            <span class="agent-mini-field">
+              <span>iteration</span>
+              <span id="agentIterCount" class="agent-iter-count">—</span>
+            </span>
+            <span class="agent-controls-spacer"></span>
+            <button id="agentStopBtn" type="button" class="agent-stop-btn" disabled>Stop</button>
+            <button id="agentStartBtn" type="button" class="agent-start-btn primary">Run agent</button>
+          </div>
+          <p id="agentSettingsHint" class="agent-hint">Checking settings…</p>
+        </section>
+
+        <section class="agent-log-section">
+          <h3>Activity</h3>
+          <div id="agentLog" class="agent-log"></div>
+        </section>
+      </div>
+    </aside>
+
+    <div id="agentSettingsOverlay" class="modal-overlay hidden">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h3>Agent settings</h3>
+          <button id="agentSettingsClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label for="agentSettingsKey">Anthropic API key</label>
+          <input id="agentSettingsKey" type="password" placeholder="sk-ant-..." spellcheck="false" autocomplete="off" />
+          <p class="modal-hint">Stored locally at <code>~/.veritas/settings.json</code>. Leave blank to keep the current key.</p>
+          <label for="agentSettingsModel">Model (optional)</label>
+          <input id="agentSettingsModel" type="text" placeholder="claude-sonnet-4-5" spellcheck="false" />
+          <span id="agentSettingsError" class="modal-error"></span>
+        </div>
+        <div class="modal-footer">
+          <button id="agentSettingsCancel" type="button">Cancel</button>
+          <button id="agentSettingsSave" type="button" class="primary">Save</button>
         </div>
       </div>
     </div>

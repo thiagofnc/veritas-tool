@@ -18,6 +18,7 @@ try:
     from app.schematic_layout import build_schematic_connectivity_graph
     from app.signal_tracer import trace_signal
     from app import simulation_service
+    from app import agent_service
     from app.vcd_parser import parse_vcd
 except ImportError:  # Supports running as: python app/main.py
     from git_service import GitError, GitService
@@ -28,6 +29,7 @@ except ImportError:  # Supports running as: python app/main.py
     from schematic_layout import build_schematic_connectivity_graph
     from signal_tracer import trace_signal
     import simulation_service
+    import agent_service
     from vcd_parser import parse_vcd
 
 
@@ -95,6 +97,17 @@ class RunSimulationRequest(BaseModel):
     top_module: str | None = Field(default=None, description="Optional override for the -s top-module passed to iverilog")
     timeout_sec: float = Field(default=30.0, ge=1.0, le=600.0, description="Per-phase timeout in seconds")
     expected_path: str | None = Field(default=None, description="Optional absolute path to a golden-output file to diff against run stdout")
+
+
+class AgentRunRequest(BaseModel):
+    goal: str = Field(..., description="Plain-language description of the task the agent should accomplish")
+    max_iterations: int = Field(default=15, ge=1, le=50)
+    model: str | None = Field(default=None, description="Optional Anthropic model ID override")
+
+
+class AgentSettingsRequest(BaseModel):
+    anthropic_api_key: str | None = Field(default=None, description="Key to persist to the local settings file. Pass null/empty to leave unchanged.")
+    model: str | None = Field(default=None, description="Default model ID to use for future sessions")
 
 
 @dataclass
@@ -998,6 +1011,72 @@ def sim_waveform(path: str = Query(..., description="Absolute path to a VCD file
         raise _bad_request(f"VCD file not found: {requested}") from exc
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read VCD: {exc}") from exc
+
+
+# -----------------------------------------------------------------------------
+# Agent (LLM) endpoints
+# -----------------------------------------------------------------------------
+
+@app.get("/api/agent/settings")
+def agent_get_settings() -> dict[str, object]:
+    return agent_service.get_settings_status()
+
+
+@app.post("/api/agent/settings")
+def agent_put_settings(payload: AgentSettingsRequest) -> dict[str, object]:
+    updates: dict[str, object] = {}
+    if payload.anthropic_api_key is not None and payload.anthropic_api_key.strip():
+        updates["anthropic_api_key"] = payload.anthropic_api_key.strip()
+    if payload.model is not None and payload.model.strip():
+        updates["model"] = payload.model.strip()
+    if updates:
+        agent_service.save_settings(updates)
+    return agent_service.get_settings_status()
+
+
+@app.post("/api/agent/sessions")
+def agent_start_session(payload: AgentRunRequest) -> dict[str, object]:
+    try:
+        with state_lock:
+            _ensure_project_writable()
+            session = agent_service.start_session(
+                goal=payload.goal,
+                state=state,
+                state_lock=state_lock,
+                simulation_service_mod=simulation_service,
+                max_iterations=payload.max_iterations,
+                model=payload.model,
+            )
+        return {
+            "id": session.id,
+            "status": session.status,
+            "model": session.model,
+            "max_iterations": session.max_iterations,
+        }
+    except agent_service.AgentError as exc:
+        raise _bad_request(str(exc)) from exc
+
+
+@app.get("/api/agent/sessions")
+def agent_list_sessions() -> dict[str, object]:
+    return {"sessions": agent_service.list_sessions()}
+
+
+@app.get("/api/agent/sessions/{session_id}")
+def agent_session_status(session_id: str, since_seq: int = Query(default=0, ge=0)) -> dict[str, object]:
+    try:
+        session = agent_service.get_session(session_id)
+    except agent_service.AgentError as exc:
+        raise _bad_request(str(exc)) from exc
+    return session.snapshot(since_seq=since_seq)
+
+
+@app.post("/api/agent/sessions/{session_id}/stop")
+def agent_stop_session(session_id: str) -> dict[str, object]:
+    try:
+        return agent_service.stop_session(session_id)
+    except agent_service.AgentError as exc:
+        raise _bad_request(str(exc)) from exc
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
