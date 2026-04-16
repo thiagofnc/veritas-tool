@@ -121,6 +121,10 @@ class AgentApprovalRequest(BaseModel):
     approved: bool = Field(..., description="Whether the user approves the pending write operation")
 
 
+class AgentMessageRequest(BaseModel):
+    text: str = Field(..., description="Follow-up user message to send to a running/paused agent session")
+
+
 @dataclass
 class _LoadProgress:
     active: bool = False
@@ -1106,6 +1110,14 @@ def agent_stop_session(session_id: str) -> dict[str, object]:
 def agent_approve(session_id: str, payload: AgentApprovalRequest) -> dict[str, object]:
     try:
         return agent_service.resolve_approval(session_id, payload.approved)
+    except agent_service.AgentError as exc:
+        raise _bad_request(str(exc)) from exc
+
+
+@app.post("/api/agent/sessions/{session_id}/message")
+def agent_send_message(session_id: str, payload: AgentMessageRequest) -> dict[str, object]:
+    try:
+        return agent_service.send_user_message(session_id, payload.text)
     except agent_service.AgentError as exc:
         raise _bad_request(str(exc)) from exc
 

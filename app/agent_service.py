@@ -164,17 +164,21 @@ class AgentSession:
     model: str
     max_iterations: int
     auto_approve: bool = False
-    status: str = "pending"      # pending | running | completed | failed | stopped
+    status: str = "pending"      # pending | running | awaiting_input | completed | failed | stopped
     iterations: int = 0
     final_text: str = ""
     events: list[AgentEvent] = field(default_factory=list)
     stop_requested: bool = False
+    messages: list[dict] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _seq: int = 0
     # Approval mechanism
     _approval_event: threading.Event = field(default_factory=threading.Event)
     _approval_granted: bool | None = field(default=None, repr=False)
     _pending_approval: dict | None = field(default=None, repr=False)
+    # Follow-up input mechanism
+    _input_event: threading.Event = field(default_factory=threading.Event)
+    _pending_user_message: str | None = field(default=None, repr=False)
 
     def emit(self, kind: str, data: dict) -> None:
         with self._lock:
@@ -252,7 +256,22 @@ def stop_session(session_id: str) -> dict:
     s.stop_requested = True
     s.emit("status", {"message": "Stop requested."})
     s._approval_event.set()
+    s._input_event.set()
     return {"id": s.id, "stop_requested": True}
+
+
+def send_user_message(session_id: str, text: str) -> dict:
+    """Append a follow-up user message; resumes the loop if it's paused."""
+    s = get_session(session_id)
+    text = (text or "").strip()
+    if not text:
+        raise AgentError("Message cannot be empty.")
+    if s.status in ("failed", "stopped"):
+        raise AgentError(f"Session is {s.status}; start a new session.")
+    with s._lock:
+        s._pending_user_message = text
+    s._input_event.set()
+    return {"id": s.id, "queued": True}
 
 
 def resolve_approval(session_id: str, approved: bool) -> dict:
@@ -416,6 +435,8 @@ def _summarize_sim(result: dict) -> dict:
         "warning_count": result.get("warning_count"),
         "exit_code": result.get("exit_code"),
         "timed_out": result.get("timed_out"),
+        "vcd_path": result.get("vcd_path"),
+        "testbench": result.get("testbench"),
         "compile_stderr": _truncate(result.get("compile_stderr") or "", 2000),
         "run_stdout": _truncate(result.get("run_stdout") or "", 2000),
         "run_stderr": _truncate(result.get("run_stderr") or "", 1000),
@@ -547,6 +568,43 @@ def _dispatch(ctx: _Ctx, session: AgentSession, name: str, args: dict) -> tuple[
 
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}, None
+
+
+def _tool_detail(name: str, args: dict, result: dict) -> dict:
+    """Small structured detail for the UI (kept compact to avoid noise)."""
+    if result.get("error"):
+        return {"error": str(result["error"])[:240]}
+    if name == "run_simulation":
+        return {
+            "verdict": result.get("verdict"),
+            "pass_count": result.get("pass_count"),
+            "fail_count": result.get("fail_count"),
+            "error_count": result.get("error_count"),
+            "status": result.get("status"),
+            "testbench": result.get("testbench") or args.get("testbench_path"),
+            "vcd_path": result.get("vcd_path"),
+        }
+    if name == "list_modules":
+        mods = result.get("modules") or []
+        return {"count": len(mods), "preview": mods[:8]}
+    if name == "list_testbenches":
+        tbs = result.get("testbenches") or []
+        return {
+            "count": len(tbs),
+            "preview": [t.get("name") for t in tbs[:8] if isinstance(t, dict)],
+        }
+    if name == "read_file":
+        content = result.get("content") or ""
+        return {
+            "path": result.get("path"),
+            "chars": len(content),
+            "lines": content.count("\n") + (1 if content else 0),
+        }
+    if name in ("edit_file", "create_file", "create_testbench"):
+        return {"path": result.get("path")}
+    if name == "finish":
+        return {"summary": str(args.get("summary", ""))[:240], "success": bool(args.get("success"))}
+    return {}
 
 
 def _short_summary(name: str, result: dict) -> str:
@@ -719,121 +777,162 @@ def _run_loop(session: AgentSession, ctx: _Ctx, api_key: str,
         tools = _tools_anthropic() if is_anthropic else _tools_openai()
         call_fn = _call_anthropic if is_anthropic else _call_openai
 
-        if is_anthropic:
-            messages: list[dict] = [
-                {"role": "user", "content": f"Goal: {session.goal}\n\nProject root: {session.project_root}\n\nBegin."},
-            ]
-        else:
-            messages = [
-                {"role": "user", "content": f"Goal: {session.goal}\n\nProject root: {session.project_root}\n\nBegin."},
-            ]
-
-        session.status = "running"
+        # Seed with the initial goal as the first user message.
+        initial_user = (
+            f"Goal: {session.goal}\n\nProject root: {session.project_root}\n\nBegin."
+        )
+        session.messages.append({"role": "user", "content": initial_user})
+        session.emit("user_message", {"text": session.goal, "initial": True})
         session.emit("status", {"message": f"Agent started · {session.model} via {api_format}."})
+        session.status = "running"
 
-        finished = False
+        while not session.stop_requested:
+            turn_iterations = 0
+            turn_finished = False
+            session.iterations = 0
 
-        while session.iterations < session.max_iterations and not finished:
+            while (
+                turn_iterations < session.max_iterations
+                and not turn_finished
+                and not session.stop_requested
+            ):
+                turn_iterations += 1
+                session.iterations = turn_iterations
+                session.emit(
+                    "status",
+                    {"iteration": turn_iterations, "message": f"Iteration {turn_iterations}"},
+                )
+
+                try:
+                    text, tool_calls = call_fn(
+                        base_url=base_url, api_key=api_key, model=session.model,
+                        system=SYSTEM_PROMPT, messages=session.messages, tools=tools,
+                    )
+                except Exception as exc:
+                    session.status = "failed"
+                    session.emit("error", {"message": f"LLM API error: {exc}"})
+                    session.emit("done", {"status": session.status})
+                    return
+
+                if text:
+                    session.emit("message", {"role": "assistant", "text": text})
+
+                # Append assistant message to conversation history
+                if is_anthropic:
+                    acontent: list[dict] = []
+                    if text:
+                        acontent.append({"type": "text", "text": text})
+                    for tc in tool_calls:
+                        acontent.append({
+                            "type": "tool_use", "id": tc["id"],
+                            "name": tc["name"], "input": tc["arguments"],
+                        })
+                    session.messages.append({"role": "assistant", "content": acontent})
+                else:
+                    amsg: dict[str, Any] = {"role": "assistant", "content": text or None}
+                    if tool_calls:
+                        amsg["tool_calls"] = [
+                            {
+                                "id": tc["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": tc["name"],
+                                    "arguments": json.dumps(tc["arguments"]),
+                                },
+                            }
+                            for tc in tool_calls
+                        ]
+                    session.messages.append(amsg)
+
+                if not tool_calls:
+                    session.final_text = text or ""
+                    turn_finished = True
+                    break
+
+                results_for_history: list[dict] = []
+                for tc in tool_calls:
+                    if session.stop_requested:
+                        break
+
+                    session.emit("tool_call", {
+                        "id": tc["id"], "name": tc["name"], "input": tc["arguments"],
+                    })
+                    result, nav = _dispatch(ctx, session, tc["name"], tc["arguments"])
+                    detail = _tool_detail(tc["name"], tc["arguments"], result)
+                    session.emit("tool_result", {
+                        "id": tc["id"], "name": tc["name"],
+                        "summary": _short_summary(tc["name"], result),
+                        "detail": detail,
+                        "is_error": bool(result.get("error")),
+                    })
+                    if nav:
+                        nav_data: dict = {"target": nav}
+                        if tc["name"] == "run_simulation":
+                            nav_data["vcd_path"] = result.get("vcd_path")
+                            nav_data["testbench_path"] = tc["arguments"].get("testbench_path")
+                            nav_data["verdict"] = result.get("verdict")
+                        session.emit("navigate", nav_data)
+
+                    payload = _truncate(json.dumps(result, default=str))
+                    is_err = bool(result.get("error"))
+
+                    if is_anthropic:
+                        results_for_history.append({
+                            "type": "tool_result",
+                            "tool_use_id": tc["id"],
+                            "content": payload,
+                            "is_error": is_err,
+                        })
+                    else:
+                        results_for_history.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": payload,
+                        })
+
+                    if tc["name"] == "finish":
+                        turn_finished = True
+                        inp = tc["arguments"]
+                        session.final_text = str(inp.get("summary", ""))
+
+                if is_anthropic:
+                    session.messages.append({"role": "user", "content": results_for_history})
+                else:
+                    session.messages.extend(results_for_history)
+
             if session.stop_requested:
                 session.status = "stopped"
                 session.emit("status", {"message": "Stopped by user."})
                 break
 
-            session.iterations += 1
-            session.emit("status", {"iteration": session.iterations, "message": f"Iteration {session.iterations}"})
-
-            try:
-                text, tool_calls = call_fn(
-                    base_url=base_url, api_key=api_key, model=session.model,
-                    system=SYSTEM_PROMPT, messages=messages, tools=tools,
-                )
-            except Exception as exc:
-                session.status = "failed"
-                session.emit("error", {"message": f"LLM API error: {exc}"})
-                break
-
-            if text:
-                session.emit("message", {"role": "assistant", "text": text})
-
-            # Build the assistant message for conversation history
-            if is_anthropic:
-                acontent: list[dict] = []
-                if text:
-                    acontent.append({"type": "text", "text": text})
-                for tc in tool_calls:
-                    acontent.append({"type": "tool_use", "id": tc["id"], "name": tc["name"], "input": tc["arguments"]})
-                messages.append({"role": "assistant", "content": acontent})
-            else:
-                amsg: dict[str, Any] = {"role": "assistant"}
-                if text:
-                    amsg["content"] = text
-                else:
-                    amsg["content"] = None
-                if tool_calls:
-                    amsg["tool_calls"] = [
-                        {
-                            "id": tc["id"],
-                            "type": "function",
-                            "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])},
-                        }
-                        for tc in tool_calls
-                    ]
-                messages.append(amsg)
-
-            if not tool_calls:
-                session.final_text = text or ""
-                session.status = "completed"
-                break
-
-            # Execute tools
-            results_for_history: list[dict] = []
-            for tc in tool_calls:
-                if session.stop_requested:
-                    break
-
-                session.emit("tool_call", {"id": tc["id"], "name": tc["name"], "input": tc["arguments"]})
-                result, nav = _dispatch(ctx, session, tc["name"], tc["arguments"])
-                summary = _short_summary(tc["name"], result)
-                session.emit("tool_result", {
-                    "id": tc["id"], "name": tc["name"],
-                    "summary": summary,
-                    "is_error": bool(result.get("error")),
+            if not turn_finished:
+                session.emit("status", {
+                    "message": f"Max iterations ({session.max_iterations}) reached this turn.",
                 })
-                if nav:
-                    session.emit("navigate", {"target": nav})
 
-                payload = _truncate(json.dumps(result, default=str))
-                is_err = bool(result.get("error"))
+            # Pause for the user to send a follow-up message.
+            session.status = "awaiting_input"
+            session.emit("awaiting_input", {"message": "Waiting for your next message."})
+            session._input_event.clear()
+            session._input_event.wait()
 
-                if is_anthropic:
-                    results_for_history.append({
-                        "type": "tool_result",
-                        "tool_use_id": tc["id"],
-                        "content": payload,
-                        "is_error": is_err,
-                    })
-                else:
-                    results_for_history.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": payload,
-                    })
+            if session.stop_requested:
+                session.status = "stopped"
+                session.emit("status", {"message": "Stopped by user."})
+                break
 
-                if tc["name"] == "finish":
-                    finished = True
-                    inp = tc["arguments"]
-                    session.final_text = str(inp.get("summary", ""))
-                    session.status = "completed" if inp.get("success") else "failed"
+            with session._lock:
+                follow_up = session._pending_user_message
+                session._pending_user_message = None
 
-            if is_anthropic:
-                messages.append({"role": "user", "content": results_for_history})
-            else:
-                messages.extend(results_for_history)
+            if not follow_up:
+                # Spurious wakeup — loop and wait again.
+                continue
 
-        else:
-            if not finished and session.status == "running":
-                session.status = "failed"
-                session.emit("status", {"message": f"Max iterations ({session.max_iterations}) reached."})
+            session.messages.append({"role": "user", "content": follow_up})
+            session.emit("user_message", {"text": follow_up, "initial": False})
+            session.status = "running"
+            # continue outer loop → next turn
 
         session.emit("done", {"status": session.status, "final_text": session.final_text})
 

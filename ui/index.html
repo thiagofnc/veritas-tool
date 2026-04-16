@@ -477,16 +477,24 @@
       </header>
 
       <div class="agent-panel-body">
-        <section class="agent-goal-section">
-          <label for="agentGoalInput">Goal</label>
-          <textarea id="agentGoalInput" rows="4" placeholder="e.g. Fix the failing tests in tb_uart_rx.sv so the UART receiver correctly handles start/stop bits."></textarea>
-          <div class="agent-controls">
-            <label class="agent-mini-field" for="agentMaxIter">
-              <span>max iter</span>
+        <div id="agentMessages" class="agent-messages" role="log" aria-live="polite">
+          <div class="agent-empty-hint" id="agentEmptyHint">
+            <p>Start a chat by describing a goal — “add a testbench for uart_rx”, “find why tb_fifo fails”, …</p>
+            <p class="agent-empty-sub">The agent can read files, edit code, and run simulations. It will follow up with you when it has questions or finishes a turn.</p>
+          </div>
+        </div>
+
+        <div class="agent-composer">
+          <div class="agent-composer-row">
+            <textarea id="agentInput" rows="2" placeholder="Message the agent…  (Enter to send, Shift+Enter for newline)"></textarea>
+          </div>
+          <div class="agent-composer-actions">
+            <label class="agent-mini-field" for="agentMaxIter" title="Iterations per agent turn before it pauses for your input">
+              <span>iter/turn</span>
               <input id="agentMaxIter" type="number" min="1" max="50" value="15" />
             </label>
-            <span class="agent-mini-field">
-              <span>iteration</span>
+            <span class="agent-mini-field" title="Iteration within the current turn">
+              <span>iter</span>
               <span id="agentIterCount" class="agent-iter-count">—</span>
             </span>
             <label class="agent-mini-check" for="agentAutoApprove" title="Skip approval prompts for file writes">
@@ -495,15 +503,10 @@
             </label>
             <span class="agent-controls-spacer"></span>
             <button id="agentStopBtn" type="button" class="agent-stop-btn" disabled>Stop</button>
-            <button id="agentStartBtn" type="button" class="agent-start-btn primary">Run agent</button>
+            <button id="agentSendBtn" type="button" class="agent-start-btn primary">Send</button>
           </div>
           <p id="agentSettingsHint" class="agent-hint">Checking settings…</p>
-        </section>
-
-        <section class="agent-log-section">
-          <h3>Activity</h3>
-          <div id="agentLog" class="agent-log"></div>
-        </section>
+        </div>
       </div>
     </aside>
 

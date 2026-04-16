@@ -1549,11 +1549,26 @@
   });
 
   // Expose key functions for agent integration
+  async function selectTestbenchByPath(path) {
+    if (!path) return false;
+    const target = String(path).replace(/\\/g, "/");
+    await refreshTestbenches();
+    const tb = sim.testbenches.find((t) => {
+      const p = String(t.path || "").replace(/\\/g, "/");
+      return p === target || p.endsWith(target) || target.endsWith(p);
+    });
+    if (!tb) return false;
+    await selectTestbench(tb);
+    return true;
+  }
+
   window._veritasSim = {
     enterMode,
     exitMode,
     refreshTestbenches,
     selectTestbench,
+    selectTestbenchByPath,
+    loadWaveform,
     get activeTb() { return sim.activeTb; },
     get opened() { return sim.opened; },
   };
