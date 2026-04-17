@@ -30,6 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import vcd_parser
+
 
 SETTINGS_DIR = Path.home() / ".veritas"
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
@@ -371,6 +373,51 @@ _TOOLS: list[dict] = [
         },
     },
     {
+        "name": "read_waveform",
+        "description": (
+            "Read signal values from the most recent VCD waveform. "
+            "Use this after a failing simulation to inspect actual signal values "
+            "at specific timestamps. You can request snapshots at exact times "
+            "(e.g. failure timestamps from test_events) or get a window of all "
+            "signal transitions around a point of interest. "
+            "Use signal_filter to focus on relevant signals (e.g. ['clk', 'out', 'expected'])."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "vcd_path": {
+                    "type": "string",
+                    "description": "Path to the VCD file (from the simulation result's vcd_path).",
+                },
+                "times": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Simulation timestamps to snapshot signal values at.",
+                },
+                "window_center": {
+                    "type": "integer",
+                    "description": (
+                        "If provided instead of times, returns all signal transitions "
+                        "in a window around this timestamp."
+                    ),
+                },
+                "window_size": {
+                    "type": "integer",
+                    "description": "Half-width of the window in simulation time units (default 20).",
+                },
+                "signal_filter": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Only include signals whose name contains one of these substrings "
+                        "(case-insensitive). E.g. ['data_out', 'expected', 'clk']."
+                    ),
+                },
+            },
+            "required": ["vcd_path"],
+        },
+    },
+    {
         "name": "finish",
         "description": "End the session with a summary. Call when the goal is met or impossible.",
         "parameters": {
@@ -421,10 +468,37 @@ def _truncate(text: str, limit: int = MAX_TOOL_RESULT_CHARS) -> str:
     return f"{text[:half]}\n…[{len(text) - limit} chars truncated]…\n{text[-half:]}"
 
 
+def _failure_snapshots(vcd_path: str | None, events: list) -> list[dict]:
+    """Auto-extract signal values at failure timestamps from the VCD.
+
+    Returns a compact list of snapshots the agent can use immediately to
+    understand what went wrong, without needing a separate tool call.
+    """
+    if not vcd_path:
+        return []
+    fail_times = []
+    for ev in events:
+        t = ev.get("time") if isinstance(ev, dict) else getattr(ev, "time", None)
+        v = ev.get("verdict") if isinstance(ev, dict) else getattr(ev, "verdict", None)
+        if v in ("fail", "error", "fatal") and t is not None:
+            fail_times.append(int(t))
+    if not fail_times:
+        return []
+    # Deduplicate and cap to avoid huge payloads
+    fail_times = sorted(set(fail_times))[:10]
+    try:
+        vcd = vcd_parser.parse_vcd(vcd_path)
+        return vcd_parser.snapshot_at(vcd, fail_times, max_signals=30)
+    except Exception:
+        return []
+
+
 def _summarize_sim(result: dict) -> dict:
     events = result.get("test_events") or []
     messages = result.get("messages") or []
-    return {
+    vcd_path = result.get("vcd_path")
+
+    summary = {
         "status": result.get("status"),
         "verdict": result.get("verdict"),
         "verdict_reason": result.get("verdict_reason"),
@@ -435,7 +509,7 @@ def _summarize_sim(result: dict) -> dict:
         "warning_count": result.get("warning_count"),
         "exit_code": result.get("exit_code"),
         "timed_out": result.get("timed_out"),
-        "vcd_path": result.get("vcd_path"),
+        "vcd_path": vcd_path,
         "testbench": result.get("testbench"),
         "compile_stderr": _truncate(result.get("compile_stderr") or "", 2000),
         "run_stdout": _truncate(result.get("run_stdout") or "", 2000),
@@ -443,6 +517,15 @@ def _summarize_sim(result: dict) -> dict:
         "test_events": events[:30],
         "messages": messages[:30],
     }
+
+    # Auto-attach signal snapshots at failure timestamps so the agent can
+    # immediately see actual signal values without an extra tool call.
+    if result.get("fail_count", 0) > 0 or result.get("error_count", 0) > 0:
+        snaps = _failure_snapshots(vcd_path, events)
+        if snaps:
+            summary["failure_waveform_snapshots"] = snaps
+
+    return summary
 
 
 def _sandbox_path(project_root: str, path: str) -> Path:
@@ -560,6 +643,41 @@ def _dispatch(ctx: _Ctx, session: AgentSession, name: str, args: dict) -> tuple[
             ctx.sim.prune_old_runs(ctx.project_root, keep=10)
             full = ctx.sim.result_to_dict(result)
             return _summarize_sim(full), nav
+
+        if name == "read_waveform":
+            vcd_path = str(args.get("vcd_path", "")).strip()
+            p = _sandbox_path(ctx.project_root, vcd_path)
+            if not p.exists():
+                return {"error": f"VCD file not found: {p}"}, None
+            vcd = vcd_parser.parse_vcd(str(p))
+            sig_filter = args.get("signal_filter") or None
+
+            window_center = args.get("window_center")
+            if window_center is not None:
+                window_size = int(args.get("window_size") or 20)
+                changes = vcd_parser.waveform_window(
+                    vcd, int(window_center), window=window_size,
+                    signal_filter=sig_filter,
+                )
+                return {
+                    "mode": "window",
+                    "center": int(window_center),
+                    "window_size": window_size,
+                    "timescale": vcd.get("timescale", ""),
+                    "changes": changes[:200],
+                }, None
+
+            times = args.get("times") or []
+            if not times:
+                return {"error": "Provide either 'times' or 'window_center'."}, None
+            snapshots = vcd_parser.snapshot_at(
+                vcd, [int(t) for t in times], signal_filter=sig_filter,
+            )
+            return {
+                "mode": "snapshot",
+                "timescale": vcd.get("timescale", ""),
+                "snapshots": snapshots,
+            }, None
 
         if name == "finish":
             return {"acknowledged": True}, None
@@ -746,15 +864,26 @@ def _call_anthropic(
 SYSTEM_PROMPT = """You are a Verilog/SystemVerilog design agent inside a user's RTL project.
 
 You can: create new modules, edit existing files, write testbenches, compile
-and run simulations (Icarus Verilog), and iterate until all tests pass.
+and run simulations (Icarus Verilog), inspect waveforms, and iterate until
+all tests pass.
 
 Rules:
 1. Orient first — call list_modules or list_testbenches.
 2. Read before editing — call read_file to see current source.
 3. Write clean, synthesizable RTL. Testbenches should emit:
      $display("PASS [t=%0t] <label>")  or  $display("FAIL [t=%0t] <detail>").
+   Include expected and actual values in FAIL messages, e.g.:
+     $display("FAIL [t=%0t] data_out: got %h, expected %h", $time, data_out, expected);
 4. After edits, run_simulation. The verdict is ground truth.
-5. On failure, read errors carefully and fix the root cause.
+5. On failure, **diagnose before fixing**:
+   - The simulation result includes failure_waveform_snapshots — a snapshot of
+     ALL signal values at each failure timestamp. Study these to understand
+     the actual state of the design at the moment of failure.
+   - For deeper investigation, call read_waveform with specific timestamps or
+     a window_center to see signal transitions over time. Use signal_filter
+     to focus on relevant signals.
+   - Identify the root cause from actual signal values before editing code.
+     Do not guess — let the waveform data guide your fix.
 6. Call finish when done or blocked.
 
 File write operations (create_file, edit_file) require user approval.

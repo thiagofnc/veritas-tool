@@ -28,6 +28,7 @@ hex, and decimal without re-parsing.
 
 from __future__ import annotations
 
+import bisect
 from pathlib import Path
 
 
@@ -168,3 +169,108 @@ def parse_vcd(path: str, *, max_signals: int = 4000) -> dict:
         "end_time": end_time,
         "signals": list(sig_by_id.values()),
     }
+
+
+def _signal_value_at(changes: list[list], t: int) -> str | None:
+    """Return the signal value at simulation time *t* using binary search.
+
+    Each entry in *changes* is ``[time, value]``.  Returns the value of the
+    last change whose time is <= *t*, or ``None`` if no change has occurred
+    yet.
+    """
+    if not changes:
+        return None
+    # changes are already sorted by time from the parser
+    times = [c[0] for c in changes]
+    idx = bisect.bisect_right(times, t) - 1
+    if idx < 0:
+        return None
+    return changes[idx][1]
+
+
+def snapshot_at(vcd: dict, times: list[int],
+                signal_filter: list[str] | None = None,
+                max_signals: int = 60) -> list[dict]:
+    """Return signal values at each requested simulation time.
+
+    Parameters
+    ----------
+    vcd : dict
+        Parsed VCD as returned by ``parse_vcd``.
+    times : list[int]
+        Simulation timestamps to sample.
+    signal_filter : list[str] | None
+        If given, only include signals whose ``full_name`` or ``name``
+        contains one of these substrings (case-insensitive).
+    max_signals : int
+        Cap the number of signals per snapshot to keep output compact.
+
+    Returns
+    -------
+    list[dict]
+        One dict per requested time::
+
+            {"time": 500, "signals": {"tb.dut.clk": "1", "tb.dut.out": "b1010"}}
+    """
+    signals = vcd.get("signals", [])
+
+    # Apply optional filter
+    if signal_filter:
+        lc_filter = [f.lower() for f in signal_filter]
+        filtered = []
+        for sig in signals:
+            fn = sig["full_name"].lower()
+            nm = sig["name"].lower()
+            if any(f in fn or f in nm for f in lc_filter):
+                filtered.append(sig)
+        signals = filtered
+
+    signals = signals[:max_signals]
+
+    snapshots = []
+    for t in times:
+        values: dict[str, str] = {}
+        for sig in signals:
+            val = _signal_value_at(sig["changes"], t)
+            if val is not None:
+                values[sig["full_name"]] = val
+        snapshots.append({"time": t, "signals": values})
+    return snapshots
+
+
+def waveform_window(vcd: dict, t_center: int, window: int = 20,
+                    signal_filter: list[str] | None = None,
+                    max_signals: int = 40) -> list[dict]:
+    """Return all signal transitions in a window around *t_center*.
+
+    This gives the agent a view of how signals evolved leading up to
+    and just after a point of interest (e.g. a test failure).
+
+    Returns a list of change records sorted by time::
+
+        [{"time": 490, "signal": "tb.dut.out", "value": "b1010"}, ...]
+    """
+    t_lo = max(0, t_center - window)
+    t_hi = t_center + window
+
+    signals = vcd.get("signals", [])
+    if signal_filter:
+        lc_filter = [f.lower() for f in signal_filter]
+        signals = [
+            s for s in signals
+            if any(f in s["full_name"].lower() or f in s["name"].lower()
+                   for f in lc_filter)
+        ]
+    signals = signals[:max_signals]
+
+    changes = []
+    for sig in signals:
+        for t_val, val in sig["changes"]:
+            if t_lo <= t_val <= t_hi:
+                changes.append({
+                    "time": t_val,
+                    "signal": sig["full_name"],
+                    "value": val,
+                })
+    changes.sort(key=lambda c: (c["time"], c["signal"]))
+    return changes
