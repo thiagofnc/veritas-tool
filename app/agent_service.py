@@ -293,6 +293,22 @@ _TOOLS: list[dict] = [
         "parameters": {"type": "object", "properties": {}},
     },
     {
+        "name": "get_module_info",
+        "description": (
+            "Get detailed info about a module: ports (name, direction, width), "
+            "internal signals, submodule instantiations with port connections, "
+            "and always block summaries. Use this to understand the design "
+            "structure before editing."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "module_name": {"type": "string", "description": "Name of the module."},
+            },
+            "required": ["module_name"],
+        },
+    },
+    {
         "name": "read_file",
         "description": "Read any file inside the project folder. Returns its text content.",
         "parameters": {
@@ -301,6 +317,33 @@ _TOOLS: list[dict] = [
                 "path": {"type": "string", "description": "Absolute path to the file."},
             },
             "required": ["path"],
+        },
+    },
+    {
+        "name": "search_files",
+        "description": (
+            "Search for a text pattern (plain string or regex) across all files "
+            "in the project. Returns matching lines with file paths and line "
+            "numbers. Use this to find where a signal is driven, where a module "
+            "is instantiated, or where a define/parameter lives."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Text or regex pattern to search for.",
+                },
+                "glob": {
+                    "type": "string",
+                    "description": "Optional file glob filter, e.g. '*.v' or '*.sv'. Defaults to all Verilog files.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum matches to return (default 40).",
+                },
+            },
+            "required": ["pattern"],
         },
     },
     {
@@ -336,6 +379,25 @@ _TOOLS: list[dict] = [
         },
     },
     {
+        "name": "patch_file",
+        "description": (
+            "Make a targeted edit to an existing file by replacing a specific "
+            "string with new content. Much more efficient than edit_file for "
+            "small changes — only send the fragment you want to change. "
+            "Requires user approval. The old_string must match exactly one "
+            "location in the file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute path to the file."},
+                "old_string": {"type": "string", "description": "Exact text to find in the file (must be unique)."},
+                "new_string": {"type": "string", "description": "Replacement text."},
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+    },
+    {
         "name": "list_testbenches",
         "description": "List testbench files known to the project (managed and discovered).",
         "parameters": {"type": "object", "properties": {}},
@@ -360,7 +422,9 @@ _TOOLS: list[dict] = [
         "description": (
             "Compile the project with a testbench using Icarus Verilog and run it. "
             "Returns verdict (pass/fail/unknown), counters, stdout/stderr excerpts. "
-            "ALWAYS run this to check your work."
+            "ALWAYS run this to check your work. "
+            "Use plusargs to pass +key=value flags to vvp (e.g. +test=fifo_write "
+            "to run a specific test if the testbench supports $test$plusargs or $value$plusargs)."
         ),
         "parameters": {
             "type": "object",
@@ -368,6 +432,14 @@ _TOOLS: list[dict] = [
                 "testbench_path": {"type": "string"},
                 "top_module": {"type": "string", "description": "Optional top-module override."},
                 "timeout_sec": {"type": "number", "description": "Timeout in seconds (default 30)."},
+                "plusargs": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional vvp plusargs, e.g. [\"+test=fifo_write\", \"+verbose\"]. "
+                        "These are passed directly to vvp before the .vvp file."
+                    ),
+                },
             },
             "required": ["testbench_path"],
         },
@@ -556,6 +628,79 @@ def _dispatch(ctx: _Ctx, session: AgentSession, name: str, args: dict) -> tuple[
             nav = "modules"
             return {"modules": mods}, nav
 
+        if name == "get_module_info":
+            mod_name = str(args.get("module_name", "")).strip()
+            with ctx.state_lock:
+                try:
+                    m = ctx.state.service.get_module(mod_name)
+                except (RuntimeError, ValueError):
+                    return {"error": f"Module not found: {mod_name}"}, None
+            info: dict[str, Any] = {
+                "name": m.name,
+                "source_file": m.source_file,
+                "ports": [
+                    {"name": p.name, "direction": p.direction,
+                     "width": p.width or "1", "bit_width": p.bit_width}
+                    for p in m.ports
+                ],
+                "signals": [
+                    {"name": s.name, "kind": s.kind,
+                     "width": s.width or "1", "bit_width": s.bit_width}
+                    for s in m.signals[:60]
+                ],
+                "instances": [
+                    {"name": inst.name, "module_name": inst.module_name,
+                     "connections": inst.connections}
+                    for inst in m.instances[:30]
+                ],
+                "always_blocks": [
+                    {"name": ab.name, "kind": ab.kind,
+                     "sensitivity": ab.sensitivity,
+                     "written_signals": ab.written_signals,
+                     "read_signals": ab.read_signals,
+                     "summary": ab.summary_lines[:4]}
+                    for ab in m.always_blocks[:20]
+                ],
+            }
+            nav = f"module:{mod_name}"
+            return info, nav
+
+        if name == "search_files":
+            pattern = str(args.get("pattern", ""))
+            if not pattern:
+                return {"error": "pattern is required."}, None
+            file_glob = args.get("glob") or "*.v,*.sv,*.vh,*.svh"
+            max_results = int(args.get("max_results") or 40)
+            root = Path(ctx.project_root)
+            matches = []
+            globs = [g.strip() for g in file_glob.split(",")]
+            try:
+                compiled = re.compile(pattern)
+            except re.error:
+                compiled = re.compile(re.escape(pattern))
+            for g in globs:
+                for fpath in root.rglob(g):
+                    if not fpath.is_file():
+                        continue
+                    try:
+                        text = fpath.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        continue
+                    for line_no, line in enumerate(text.splitlines(), 1):
+                        if compiled.search(line):
+                            matches.append({
+                                "file": str(fpath),
+                                "line": line_no,
+                                "text": line.rstrip()[:200],
+                            })
+                            if len(matches) >= max_results:
+                                break
+                    if len(matches) >= max_results:
+                        break
+                if len(matches) >= max_results:
+                    break
+            return {"pattern": pattern, "match_count": len(matches), "matches": matches}, None
+
         if name == "read_file":
             p = _sandbox_path(ctx.project_root, str(args.get("path", "")))
             if not p.exists():
@@ -621,6 +766,58 @@ def _dispatch(ctx: _Ctx, session: AgentSession, name: str, args: dict) -> tuple[
                     nav = "refresh"
             return {"saved": True, "path": str(p)}, nav
 
+        if name == "patch_file":
+            p = _sandbox_path(ctx.project_root, str(args.get("path", "")))
+            if not p.exists():
+                return {"error": f"File not found: {p}. Use create_file for new files."}, None
+            old_str = args.get("old_string") or ""
+            new_str = args.get("new_string") or ""
+            if not old_str:
+                return {"error": "old_string is required and must not be empty."}, None
+            content = p.read_text(encoding="utf-8", errors="replace")
+            count = content.count(old_str)
+            if count == 0:
+                return {"error": "old_string not found in file. Read the file first to get the exact text."}, None
+            if count > 1:
+                return {"error": f"old_string matches {count} locations. Provide a larger, unique snippet."}, None
+            new_content = content.replace(old_str, new_str, 1)
+            # Build a compact diff preview for approval
+            preview = f"--- {p.name}\n+++ {p.name}\n"
+            old_lines = old_str.splitlines(keepends=True)
+            new_lines = new_str.splitlines(keepends=True)
+            for ln in old_lines:
+                preview += f"- {ln}"
+            if old_lines and not old_lines[-1].endswith("\n"):
+                preview += "\n"
+            for ln in new_lines:
+                preview += f"+ {ln}"
+            if new_lines and not new_lines[-1].endswith("\n"):
+                preview += "\n"
+            preview = _truncate(preview, 600)
+            if not session.request_approval("patch_file", str(p), preview):
+                return {"error": "User denied file patch."}, None
+            p.write_text(new_content, encoding="utf-8")
+            # Trigger reparse
+            with ctx.state_lock:
+                try:
+                    report = ctx.state.service.reparse_file(str(p))
+                    if report.get("requires_full_reparse") and ctx.state.loaded_folder:
+                        ctx.state.service.load_project(ctx.state.loaded_folder)
+                except Exception:
+                    if ctx.state.loaded_folder:
+                        try:
+                            ctx.state.service.load_project(ctx.state.loaded_folder)
+                        except Exception:
+                            pass
+            stem = p.stem
+            with ctx.state_lock:
+                try:
+                    ctx.state.service.get_module(stem)
+                    nav = f"editor:{stem}"
+                except (RuntimeError, ValueError):
+                    nav = "refresh"
+            return {"patched": True, "path": str(p)}, nav
+
         if name == "list_testbenches":
             return {"testbenches": ctx.sim.list_testbenches(ctx.project_root)}, None
 
@@ -635,10 +832,12 @@ def _dispatch(ctx: _Ctx, session: AgentSession, name: str, args: dict) -> tuple[
             tb_path = str(args.get("testbench_path", "")).strip()
             top_module = args.get("top_module") or None
             timeout_sec = float(args.get("timeout_sec") or 30.0)
+            plusargs = args.get("plusargs") or []
             nav = f"simulate:{tb_path}"
             result = ctx.sim.run_simulation(
                 ctx.project_root, tb_path,
                 top_module=top_module, timeout_sec=timeout_sec,
+                plusargs=plusargs,
             )
             ctx.sim.prune_old_runs(ctx.project_root, keep=10)
             full = ctx.sim.result_to_dict(result)
@@ -720,6 +919,22 @@ def _tool_detail(name: str, args: dict, result: dict) -> dict:
         }
     if name in ("edit_file", "create_file", "create_testbench"):
         return {"path": result.get("path")}
+    if name == "patch_file":
+        return {"path": result.get("path")}
+    if name == "get_module_info":
+        ports = result.get("ports") or []
+        instances = result.get("instances") or []
+        return {
+            "module": result.get("name"),
+            "port_count": len(ports),
+            "instance_count": len(instances),
+            "ports_preview": [f"{p['direction']} {p['name']}" for p in ports[:6]],
+        }
+    if name == "search_files":
+        return {
+            "pattern": result.get("pattern"),
+            "match_count": result.get("match_count", 0),
+        }
     if name == "finish":
         return {"summary": str(args.get("summary", ""))[:240], "success": bool(args.get("success"))}
     return {}
@@ -742,6 +957,14 @@ def _short_summary(name: str, result: dict) -> str:
         return f"read {result.get('path', '')[:120]} ({len(result.get('content', ''))} chars)"
     if name in ("edit_file", "create_file", "create_testbench"):
         return f"wrote {result.get('path', '')[:120]}"
+    if name == "patch_file":
+        return f"patched {result.get('path', '')[:120]}"
+    if name == "get_module_info":
+        ports = result.get("ports") or []
+        insts = result.get("instances") or []
+        return f"{result.get('name')}: {len(ports)} ports, {len(insts)} instances"
+    if name == "search_files":
+        return f"{result.get('match_count', 0)} matches for '{result.get('pattern', '')[:60]}'"
     if name == "finish":
         return "finish"
     return json.dumps(result, default=str)[:200]
@@ -867,32 +1090,51 @@ You can: create new modules, edit existing files, write testbenches, compile
 and run simulations (Icarus Verilog), inspect waveforms, and iterate until
 all tests pass.
 
+COMMUNICATION — Always briefly explain what you are about to do and why before
+calling tools. After a tool returns, summarize what you learned or what changed.
+The user is watching your progress in real time; keep them informed so they
+understand your reasoning. For example:
+  "The testbench is failing at t=500. Let me check the waveform to see what
+   data_out actually is at that point."
+  "The counter resets at 2 instead of 4 — the comparison uses == 2 but should
+   use == 3 (0-indexed). I'll patch that line."
+Keep explanations short (1-3 sentences) — do not write essays.
+
 Rules:
-1. Orient first — call list_modules or list_testbenches.
+1. Orient first — call list_modules and get_module_info on key modules to
+   understand ports, signals, and submodule structure. Use search_files to
+   find where signals are driven or modules instantiated.
 2. Read before editing — call read_file to see current source.
-3. Write clean, synthesizable RTL. Testbenches should emit:
+3. Prefer patch_file over edit_file for targeted changes. Use edit_file only
+   when rewriting most of a file. patch_file is cheaper and less error-prone.
+4. Write clean, synthesizable RTL. Testbenches should emit:
      $display("PASS [t=%0t] <label>")  or  $display("FAIL [t=%0t] <detail>").
    Include expected and actual values in FAIL messages, e.g.:
      $display("FAIL [t=%0t] data_out: got %h, expected %h", $time, data_out, expected);
-4. After edits, run_simulation. The verdict is ground truth.
-5. On failure, **diagnose before fixing**:
+   When writing testbenches that have multiple test scenarios, support plusargs
+   so individual tests can be run:
+     if ($test$plusargs("test_write")) begin ... end
+5. After edits, run_simulation. The verdict is ground truth. You can pass
+   plusargs (e.g. ["+test=fifo_write"]) to run a subset of tests.
+6. On failure, **diagnose before fixing**:
    - The simulation result includes failure_waveform_snapshots — a snapshot of
      ALL signal values at each failure timestamp. Study these to understand
      the actual state of the design at the moment of failure.
    - For deeper investigation, call read_waveform with specific timestamps or
      a window_center to see signal transitions over time. Use signal_filter
      to focus on relevant signals.
+   - Use search_files to trace signal drivers across the design if the issue
+     spans multiple modules.
    - Identify the root cause from actual signal values before editing code.
      Do not guess — let the waveform data guide your fix.
-6. Call finish when done or blocked.
+7. Call finish when done or blocked.
 
-File write operations (create_file, edit_file) require user approval.
+File write operations (create_file, edit_file, patch_file) require user approval.
 Do NOT ask the user for approval in normal assistant text.
-If you need to change a file, call create_file or edit_file directly.
+If you need to change a file, call the tool directly.
 The system will pause and show an approval_request event automatically.
 After approval, continue with the edit and then run_simulation.
-If approval is denied, explain the blockage briefly and then call finish.
-Keep messages concise — let tools do the work."""
+If approval is denied, explain the blockage briefly and then call finish."""
 
 
 # ---------------------------------------------------------------------------

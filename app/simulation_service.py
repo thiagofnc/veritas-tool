@@ -667,6 +667,7 @@ def run_simulation(
     top_module: str | None = None,
     timeout_sec: float = 30.0,
     expected_path: str | None = None,
+    plusargs: list[str] | None = None,
 ) -> SimulationResult:
     tools = check_tools()
     if not tools["available"]:
@@ -751,8 +752,15 @@ def run_simulation(
         )
 
     try:
+        vvp_cmd = [str(tools["vvp"])]
+        for arg in (plusargs or []):
+            # Sanitize: only allow +key or +key=value style args
+            sarg = str(arg).strip()
+            if sarg.startswith("+"):
+                vvp_cmd.append(sarg)
+        vvp_cmd.append(str(vvp_path))
         run_proc = subprocess.run(
-            [str(tools["vvp"]), str(vvp_path)],
+            vvp_cmd,
             cwd=str(out_dir),
             capture_output=True,
             text=True,

@@ -20,6 +20,7 @@ module tb_i2c_link_top_edge10;
     .clk(clk),
     .rst(rst),
     .start_write(start_write),
+    .slave_sel(1'b0),
     .tx_data(tx_data),
     .busy(busy),
     .done(done),

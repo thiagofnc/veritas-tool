@@ -256,6 +256,17 @@
       case "create_file":
       case "create_testbench":
         return basename(detail.path);
+      case "patch_file":
+        return basename(detail.path);
+      case "get_module_info": {
+        const parts = [detail.module || "?"];
+        if (detail.port_count != null) parts.push(`${detail.port_count} ports`);
+        if (detail.instance_count) parts.push(`${detail.instance_count} instances`);
+        if (detail.ports_preview?.length) parts.push(detail.ports_preview.slice(0, 4).join(", "));
+        return parts.join(" · ");
+      }
+      case "search_files":
+        return `"${trunc(detail.pattern || "", 40)}" — ${detail.match_count || 0} match${detail.match_count === 1 ? "" : "es"}`;
       case "finish":
         return detail.success ? `complete — ${trunc(detail.summary, 160)}` : `blocked — ${trunc(detail.summary, 160)}`;
       default:
@@ -305,7 +316,10 @@
         const args = ev.data.input || {};
         const name = ev.data.name;
         let hint = "";
-        if (args.path) hint = basename(args.path);
+        if (name === "get_module_info") hint = args.module_name || "";
+        else if (name === "search_files") hint = `"${(args.pattern || "").slice(0, 50)}"`;
+        else if (name === "patch_file") hint = basename(args.path);
+        else if (args.path) hint = basename(args.path);
         else if (args.testbench_path) hint = basename(args.testbench_path);
         else if (args.name) hint = String(args.name);
         return renderToolChip("call", name, hint, false);
