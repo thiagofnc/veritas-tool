@@ -17,6 +17,7 @@ Settings (API key, provider, base_url, model) live in
 
 from __future__ import annotations
 
+from collections import deque
 import json
 import os
 import re
@@ -37,7 +38,8 @@ SETTINGS_DIR = Path.home() / ".veritas"
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 
 DEFAULT_MAX_ITERATIONS = 15
-MAX_TOOL_RESULT_CHARS = 6000
+MAX_TOOL_RESULT_CHARS = 2500
+MAX_HISTORY_MESSAGES = 12
 
 PROVIDER_PRESETS: dict[str, dict] = {
     "openai": {
@@ -557,6 +559,41 @@ def _truncate(text: str, limit: int = MAX_TOOL_RESULT_CHARS) -> str:
     return f"{text[:half]}\n…[{len(text) - limit} chars truncated]…\n{text[-half:]}"
 
 
+def _content_text_len(content: Any) -> int:
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        total = 0
+        for item in content:
+            if isinstance(item, dict):
+                total += len(str(item.get("text", "")))
+                total += len(str(item.get("content", "")))
+                total += len(json.dumps(item.get("input") or {}, default=str))
+            else:
+                total += len(str(item))
+        return total
+    if content is None:
+        return 0
+    return len(str(content))
+
+
+def _prepare_messages_for_api(messages: list[dict], *, is_anthropic: bool) -> list[dict]:
+    """Trim older history to reduce repeated input-token load."""
+    if len(messages) <= MAX_HISTORY_MESSAGES + 1:
+        return messages
+
+    head = messages[:1]
+    tail = messages[-MAX_HISTORY_MESSAGES:]
+    omitted = messages[1:-MAX_HISTORY_MESSAGES]
+    omitted_chars = sum(_content_text_len(msg.get("content")) for msg in omitted)
+    note = (
+        f"Earlier conversation history was compacted to reduce token usage. "
+        f"Omitted {len(omitted)} prior messages totaling about {omitted_chars} characters. "
+        f"Use the remaining recent context and re-read files or rerun tools if older details are needed."
+    )
+    return head + [{"role": "user", "content": note}] + tail
+
+
 def _failure_snapshots(vcd_path: str | None, events: list) -> list[dict]:
     """Auto-extract signal values at failure timestamps from the VCD.
 
@@ -993,6 +1030,44 @@ def _short_summary(name: str, result: dict) -> str:
 
 _MAX_RETRIES = 3
 _RETRY_DELAYS = [2, 5, 15]   # seconds, one per retry
+_ANTHROPIC_INPUT_TPM_LIMIT = 28000
+_TOKEN_WINDOW_SECONDS = 60.0
+_TPM_RESERVE_POLL_SECONDS = 1.0
+_anthropic_input_window: deque[dict[str, float]] = deque()
+_anthropic_input_lock = threading.Lock()
+
+
+def _prune_token_window(window: deque[dict[str, float]], now: float) -> None:
+    cutoff = now - _TOKEN_WINDOW_SECONDS
+    while window and window[0]["ts"] < cutoff:
+        window.popleft()
+
+
+def _estimate_tokens_from_payload(payload: dict) -> int:
+    text = json.dumps(payload, default=str, separators=(",", ":"))
+    # Conservative approximation: roughly 1 token per 3 chars for mixed JSON/text.
+    return max(1, (len(text) + 2) // 3)
+
+
+def _reserve_anthropic_input_tokens(estimated_tokens: int) -> dict[str, float]:
+    while True:
+        now = time.time()
+        with _anthropic_input_lock:
+            _prune_token_window(_anthropic_input_window, now)
+            used = sum(item["tokens"] for item in _anthropic_input_window)
+            if used + estimated_tokens <= _ANTHROPIC_INPUT_TPM_LIMIT:
+                record = {"ts": now, "tokens": float(estimated_tokens)}
+                _anthropic_input_window.append(record)
+                return record
+            wait_for = max(_TPM_RESERVE_POLL_SECONDS, _TOKEN_WINDOW_SECONDS - (now - _anthropic_input_window[0]["ts"]))
+        time.sleep(min(wait_for, _TPM_RESERVE_POLL_SECONDS))
+
+
+def _finalize_anthropic_input_tokens(record: dict[str, float], actual_tokens: int | None) -> None:
+    if actual_tokens is None or actual_tokens <= 0:
+        return
+    with _anthropic_input_lock:
+        record["tokens"] = float(actual_tokens)
 
 
 def _http_json(url: str, *, headers: dict, body: dict, timeout: float = 120) -> dict:
@@ -1081,7 +1156,10 @@ def _call_anthropic(
     }
     if tools:
         body["tools"] = tools
+    reservation = _reserve_anthropic_input_tokens(_estimate_tokens_from_payload(body))
     resp = _http_json(url, headers=headers, body=body)
+    usage = resp.get("usage") or {}
+    _finalize_anthropic_input_tokens(reservation, usage.get("input_tokens"))
     text_parts = []
     calls = []
     for block in resp.get("content", []):
@@ -1192,9 +1270,13 @@ def _run_loop(session: AgentSession, ctx: _Ctx, api_key: str,
                 )
 
                 try:
+                    api_messages = _prepare_messages_for_api(
+                        session.messages,
+                        is_anthropic=is_anthropic,
+                    )
                     text, tool_calls = call_fn(
                         base_url=base_url, api_key=api_key, model=session.model,
-                        system=SYSTEM_PROMPT, messages=session.messages, tools=tools,
+                        system=SYSTEM_PROMPT, messages=api_messages, tools=tools,
                     )
                 except Exception as exc:
                     session.status = "failed"
