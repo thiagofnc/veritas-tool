@@ -110,9 +110,18 @@ def save_settings(updates: dict) -> dict:
 
 def _resolve_key_info() -> tuple[str, str | None]:
     settings = load_settings()
+    provider = settings.get("provider", "openai")
+    provider_key_fields = {
+        "anthropic": ("anthropic_api_key",),
+        "openai": ("openai_api_key",),
+    }
+    for field_name in provider_key_fields.get(provider, ()):
+        key = settings.get(field_name, "")
+        if isinstance(key, str) and key.strip():
+            return key.strip(), f"settings:{field_name}"
     key = settings.get("api_key", "")
     if isinstance(key, str) and key.strip():
-        return key.strip(), "settings"
+        return key.strip(), "settings:api_key"
     for env_name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LLM_API_KEY"):
         val = os.environ.get(env_name, "").strip()
         if val:
@@ -140,7 +149,15 @@ def get_settings_status() -> dict:
         "model": s.get("model") or preset.get("default_model", ""),
         "format": s.get("format") or preset.get("format", "openai"),
         "auto_approve": s.get("auto_approve", False),
-        "providers": {k: {"label": v["label"], "default_model": v["default_model"]} for k, v in PROVIDER_PRESETS.items()},
+        "providers": {
+            k: {
+                "label": v["label"],
+                "default_model": v["default_model"],
+                "base_url": v.get("base_url", ""),
+                "format": v.get("format", "openai"),
+            }
+            for k, v in PROVIDER_PRESETS.items()
+        },
         "settings_path": str(SETTINGS_FILE),
     }
 

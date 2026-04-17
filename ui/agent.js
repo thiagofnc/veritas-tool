@@ -503,6 +503,14 @@
     if (modelInput && (!modelInput.value || modelInput.value === (s.model || ""))) {
       modelInput.value = info.default_model || "";
     }
+    const baseUrlInput = $("agentSettingsBaseUrl");
+    if (baseUrlInput && prov !== "custom") {
+      baseUrlInput.value = info.base_url || "";
+    }
+    const formatInput = $("agentSettingsFormat");
+    if (formatInput && prov !== "custom") {
+      formatInput.value = info.format || "openai";
+    }
     const urlRow = $("agentSettingsBaseUrlRow");
     if (urlRow) urlRow.style.display = prov === "custom" ? "" : "none";
     const fmtRow = $("agentSettingsFormatRow");
