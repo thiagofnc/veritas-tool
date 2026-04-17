@@ -375,6 +375,27 @@
     if (el) el.textContent = cur != null ? `${cur} / ${max}` : "—";
   }
 
+  // -- Cooking indicator (animated dots: . → .. → ... → .) --
+  let cookingTimer = null;
+  function setCookingVisible(visible) {
+    const bar = $("agentCooking");
+    if (!bar) return;
+    if (visible) {
+      bar.classList.remove("hidden");
+      if (!cookingTimer) {
+        const textEl = bar.querySelector(".agent-cooking-text");
+        let dotCount = 0;
+        cookingTimer = setInterval(() => {
+          dotCount = (dotCount % 3) + 1;
+          textEl.textContent = "Agent is cooking" + ".".repeat(dotCount);
+        }, 500);
+      }
+    } else {
+      bar.classList.add("hidden");
+      if (cookingTimer) { clearInterval(cookingTimer); cookingTimer = null; }
+    }
+  }
+
   function setUIForStatus(status) {
     st.status = status;
     const sendBtn = $("agentSendBtn");
@@ -388,6 +409,8 @@
       sendBtn.textContent = isTerminal ? "Send" : (status === "awaiting_input" ? "Send" : "Sending…");
     }
     if (input) input.disabled = (status === "running");
+
+    setCookingVisible(status === "running");
 
     switch (status) {
       case "running": setStatusBadge("running", "agent-status-run"); break;

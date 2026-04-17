@@ -41,7 +41,7 @@ module i2c_master_write #(
 
     wire active = (state != STATE_IDLE);
 
-    // tick generator. Runs when active (not IDLE).
+    // Tick generator
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             div_count <= 16'd0;
@@ -63,6 +63,9 @@ module i2c_master_write #(
         end
     end
 
+    // Create a 1-cycle done pulse when the transaction completes.
+    wire done_pulse = (state == STATE_STOP_C) && tick;
+
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             state <= STATE_IDLE;
@@ -74,7 +77,7 @@ module i2c_master_write #(
             done <= 1'b0;
             ack_error <= 1'b0;
         end else begin
-            done <= 1'b0;
+            done <= done_pulse;
 
             case (state)
                 STATE_IDLE: begin
@@ -83,23 +86,28 @@ module i2c_master_write #(
                     busy <= 1'b0;
                     ack_error <= 1'b0;
                     bit_index <= 3'd7;
+
                     if (start) begin
+                        shift_reg <= payload;
                         busy <= 1'b1;
-                        shift_reg <= {slave_addr, 1'b0};
                         state <= STATE_START_A;
                     end
                 end
 
                 STATE_START_A: begin
                     scl_drive_low <= 1'b0;
-                    sda_drive_low <= 1'b0;
+                    sda_drive_low <= 1'b1;
                     if (tick) state <= STATE_START_B;
                 end
 
                 STATE_START_B: begin
-                    scl_drive_low <= 1'b0;
+                    scl_drive_low <= 1'b1;
                     sda_drive_low <= 1'b1;
-                    if (tick) state <= STATE_ADDR_SETUP;
+                    if (tick) begin
+                        shift_reg <= {slave_addr, 1'b0};
+                        bit_index <= 3'd7;
+                        state <= STATE_ADDR_SETUP;
+                    end
                 end
 
                 STATE_ADDR_SETUP: begin
@@ -145,9 +153,13 @@ module i2c_master_write #(
                     scl_drive_low <= 1'b1;
                     sda_drive_low <= 1'b0;
                     if (tick) begin
-                        shift_reg <= payload;
-                        bit_index <= 3'd7;
-                        state <= STATE_DATA_SETUP;
+                        if (ack_error) begin
+                            state <= STATE_STOP_A;
+                        end else begin
+                            shift_reg <= payload;
+                            bit_index <= 3'd7;
+                            state <= STATE_DATA_SETUP;
+                        end
                     end
                 end
 
@@ -213,7 +225,6 @@ module i2c_master_write #(
                     sda_drive_low <= 1'b0;
                     if (tick) begin
                         busy <= 1'b0;
-                        done <= 1'b1;
                         state <= STATE_IDLE;
                     end
                 end
@@ -223,13 +234,11 @@ module i2c_master_write #(
                     scl_drive_low <= 1'b0;
                     sda_drive_low <= 1'b0;
                     busy <= 1'b0;
-                    done <= 1'b0;
                     ack_error <= 1'b0;
                     bit_index <= 3'd7;
                 end
             endcase
 
-            // keep busy asserted throughout any non-IDLE state
             if (active) busy <= 1'b1;
         end
     end
