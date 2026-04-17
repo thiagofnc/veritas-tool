@@ -1569,6 +1569,7 @@
     selectTestbench,
     selectTestbenchByPath,
     loadWaveform,
+    jumpToWaveformTime,
     get activeTb() { return sim.activeTb; },
     get opened() { return sim.opened; },
   };

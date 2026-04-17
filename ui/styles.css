@@ -3781,6 +3781,19 @@ body.sim-mode #loadProgress { display: none !important; }
   letter-spacing: 0.02em;
 }
 
+/* Patch highlight — old lines (pre-approval, amber/red tint) */
+.agent-patch-old {
+  background: rgba(245, 158, 11, 0.15) !important;
+  border-left: 3px solid #f59e0b !important;
+}
+
+/* Patch highlight — new lines (post-approval, green glow) */
+.agent-patch-new {
+  background: rgba(74, 222, 128, 0.15) !important;
+  border-left: 3px solid #4ade80 !important;
+  transition: background 1s ease-out, border-left-color 1s ease-out;
+}
+
 .agent-composer {
   display: flex;
   flex-direction: column;

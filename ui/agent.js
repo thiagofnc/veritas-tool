@@ -154,6 +154,29 @@
       await showSimulationOutput(navData);
       return;
     }
+
+    const waveMatch = target.match(/^waveform:(.+)$/);
+    if (waveMatch) {
+      await showWaveformForAgent(navData);
+      return;
+    }
+  }
+
+  async function showWaveformForAgent(navData) {
+    const sim = window._veritasSim;
+    if (!sim) return;
+    closeEditorOverlay();
+    if (!sim.opened) {
+      try { await sim.enterMode(); } catch (_) { return; }
+    }
+    const vcdPath = navData.vcd_path;
+    if (vcdPath && sim.loadWaveform) {
+      try { await sim.loadWaveform(vcdPath); } catch (_) {}
+    }
+    const jumpTime = navData.jump_time;
+    if (jumpTime != null && sim.jumpToWaveformTime) {
+      try { sim.jumpToWaveformTime(Number(jumpTime)); } catch (_) {}
+    }
   }
 
   // Tool-call-driven editor open: show the file that's about to be modified.
@@ -179,6 +202,94 @@
     st.pendingEditor = { path, opened };
     // Editor close + diagram refresh is handled by the subsequent
     // navigate:editor:<name> event.
+  }
+
+  // ================================================================
+  //  Patch-file editor integration — highlight old/new lines
+  // ================================================================
+
+  // Track CodeMirror line-class marks so we can clear them later.
+  let patchMarks = [];
+
+  function clearPatchMarks() {
+    const cm = typeof codeEditorState !== "undefined" && codeEditorState.cm;
+    if (cm) {
+      for (const m of patchMarks) {
+        try { cm.removeLineClass(m.line, "background", m.cls); } catch (_) {}
+      }
+    }
+    patchMarks = [];
+  }
+
+  function highlightRange(cm, fromLine, toLine, className) {
+    const marks = [];
+    for (let i = fromLine; i < toLine; i++) {
+      cm.addLineClass(i, "background", className);
+      marks.push({ line: i, cls: className });
+    }
+    return marks;
+  }
+
+  function findTextInEditor(cm, needle) {
+    if (!needle) return null;
+    const content = cm.getValue();
+    const idx = content.indexOf(needle);
+    if (idx === -1) return null;
+    const before = content.slice(0, idx);
+    const fromLine = before.split("\n").length - 1;
+    const needleLines = needle.split("\n").length;
+    return { fromLine, toLine: fromLine + needleLines };
+  }
+
+  async function onPatchToolCall(input) {
+    const path = input?.path;
+    if (!path) return;
+    st.pendingEditor = { path, opened: false, isPatch: true, patchInput: input };
+    const opened = await openEditorForPath(path);
+    st.pendingEditor.opened = opened;
+    if (!opened) return;
+
+    // Wait briefly for the editor to load content, then highlight the old_string.
+    await new Promise((r) => setTimeout(r, 200));
+    const cm = typeof codeEditorState !== "undefined" && codeEditorState.cm;
+    if (!cm) return;
+    const oldStr = input.old_string;
+    if (!oldStr) return;
+    const range = findTextInEditor(cm, oldStr);
+    if (!range) return;
+    clearPatchMarks();
+    patchMarks = highlightRange(cm, range.fromLine, range.toLine, "agent-patch-old");
+    cm.scrollIntoView({ line: range.fromLine, ch: 0 }, 100);
+  }
+
+  async function onPatchToolResult(detail, input) {
+    const path = detail?.path || input?.path;
+    if (!path) { st.pendingEditor = null; return; }
+
+    // Reload the file to show the patched content.
+    const opened = await openEditorForPath(path);
+    st.pendingEditor = { path, opened };
+    if (!opened) return;
+
+    // Wait for content load, then highlight the new_string.
+    await new Promise((r) => setTimeout(r, 200));
+    const cm = typeof codeEditorState !== "undefined" && codeEditorState.cm;
+    if (!cm) return;
+    clearPatchMarks();
+
+    // Find the new_string (from the original tool call input).
+    const pending = st.pendingEditor;
+    const newStr = input?.new_string || (pending?.patchInput?.new_string);
+    if (!newStr) return;
+    const range = findTextInEditor(cm, newStr);
+    if (!range) return;
+    patchMarks = highlightRange(cm, range.fromLine, range.toLine, "agent-patch-new");
+    cm.scrollIntoView({ line: range.fromLine, ch: 0 }, 100);
+
+    // Fade out the highlight after a few seconds.
+    setTimeout(() => {
+      clearPatchMarks();
+    }, 4000);
   }
 
   // ================================================================
@@ -210,6 +321,12 @@
 
   async function respondApproval(approved, row) {
     if (!st.sessionId) return;
+    // Clear any patch highlights immediately on approval/denial.
+    clearPatchMarks();
+    if (!approved) {
+      // On deny, close the editor since the patch won't be applied.
+      closeEditorOverlay();
+    }
     try {
       await api(`/api/agent/sessions/${st.sessionId}/approve`, {
         method: "POST",
@@ -363,12 +480,20 @@
       if (el) log.appendChild(el);
 
       // Side-effects — UI hopping
-      if (ev.kind === "tool_call" && (ev.data.name === "edit_file" || ev.data.name === "create_file")) {
+      const isEditTool = ev.data.name === "edit_file" || ev.data.name === "create_file";
+      if (ev.kind === "tool_call" && isEditTool) {
         onEditingToolCall(ev.data.name, ev.data.input).catch(() => {});
       }
-      if (ev.kind === "tool_result" && (ev.data.name === "edit_file" || ev.data.name === "create_file") && !ev.data.is_error) {
+      if (ev.kind === "tool_call" && ev.data.name === "patch_file") {
+        onPatchToolCall(ev.data.input).catch(() => {});
+      }
+      if (ev.kind === "tool_result" && isEditTool && !ev.data.is_error) {
         const orig = events.find((e) => e.kind === "tool_call" && e.data.id === ev.data.id);
         onEditingToolResult(ev.data.name, ev.data.detail, orig?.data?.input || {}).catch(() => {});
+      }
+      if (ev.kind === "tool_result" && ev.data.name === "patch_file" && !ev.data.is_error) {
+        const orig = events.find((e) => e.kind === "tool_call" && e.data.id === ev.data.id);
+        onPatchToolResult(ev.data.detail, orig?.data?.input || {}).catch(() => {});
       }
       if (ev.kind === "navigate") {
         handleNavigate(ev.data).catch(() => {});

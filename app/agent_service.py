@@ -904,6 +904,7 @@ def _dispatch(ctx: _Ctx, session: AgentSession, name: str, args: dict) -> tuple[
                 return {"error": f"VCD file not found: {p}"}, None
             vcd = vcd_parser.parse_vcd(str(p))
             sig_filter = args.get("signal_filter") or None
+            nav = f"waveform:{vcd_path}"
 
             window_center = args.get("window_center")
             if window_center is not None:
@@ -918,7 +919,7 @@ def _dispatch(ctx: _Ctx, session: AgentSession, name: str, args: dict) -> tuple[
                     "window_size": window_size,
                     "timescale": vcd.get("timescale", ""),
                     "changes": changes[:200],
-                }, None
+                }, nav
 
             times = args.get("times") or []
             if not times:
@@ -930,7 +931,7 @@ def _dispatch(ctx: _Ctx, session: AgentSession, name: str, args: dict) -> tuple[
                 "mode": "snapshot",
                 "timescale": vcd.get("timescale", ""),
                 "snapshots": snapshots,
-            }, None
+            }, nav
 
         if name == "finish":
             return {"acknowledged": True}, None
@@ -1341,6 +1342,16 @@ def _run_loop(session: AgentSession, ctx: _Ctx, api_key: str,
                             nav_data["vcd_path"] = result.get("vcd_path")
                             nav_data["testbench_path"] = tc["arguments"].get("testbench_path")
                             nav_data["verdict"] = result.get("verdict")
+                        elif tc["name"] == "read_waveform":
+                            nav_data["vcd_path"] = tc["arguments"].get("vcd_path")
+                            # Pass the time to jump to in the waveform viewer
+                            wc = tc["arguments"].get("window_center")
+                            ts = tc["arguments"].get("times")
+                            if wc is not None:
+                                nav_data["jump_time"] = int(wc)
+                            elif ts:
+                                nav_data["jump_time"] = int(ts[0])
+                            nav_data["signal_filter"] = tc["arguments"].get("signal_filter")
                         session.emit("navigate", nav_data)
 
                     payload = _truncate(json.dumps(result, default=str))
