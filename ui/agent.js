@@ -384,6 +384,8 @@
       }
       case "search_files":
         return `"${trunc(detail.pattern || "", 40)}" — ${detail.match_count || 0} match${detail.match_count === 1 ? "" : "es"}`;
+      case "note_to_self":
+        return `${detail.note_count || 0} note${(detail.note_count || 0) === 1 ? "" : "s"} saved`;
       case "finish":
         return detail.success ? `complete — ${trunc(detail.summary, 160)}` : `blocked — ${trunc(detail.summary, 160)}`;
       default:
@@ -435,6 +437,7 @@
         let hint = "";
         if (name === "get_module_info") hint = args.module_name || "";
         else if (name === "search_files") hint = `"${(args.pattern || "").slice(0, 50)}"`;
+        else if (name === "note_to_self") hint = trunc(args.note || "", 60);
         else if (name === "patch_file") hint = basename(args.path);
         else if (args.path) hint = basename(args.path);
         else if (args.testbench_path) hint = basename(args.testbench_path);

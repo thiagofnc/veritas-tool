@@ -38,8 +38,8 @@ SETTINGS_DIR = Path.home() / ".veritas"
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 
 DEFAULT_MAX_ITERATIONS = 15
-MAX_TOOL_RESULT_CHARS = 2500
-MAX_HISTORY_MESSAGES = 12
+MAX_TOOL_RESULT_CHARS = 6000
+MAX_HISTORY_MESSAGES = 24
 
 PROVIDER_PRESETS: dict[str, dict] = {
     "openai": {
@@ -191,6 +191,7 @@ class AgentSession:
     events: list[AgentEvent] = field(default_factory=list)
     stop_requested: bool = False
     messages: list[dict] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # persistent scratchpad (survives compaction)
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _seq: int = 0
     # Approval mechanism
@@ -509,6 +510,30 @@ _TOOLS: list[dict] = [
         },
     },
     {
+        "name": "note_to_self",
+        "description": (
+            "Save a short note to your persistent scratchpad. Notes survive "
+            "history compaction and are always visible in your system prompt. "
+            "Use this to record: findings from waveform analysis, root cause "
+            "hypotheses, what you already tried and why it failed, signal "
+            "values at key timestamps, or your plan for the next steps. "
+            "This prevents you from repeating failed approaches."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "note": {
+                    "type": "string",
+                    "description": (
+                        "The note to save. Be concise but specific — include signal names, "
+                        "timestamps, line numbers, what you tried, and what happened."
+                    ),
+                },
+            },
+            "required": ["note"],
+        },
+    },
+    {
         "name": "finish",
         "description": "End the session with a summary. Call when the goal is met or impossible.",
         "parameters": {
@@ -559,25 +584,111 @@ def _truncate(text: str, limit: int = MAX_TOOL_RESULT_CHARS) -> str:
     return f"{text[:half]}\n…[{len(text) - limit} chars truncated]…\n{text[-half:]}"
 
 
-def _content_text_len(content: Any) -> int:
-    if isinstance(content, str):
-        return len(content)
-    if isinstance(content, list):
-        total = 0
-        for item in content:
-            if isinstance(item, dict):
-                total += len(str(item.get("text", "")))
-                total += len(str(item.get("content", "")))
-                total += len(json.dumps(item.get("input") or {}, default=str))
-            else:
-                total += len(str(item))
-        return total
-    if content is None:
-        return 0
-    return len(str(content))
+
+def _summarize_omitted(omitted: list[dict]) -> str:
+    """Build a concise summary of compacted messages so the agent remembers
+    what tools were called, what edits were made, and what simulation
+    results came back — even after the raw messages are dropped."""
+    tool_calls: list[str] = []
+    edits: list[str] = []
+    sim_results: list[str] = []
+    assistant_snippets: list[str] = []
+
+    for msg in omitted:
+        role = msg.get("role", "")
+        content = msg.get("content")
+
+        # Extract assistant reasoning snippets
+        if role == "assistant":
+            text = ""
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                text = " ".join(
+                    b.get("text", "") for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                )
+            if text:
+                # Keep first 120 chars of each assistant message
+                assistant_snippets.append(text[:120].strip())
+
+        # Extract tool call names + results from both OpenAI and Anthropic formats
+        if role == "assistant":
+            # OpenAI format
+            for tc in msg.get("tool_calls", []):
+                fn = tc.get("function", {})
+                name = fn.get("name", "")
+                args_str = fn.get("arguments", "{}")
+                try:
+                    args = json.loads(args_str) if isinstance(args_str, str) else args_str
+                except Exception:
+                    args = {}
+                if name in ("edit_file", "patch_file", "create_file"):
+                    edits.append(f"{name}({args.get('path', '?')})")
+                elif name == "run_simulation":
+                    tool_calls.append(f"run_simulation({args.get('testbench_path', '?')})")
+                elif name != "note_to_self":
+                    hint = args.get("module_name") or args.get("path") or args.get("pattern") or ""
+                    tool_calls.append(f"{name}({str(hint)[:40]})")
+            # Anthropic format
+            if isinstance(content, list):
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "tool_use":
+                        name = b.get("name", "")
+                        args = b.get("input") or {}
+                        if name in ("edit_file", "patch_file", "create_file"):
+                            edits.append(f"{name}({args.get('path', '?')})")
+                        elif name == "run_simulation":
+                            tool_calls.append(f"run_simulation({args.get('testbench_path', '?')})")
+                        elif name != "note_to_self":
+                            hint = args.get("module_name") or args.get("path") or args.get("pattern") or ""
+                            tool_calls.append(f"{name}({str(hint)[:40]})")
+
+        # Extract simulation verdicts from tool results
+        if role == "tool" or (role == "user" and isinstance(content, list)):
+            items = content if isinstance(content, list) else [{"content": content}]
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                raw = item.get("content", "")
+                if isinstance(raw, str) and "verdict" in raw:
+                    try:
+                        data = json.loads(raw)
+                        v = data.get("verdict")
+                        pc = data.get("pass_count", 0)
+                        fc = data.get("fail_count", 0)
+                        tb = data.get("testbench", "?")
+                        if v:
+                            sim_results.append(
+                                f"{v.upper()} ({pc} pass, {fc} fail) — {tb}"
+                            )
+                    except Exception:
+                        pass
+
+    parts = [
+        f"Earlier conversation history was compacted ({len(omitted)} messages dropped).",
+        "Summary of what happened in the compacted portion:",
+    ]
+    if assistant_snippets:
+        parts.append(f"\nAgent reasoning (excerpts):")
+        for s in assistant_snippets[:6]:
+            parts.append(f"  - {s}")
+    if tool_calls:
+        parts.append(f"\nTools called: {', '.join(tool_calls[:15])}")
+    if edits:
+        parts.append(f"Files edited: {', '.join(edits[:10])}")
+    if sim_results:
+        parts.append(f"\nSimulation results:")
+        for sr in sim_results[:5]:
+            parts.append(f"  - {sr}")
+    parts.append(
+        "\nCheck your scratchpad notes (note_to_self) for findings from this period. "
+        "Re-read files if you need current source code."
+    )
+    return "\n".join(parts)
 
 
-def _prepare_messages_for_api(messages: list[dict], *, is_anthropic: bool) -> list[dict]:
+def _prepare_messages_for_api(messages: list[dict], **_kw: Any) -> list[dict]:
     """Trim older history to reduce repeated input-token load."""
     if len(messages) <= MAX_HISTORY_MESSAGES + 1:
         return messages
@@ -585,12 +696,7 @@ def _prepare_messages_for_api(messages: list[dict], *, is_anthropic: bool) -> li
     head = messages[:1]
     tail = messages[-MAX_HISTORY_MESSAGES:]
     omitted = messages[1:-MAX_HISTORY_MESSAGES]
-    omitted_chars = sum(_content_text_len(msg.get("content")) for msg in omitted)
-    note = (
-        f"Earlier conversation history was compacted to reduce token usage. "
-        f"Omitted {len(omitted)} prior messages totaling about {omitted_chars} characters. "
-        f"Use the remaining recent context and re-read files or rerun tools if older details are needed."
-    )
+    note = _summarize_omitted(omitted)
     return head + [{"role": "user", "content": note}] + tail
 
 
@@ -933,6 +1039,16 @@ def _dispatch(ctx: _Ctx, session: AgentSession, name: str, args: dict) -> tuple[
                 "snapshots": snapshots,
             }, nav
 
+        if name == "note_to_self":
+            note = str(args.get("note", "")).strip()
+            if not note:
+                return {"error": "note is required."}, None
+            # Cap at 20 notes to avoid unbounded growth.
+            if len(session.notes) >= 20:
+                session.notes.pop(0)
+            session.notes.append(note)
+            return {"saved": True, "note_count": len(session.notes)}, None
+
         if name == "finish":
             return {"acknowledged": True}, None
 
@@ -990,6 +1106,8 @@ def _tool_detail(name: str, args: dict, result: dict) -> dict:
             "pattern": result.get("pattern"),
             "match_count": result.get("match_count", 0),
         }
+    if name == "note_to_self":
+        return {"note_count": result.get("note_count", 0)}
     if name == "finish":
         return {"summary": str(args.get("summary", ""))[:240], "success": bool(args.get("success"))}
     return {}
@@ -1020,6 +1138,8 @@ def _short_summary(name: str, result: dict) -> str:
         return f"{result.get('name')}: {len(ports)} ports, {len(insts)} instances"
     if name == "search_files":
         return f"{result.get('match_count', 0)} matches for '{result.get('pattern', '')[:60]}'"
+    if name == "note_to_self":
+        return f"noted ({result.get('note_count', 0)} total)"
     if name == "finish":
         return "finish"
     return json.dumps(result, default=str)[:200]
@@ -1107,7 +1227,7 @@ def _call_openai(
     body: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "system", "content": system}] + messages,
-        "max_completion_tokens": 4096,
+        "max_completion_tokens": 16384,
     }
     if tools:
         body["tools"] = tools
@@ -1153,7 +1273,7 @@ def _call_anthropic(
         "model": model,
         "system": system,
         "messages": messages,
-        "max_tokens": 4096,
+        "max_tokens": 16384,
     }
     if tools:
         body["tools"] = tools
@@ -1186,8 +1306,9 @@ You can: create new modules, edit existing files, write testbenches, compile
 and run simulations (Icarus Verilog), inspect waveforms, and iterate until
 all tests pass.
 
-COMMUNICATION — Always briefly explain what you are about to do and why before
-calling tools. After a tool returns, summarize what you learned or what changed.
+══ COMMUNICATION ══
+Always briefly explain what you are about to do and why before calling tools.
+After a tool returns, summarize what you learned or what changed.
 The user is watching your progress in real time; keep them informed so they
 understand your reasoning. For example:
   "The testbench is failing at t=500. Let me check the waveform to see what
@@ -1196,35 +1317,84 @@ understand your reasoning. For example:
    use == 3 (0-indexed). I'll patch that line."
 Keep explanations short (1-3 sentences) — do not write essays.
 
-Rules:
-1. Orient first — call list_modules and get_module_info on key modules to
-   understand ports, signals, and submodule structure. Use search_files to
-   find where signals are driven or modules instantiated.
-2. Read before editing — call read_file to see current source.
-3. Prefer patch_file over edit_file for targeted changes. Use edit_file only
-   when rewriting most of a file. patch_file is cheaper and less error-prone.
-4. Write clean, synthesizable RTL. Testbenches should emit:
+══ WORKFLOW ══
+1. ORIENT — call list_modules and get_module_info on key modules to understand
+   ports, signals, and submodule structure. Use search_files to find where
+   signals are driven or modules instantiated.
+2. READ BEFORE EDITING — call read_file to see current source. Never edit
+   code you haven't read in this session.
+3. PREFER PATCH — use patch_file over edit_file for targeted changes. Use
+   edit_file only when rewriting most of a file. patch_file is cheaper and
+   less error-prone.
+4. CLEAN RTL — write synthesizable RTL. Testbenches should emit:
      $display("PASS [t=%0t] <label>")  or  $display("FAIL [t=%0t] <detail>").
    Include expected and actual values in FAIL messages, e.g.:
      $display("FAIL [t=%0t] data_out: got %h, expected %h", $time, data_out, expected);
-   When writing testbenches that have multiple test scenarios, support plusargs
-   so individual tests can be run:
+   When writing testbenches with multiple test scenarios, support plusargs:
      if ($test$plusargs("test_write")) begin ... end
-5. After edits, run_simulation. The verdict is ground truth. You can pass
-   plusargs (e.g. ["+test=fifo_write"]) to run a subset of tests.
-6. On failure, **diagnose before fixing**:
-   - The simulation result includes failure_waveform_snapshots — a snapshot of
-     ALL signal values at each failure timestamp. Study these to understand
-     the actual state of the design at the moment of failure.
-   - For deeper investigation, call read_waveform with specific timestamps or
-     a window_center to see signal transitions over time. Use signal_filter
-     to focus on relevant signals.
-   - Use search_files to trace signal drivers across the design if the issue
-     spans multiple modules.
-   - Identify the root cause from actual signal values before editing code.
-     Do not guess — let the waveform data guide your fix.
-7. Call finish when done or blocked.
+5. VERIFY — after every edit, run_simulation. The verdict is ground truth.
+   You can pass plusargs (e.g. ["+test=fifo_write"]) to run a subset of tests.
 
+══ DEBUGGING PROTOCOL (CRITICAL — follow these steps in order) ══
+When a simulation fails, you MUST follow this structured process.
+Do NOT jump straight to editing code.
+
+Step 1: RECORD — Use note_to_self to write down:
+  - Which tests failed and at what timestamps
+  - What the expected vs actual values were
+  - Your initial hypothesis about the root cause
+
+Step 2: INSPECT WAVEFORMS — Study the failure_waveform_snapshots in the
+  simulation result. These show ALL signal values at each failure timestamp.
+  For deeper investigation, call read_waveform with:
+  - window_center at the failure time to see signal transitions leading up
+    to the failure (not just the snapshot — the transitions matter)
+  - signal_filter to focus on relevant signals
+
+Step 3: TRACE THE ROOT CAUSE — Work backwards from the incorrect output:
+  - What signal has the wrong value?
+  - What drives that signal? (use search_files or get_module_info)
+  - When did it diverge from the expected value? (use read_waveform with
+    a window to see the transition history)
+  - For state machines: check current state, transition conditions, and
+    whether the state encoding matches the design intent
+  - For protocols (I2C, SPI, UART): check clock edges, bit ordering,
+    start/stop conditions, and acknowledge handling
+  - For timing: check setup/hold relative to clock edges, look for
+    signals changing on the wrong edge (posedge vs negedge)
+
+Step 4: NOTE YOUR DIAGNOSIS — Before editing, use note_to_self to record:
+  - The confirmed root cause (with specific signal names, line numbers, timestamps)
+  - The exact fix you plan to make and WHY it will work
+  This note protects you from forgetting your analysis if history gets compacted.
+
+Step 5: FIX — Make the targeted change with patch_file.
+
+Step 6: VERIFY — Run the simulation again. If it still fails:
+  - Do NOT retry the same fix or a slight variation. That approach failed.
+  - Go back to Step 2 with fresh waveform data from the new simulation.
+  - Use note_to_self to record: "Tried X, it did not work because Y"
+  - Consider whether your root cause hypothesis was wrong.
+
+══ ANTI-LOOPING RULES ══
+- Before making any edit, check your scratchpad notes. If you have already
+  tried a similar fix that failed, you MUST try a different approach.
+- If you have failed the same test 3+ times, STOP and reconsider from scratch:
+  re-read the module source, re-examine the testbench expectations, and
+  question your assumptions about how the design should work.
+- If you are stuck after 5+ iterations on the same issue, call finish with
+  success=false and explain what you tried, what you observed, and what you
+  think the remaining issue is. The user can then provide guidance.
+
+══ NOTE-TAKING ══
+Use note_to_self liberally. Your conversation history gets compacted over time,
+but your notes are ALWAYS visible in the system prompt. Good things to note:
+  - Signal values at key timestamps (e.g. "at t=350: sda=1, scl=0, state=ACK")
+  - Root cause findings (e.g. "bit_counter counts 0-7 but should count 0-8 for I2C")
+  - Failed approaches (e.g. "Tried changing posedge to negedge on line 45 — broke clock")
+  - Plan for next steps (e.g. "Need to fix ACK generation, then check NACK path")
+
+══ APPROVALS ══
 File write operations (create_file, edit_file, patch_file) require user approval.
 Do NOT ask the user for approval in normal assistant text.
 If you need to change a file, call the tool directly.
@@ -1275,9 +1445,21 @@ def _run_loop(session: AgentSession, ctx: _Ctx, api_key: str,
                         session.messages,
                         is_anthropic=is_anthropic,
                     )
+                    # Build dynamic system prompt with persistent notes
+                    system = SYSTEM_PROMPT
+                    if session.notes:
+                        notes_block = "\n".join(
+                            f"  {i+1}. {n}" for i, n in enumerate(session.notes)
+                        )
+                        system += (
+                            f"\n\n── YOUR SCRATCHPAD (persistent notes) ──\n"
+                            f"These are notes you saved earlier with note_to_self. "
+                            f"They survive history compaction. Use them to avoid "
+                            f"repeating failed approaches.\n{notes_block}"
+                        )
                     text, tool_calls = call_fn(
                         base_url=base_url, api_key=api_key, model=session.model,
-                        system=SYSTEM_PROMPT, messages=api_messages, tools=tools,
+                        system=system, messages=api_messages, tools=tools,
                     )
                 except Exception as exc:
                     session.status = "failed"
